@@ -33,14 +33,13 @@ jobs:
         id: v
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Make the release, or find the one there is
+      - name: Make the release, or find the one there is, and write its notes
         id: make
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.v.outputs.version }}
         run: |
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "LNP Lab ${TAG#v}" --notes-file - <<'NOTES'
+          cat > notes.md <<'NOTES'
           Download the file for your computer below.
 
           **macOS** (Apple Silicon and Intel, macOS 12 or later): the `.dmg`. Open it and drag LNP Lab to
@@ -52,6 +51,11 @@ jobs:
 
           Then press **Try the demo lab** on the first screen. What changed: CHANGELOG.md.
           NOTES
+          # The notes are written every run, so a release made by an earlier version of this workflow says the same.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "LNP Lab ${TAG#v}" --notes-file notes.md
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "LNP Lab ${TAG#v}" --notes-file notes.md
           fi
           echo "id=$(gh release view "$TAG" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
 
