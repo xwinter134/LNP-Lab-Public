@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LNP Lab",
+  "version": "0.15.0",
+  "identifier": "org.lnplab.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:8787",
+    "beforeDevCommand": "npm start",
+    "beforeBuildCommand": "npm run dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "LNP Lab",
+        "width": 1380,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
+    },
+    "category": "public.app-category.education",
+    "copyright": "LNP Lab"
+  }
+}

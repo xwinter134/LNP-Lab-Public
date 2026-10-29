@@ -1,0 +1,4 @@
+[
+  {"part": "D02-E100-05-N", "family": "MidiKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "FLL", "permeate": "FLL", "length_cm": 20, "fibers": 36, "surface_cm2": 115,
+   "notes": "One representative hollow-fiber module (Repligen MidiKros type). Add the modules your lab uses here."}
+]

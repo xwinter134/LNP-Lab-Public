@@ -1,0 +1,19 @@
+{
+  "name": "lnp-lab",
+  "version": "0.15.0",
+  "description": "LNP formulation planning, process design, evaluation and data management (local-first web app, macOS app later)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test",
+    "smoke": "node tests/smoke.mjs",
+    "scale": "node tests/usability/scale.mjs",
+    "campaign": "node tests/usability/campaign.mjs --seeds 5 --rounds 4",
+    "dist": "node scripts/dist.mjs",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

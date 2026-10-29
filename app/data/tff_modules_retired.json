@@ -1,0 +1,19 @@
+[
+  {"part": "C02-E100-05-N", "family": "MicroKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "MLL", "permeate": "FLL", "length_cm": 20, "fibers": 6, "surface_cm2": 20},
+  {"part": "C04-E100-05-N", "family": "MicroKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "MLL", "permeate": "FLL", "length_cm": 41.5, "fibers": 6, "surface_cm2": 40},
+  {"part": "C06-E100-05-N", "family": "MicroKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "MLL", "permeate": "FLL", "length_cm": 65, "fibers": 6, "surface_cm2": 60},
+  {"part": "T02-E100-05-N", "family": "MidiKros TC", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "1/2\" TC", "permeate": "FLL", "length_cm": 20, "fibers": 36, "surface_cm2": 115},
+  {"part": "D04-E100-05-N", "family": "MidiKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "FLL", "permeate": "FLL", "length_cm": 41.5, "fibers": 36, "surface_cm2": 235},
+  {"part": "T04-E100-05-N", "family": "MidiKros TC", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "1/2\" TC", "permeate": "FLL", "length_cm": 41.5, "fibers": 36, "surface_cm2": 235},
+  {"part": "D06-E100-05-N", "family": "MidiKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "FLL", "permeate": "FLL", "length_cm": 65, "fibers": 36, "surface_cm2": 370},
+  {"part": "T06-E100-05-N", "family": "MidiKros TC", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "1/2\" TC", "permeate": "FLL", "length_cm": 65, "fibers": 36, "surface_cm2": 370},
+  {"part": "S02-E100-05-N", "family": "MiniKros Sampler", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3/4\" TC", "permeate": "3/4\" TC", "length_cm": 20, "fibers": 250, "surface_cm2": 790},
+  {"part": "S04-E100-05-N", "family": "MiniKros Sampler", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3/4\" TC", "permeate": "3/4\" TC", "length_cm": 41.5, "fibers": 250, "surface_cm2": 1600},
+  {"part": "N02-E100-05-N", "family": "MiniKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "1.5\" TC", "permeate": "3/4\" TC", "length_cm": 20, "fibers": 830, "surface_cm2": 2600},
+  {"part": "S06-E100-05-N", "family": "MiniKros Sampler", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3/4\" TC", "permeate": "3/4\" TC", "length_cm": 65, "fibers": 250, "surface_cm2": 2600},
+  {"part": "N04-E100-05-N", "family": "MiniKros", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "1.5\" TC", "permeate": "3/4\" TC", "length_cm": 41.5, "fibers": 830, "surface_cm2": 5400},
+  {"part": "K02-E100-05-N", "family": "KrosFlo", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3\" TC", "permeate": "1.5\" TC", "length_cm": 20, "fibers": 4000, "surface_cm2": 12500},
+  {"part": "K04-E100-05-N", "family": "KrosFlo", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3\" TC", "permeate": "1.5\" TC", "length_cm": 41.5, "fibers": 4000, "surface_cm2": 26000},
+  {"part": "K06-E100-05-N", "family": "KrosFlo", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "3\" TC", "permeate": "1.5\" TC", "length_cm": 65, "fibers": 4000, "surface_cm2": 41000},
+  {"part": "X06-E100-05-N", "family": "KrosFlo Max", "mwco": "100 kD", "membrane": "mPES", "fiber_id": "0.5 mm", "inlet": "6\" TC", "permeate": "1.5\" TC", "length_cm": 68, "fibers": 12000, "surface_cm2": 128000}
+]

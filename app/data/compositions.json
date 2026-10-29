@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "synonym": "MC3 reference (Onpattro-like)",
+    "mol_pct": {
+      "MC3": 50.0,
+      "DSPC": 10.0,
+      "Chol": 38.5,
+      "DMG0PEG2000": 1.5
+    },
+    "sum": 100.0
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "generated_at": "2026-10-27",
+  "note": "Reference data shipped with the public edition. Lipids and compositions are published formulations; buffers are standard recipes from the literature. Nothing here comes from a particular laboratory.",
+  "sources": [
+    "Lipid molecular weights: supplier catalogues and PubChem",
+    "Compositions: published clinical and reference LNP formulations",
+    "Buffer systems and pKa values: CurTiPot (Gutz), USP"
+  ]
+}

@@ -1,0 +1,7 @@
+Sample,,Size [nm],PDI,EE / %,Total RNA (ng/µL),Comment,,
+E2-F1_final,,81.6,0.092,94.1,48.20,"diluted 1:40, measured twice",,
+"E2-F2_final",,88.3,0.121,91.7,47.90,"aggregates at 2 µm, filtered (0.45 µm)",,
+"E2-F3_final",,79.9,0.085,95.3,49.10,,,
+,,,,,,,,
+Mean,,83.27,0.099,93.70,48.40,,,
+Std Dev,,4.43,0.019,1.84,0.62,,,

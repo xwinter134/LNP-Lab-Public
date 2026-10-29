@@ -1,0 +1,26 @@
+{
+  "dialysis_cassettes": [
+    "2K G3 15 ml",
+    "2K G3 70 ml",
+    "10K G2 3-12 ml",
+    "10K G3 3-12 ml",
+    "10K G2 30-70 ml",
+    "10K G3 30-70 ml"
+  ],
+  "dialysis_devices": [
+    { "id": "cassette-10k-3-12", "name": "Dialysis cassette 10K, 3–12 mL", "kind": "cassette", "vendor": "e.g. Thermo Scientific Slide-A-Lyzer", "mwco_kDa": 10, "volume_min_mL": 3, "volume_max_mL": 12,
+      "notes": "The usual choice for a few millilitres of LNP going into storage buffer: float it in at least 200 volumes of buffer and change the buffer twice." },
+    { "id": "cassette-20k-0.5-3", "name": "Dialysis cassette 20K, 0.5–3 mL", "kind": "cassette", "vendor": "e.g. Thermo Scientific Slide-A-Lyzer", "mwco_kDa": 20, "volume_min_mL": 0.5, "volume_max_mL": 3,
+      "notes": "Small screening batches; the larger pores clear ethanol and free lipid a little faster." },
+    { "id": "float-100k-1-5", "name": "Dialysis float device 100K, 1–5 mL", "kind": "float device", "vendor": "e.g. Spectrum Float-A-Lyzer G2", "mwco_kDa": 100, "volume_min_mL": 1, "volume_max_mL": 5,
+      "notes": "A tube that floats upright in the buffer. 100 kD also clears free RNA fragments, at some risk of losing the smallest particles." }
+  ],
+  "filters": [
+    "None",
+    "SartoScale 25 Sartopore 2 0.2 µm (PES)",
+    "Minisart High Flow 0.2 µm (PES)",
+    "Minisart High Flow 0.45 µm (PES)",
+    "Minisart RC 25 mm 0.2 µm (RC)",
+    "Minisart RC 25 mm 0.45 µm (RC)"
+  ]
+}

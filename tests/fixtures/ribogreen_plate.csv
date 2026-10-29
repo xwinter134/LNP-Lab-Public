@@ -1,0 +1,27 @@
+Software Version,3.11.19
+Experiment File Path:,C:\Users\lab\RiboGreen\2026-10-27_E2.xpt
+Protocol File Path:,Quant-iT RiboGreen high range.prt
+Plate Number,Plate 1
+Date,10/27/2026
+Time,11:40:12 AM
+Reader Type:,Synergy H1
+Read,"Fluorescence Endpoint, 480/520"
+
+Well,Sample,Type,Total RNA (ng/µL),Free RNA (ng/µL),Fluor TE,Fluor Triton
+A1,Blank,Blank,0.00,0.00,212,230
+A2,Blank,Blank,0.00,0.00,208,226
+B1,Std 1,Standard,2.000,2.000,41250,41250
+B2,Std 2,Standard,1.000,1.000,20830,20830
+B3,Std 3,Standard,0.500,0.500,10510,10510
+B4,Std 4,Standard,0.100,0.100,2240,2240
+B5,STD,Standard,0.000,0.000,215,215
+B6,S6,Standard,0.050,0.050,1220,1220
+C1,E2-F1_final,Sample,98.40,4.10,1060,25420
+C2,E2-F1_final,Sample,97.10,3.90,1010,25090
+C3,E2-F1_final,Sample,99.20,4.30,1110,25630
+D1,E2-F2_final,Sample,96.50,7.80,2010,24930
+D2,E2-F2_final,Sample,95.90,8.10,2090,24780
+D3,E2-F2_final,Sample,97.00,7.60,1960,25060
+E1,E2-F3_final,Sample,101.30,3.20,830,26170
+E2,E2-F3_final,Sample,100.60,3.40,880,25990
+E3,E2-F3_final,Sample,OVRFLW,3.30,855,OVRFLW

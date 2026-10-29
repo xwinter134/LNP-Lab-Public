@@ -1,0 +1,18 @@
+[
+  { "key": "ALC315", "name": "ALC-0315", "mw": 766.27, "class": "ionizable" },
+  { "key": "SM102", "name": "SM-102", "mw": 710.19, "class": "ionizable" },
+  { "key": "MC3", "name": "DLin-MC3-DMA", "mw": 642.09, "class": "ionizable" },
+  { "key": "DODMA", "name": "DODMA", "mw": 614.52, "class": "ionizable" },
+  { "key": "DLinKC2DMA", "name": "DLin-KC2-DMA", "mw": 642.09, "class": "ionizable" },
+  { "key": "DOTAP", "name": "DOTAP (chloride)", "mw": 698.54, "class": "ionizable" },
+  { "key": "DSPC", "name": "DSPC", "mw": 790.15, "class": "helper" },
+  { "key": "DOPE", "name": "DOPE", "mw": 744.03, "class": "helper" },
+  { "key": "DOPC", "name": "DOPC", "mw": 786.11, "class": "helper" },
+  { "key": "POPC", "name": "POPC", "mw": 760.08, "class": "helper" },
+  { "key": "Chol", "name": "Cholesterol", "mw": 386.65, "class": "sterol" },
+  { "key": "Sitosterol", "name": "beta-Sitosterol", "mw": 414.71, "class": "sterol" },
+  { "key": "DMG0PEG2000", "name": "DMG-PEG2000", "mw": 2509.2, "class": "peg" },
+  { "key": "ALC159", "name": "ALC-0159", "mw": 2500.0, "class": "peg" },
+  { "key": "DSPE0PEG2000", "name": "DSPE-PEG2000", "mw": 2805.5, "class": "peg" },
+  { "key": "DMPE0PEG2000", "name": "DMPE-PEG2000", "mw": 2681.5, "class": "peg" }
+]

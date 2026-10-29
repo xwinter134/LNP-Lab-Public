@@ -1,0 +1,251 @@
+[
+  {
+    "name": "Acetic acid (glacial)",
+    "mw": 60.05,
+    "system": "Acetic acid",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "Sodium acetate, anhydrous",
+    "mw": 82.03,
+    "system": "Acetic acid",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "Sodium acetate trihydrate",
+    "mw": 136.08,
+    "system": "Acetic acid",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "Citric acid monohydrate",
+    "mw": 210.14,
+    "system": "Citric acid",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "Trisodium citrate dihydrate",
+    "mw": 294.1,
+    "system": "Citric acid",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 3
+      }
+    ]
+  },
+  {
+    "name": "Sodium dihydrogen phosphate monohydrate",
+    "mw": 137.99,
+    "system": "Phosphoric acid",
+    "form": "acid",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "Disodium hydrogen phosphate, anhydrous",
+    "mw": 141.96,
+    "system": "Phosphoric acid",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 2
+      }
+    ]
+  },
+  {
+    "name": "Disodium hydrogen phosphate dihydrate",
+    "mw": 177.99,
+    "system": "Phosphoric acid",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 2
+      }
+    ]
+  },
+  {
+    "name": "HEPES (free acid)",
+    "mw": 238.3,
+    "system": "HEPES",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "HEPES sodium salt",
+    "mw": 260.29,
+    "system": "HEPES",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "Tris base",
+    "mw": 121.14,
+    "system": "Tris(hydroxymethyl)- aminomethane (tris)",
+    "form": "base",
+    "counterIons": []
+  },
+  {
+    "name": "Tris hydrochloride",
+    "mw": 157.6,
+    "system": "Tris(hydroxymethyl)- aminomethane (tris)",
+    "form": "acid",
+    "counterIons": [
+      {
+        "z": -1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "MES (free acid)",
+    "mw": 195.24,
+    "system": "2-(N-morpholino)ethanesulfonic acid - MES",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "L-Histidine",
+    "mw": 155.15,
+    "system": "Histidine",
+    "form": "base",
+    "counterIons": []
+  },
+  {
+    "name": "Succinic acid",
+    "mw": 118.09,
+    "system": "Succinic acid",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "Sodium hydroxide (1 M)",
+    "mw": 40.0,
+    "titrant": true,
+    "z": 1
+  },
+  {
+    "name": "Hydrochloric acid (1 M)",
+    "mw": 36.46,
+    "titrant": true,
+    "z": -1
+  },
+  {
+    "name": "Sodium chloride",
+    "mw": 58.44,
+    "additive": true,
+    "ions": [
+      {
+        "z": 1,
+        "perMol": 1
+      },
+      {
+        "z": -1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "Sucrose",
+    "mw": 342.3,
+    "additive": true,
+    "ions": []
+  },
+  {
+    "name": "Pentasodium triphosphate (Na5P3O10)",
+    "mw": 367.86,
+    "system": "Triphosphate (3P)",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 5
+      }
+    ]
+  },
+  {
+    "name": "MOPS (free acid)",
+    "mw": 209.26,
+    "system": "MOPS",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "MOPS sodium salt",
+    "mw": 231.24,
+    "system": "MOPS",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 1
+      }
+    ]
+  },
+  {
+    "name": "PIPES (free acid)",
+    "mw": 302.37,
+    "system": "PIPES",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "PIPES disodium salt",
+    "mw": 346.33,
+    "system": "PIPES",
+    "form": "base",
+    "counterIons": [
+      {
+        "z": 1,
+        "perMol": 2
+      }
+    ]
+  },
+  {
+    "name": "TES (free acid)",
+    "mw": 229.25,
+    "system": "TES",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "Bicine",
+    "mw": 163.17,
+    "system": "Bicine",
+    "form": "acid",
+    "counterIons": []
+  },
+  {
+    "name": "Tricine",
+    "mw": 179.17,
+    "system": "Tricine",
+    "form": "acid",
+    "counterIons": []
+  }
+]

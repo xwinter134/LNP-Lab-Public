@@ -1,0 +1,24 @@
+{
+  "instruments": [
+    { "id": "pumps-3", "name": "Three-pump layout (lab default)", "vendor": "", "pumps": 3, "mixers": ["t-mixer", "ijm"], "quench": "inline",
+      "notes": "Aqueous (RNA) and lipid pumps into the mixer, a third pump adds the quench buffer after it. The layout every record in the app assumed before devices were listed." },
+    { "id": "nanoscaler", "name": "NanoScaler", "vendor": "KNAUER", "pumps": 3, "mixers": ["knauer-ijm-1", "knauer-ijm-2", "knauer-ijm-3", "knauer-ijm-4", "knauer-ijm-5", "ijm", "t-mixer"], "quench": "inline",
+      "notes": "HPLC-pump based system; impinging jet mixers in sizes IJM 1 to IJM 5, or a T-mixer, with an optional third pump for inline dilution." },
+    { "id": "ignite", "name": "NanoAssemblr Ignite", "vendor": "Cytiva (Precision NanoSystems)", "pumps": 2, "mixers": ["nxgen"], "quench": "none",
+      "notes": "Benchtop system with a disposable NxGen cartridge; aqueous and lipid phase from syringes, dilution done offline." },
+    { "id": "syringe", "name": "Syringe pumps", "vendor": "", "pumps": 2, "mixers": ["t-mixer", "herringbone", "flow-focusing"], "quench": "optional",
+      "notes": "Two syringe pumps into a T-mixer or a microfluidic chip; a third syringe or an offline dilution as quench." }
+  ],
+  "mixers": [
+    { "id": "t-mixer", "name": "T-mixer", "kind": "T-mixer", "inlets": 2, "notes": "Two opposed or perpendicular inlets meeting in one outlet; turbulent mixing at high flow." },
+    { "id": "ijm", "name": "Impinging jet mixer (IJM)", "kind": "IJM", "inlets": 2, "notes": "Two jets collide head-on in a small chamber; mixing time set by the jet velocity. A generic entry, kept for records made before the KNAUER sizes were listed." },
+    { "id": "knauer-ijm-1", "name": "KNAUER IJM 1", "kind": "IJM", "vendor": "KNAUER", "size": 1, "inlets": 2, "notes": "Impinging jet mixer for the NanoScaler, size 1 of 5 (the smallest). The sizes increase from IJM 1 to IJM 5. Enter the chamber and jet diameters and the flow range from the KNAUER datasheet; they are not filled in here." },
+    { "id": "knauer-ijm-2", "name": "KNAUER IJM 2", "kind": "IJM", "vendor": "KNAUER", "size": 2, "inlets": 2, "notes": "Impinging jet mixer for the NanoScaler, size 2 of 5. The sizes increase from IJM 1 to IJM 5. Enter the chamber and jet diameters and the flow range from the KNAUER datasheet; they are not filled in here." },
+    { "id": "knauer-ijm-3", "name": "KNAUER IJM 3", "kind": "IJM", "vendor": "KNAUER", "size": 3, "inlets": 2, "notes": "Impinging jet mixer for the NanoScaler, size 3 of 5. The sizes increase from IJM 1 to IJM 5. Enter the chamber and jet diameters and the flow range from the KNAUER datasheet; they are not filled in here." },
+    { "id": "knauer-ijm-4", "name": "KNAUER IJM 4", "kind": "IJM", "vendor": "KNAUER", "size": 4, "inlets": 2, "notes": "Impinging jet mixer for the NanoScaler, size 4 of 5. The sizes increase from IJM 1 to IJM 5. Enter the chamber and jet diameters and the flow range from the KNAUER datasheet; they are not filled in here." },
+    { "id": "knauer-ijm-5", "name": "KNAUER IJM 5", "kind": "IJM", "vendor": "KNAUER", "size": 5, "inlets": 2, "notes": "Impinging jet mixer for the NanoScaler, size 5 of 5 (the largest). The sizes increase from IJM 1 to IJM 5. Enter the chamber and jet diameters and the flow range from the KNAUER datasheet; they are not filled in here." },
+    { "id": "nxgen", "name": "NxGen cartridge", "kind": "Microfluidic chip", "inlets": 2, "notes": "Disposable cartridge with toroidal (bifurcating) mixing elements." },
+    { "id": "herringbone", "name": "Staggered herringbone chip", "kind": "Microfluidic chip", "inlets": 2, "notes": "Chaotic advection over grooved channel walls; laminar flow, mixing within milliseconds." },
+    { "id": "flow-focusing", "name": "Hydrodynamic flow-focusing chip", "kind": "Microfluidic chip", "inlets": 3, "notes": "The lipid stream is focused between two aqueous sheath streams; mixing by diffusion across a narrow sheet." }
+  ]
+}
