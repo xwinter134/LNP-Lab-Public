@@ -143,7 +143,7 @@ const fmtNum = (x) => (x >= 100 ? Math.round(x).toString() : x >= 10 ? x.toFixed
 
 function storageMeter(ctx) {
   const u = ctx.store.usage();
-  const where = { sqlite: 'the app\'s database file, lnp-lab.db in ~/Library/Application Support/org.lnplab.app/', indexeddb: 'this browser\'s database (IndexedDB)', localStorage: 'this browser\'s localStorage, which holds about 5 MB, because its database could not be opened', memory: 'memory only: nothing is kept after this window closes', none: 'nowhere: this browser is not letting the page store anything' }[ctx.store.engine] || ctx.store.engine;
+  const where = { sqlite: `the app's database file, lnp-lab.db in ${/Windows/.test(globalThis.navigator?.userAgent || '') ? '%APPDATA%\\org.lnplab.app\\' : '~/Library/Application Support/org.lnplab.app/'}`, indexeddb: 'this browser\'s database (IndexedDB)', localStorage: 'this browser\'s localStorage, which holds about 5 MB, because its database could not be opened', memory: 'memory only: nothing is kept after this window closes', none: 'nowhere: this browser is not letting the page store anything' }[ctx.store.engine] || ctx.store.engine;
   const last = lastExport(ctx);
   return `<div id="storageMeter">
     <p id="storageVerdict"><b>${esc(verdict(ctx, null))}</b></p>

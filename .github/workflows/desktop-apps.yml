@@ -1,0 +1,121 @@
+# Builds the desktop apps on GitHub's runners and publishes them as one release, so nobody has to compile them:
+#   - macOS: LNP Lab.app in a .dmg, for Apple Silicon and Intel Macs (universal);
+#   - Windows: an installer (.exe, NSIS) for Windows 10 and 11, 64-bit.
+#
+# To publish a new version: Actions › "Build the desktop apps" › Run workflow. The release is named after the
+# version in package.json (v0.15.0 …); running it again for the same version replaces that release's files.
+# The release is made first, by one job, and the two builds add their files to it; two builds each making the
+# release at the same moment would race.
+#
+# Signing: without secrets, the Mac app is signed ad hoc (macOS asks once on first opening: right-click › Open)
+# and the Windows installer is not signed (SmartScreen asks once: More info › Run anyway). With an Apple
+# Developer ID, set these repository secrets and the Mac app is signed and notarised instead:
+#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID
+name: Build the desktop apps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.make.outputs.id }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Make the release, or find the one there is
+        id: make
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.v.outputs.version }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "LNP Lab ${TAG#v}" --notes-file - <<'NOTES'
+          Download the file for your computer below.
+
+          **macOS** (Apple Silicon and Intel, macOS 12 or later): the `.dmg`. Open it and drag LNP Lab to
+          Applications. The first time, right-click LNP Lab in Applications, choose Open, then Open again.
+
+          **Windows** (10 and 11, 64-bit): the `_x64-setup.exe`. Run it; it installs for your user, no administrator
+          rights needed. If Windows SmartScreen says it protected your PC: More info, then Run anyway. That is needed
+          once.
+
+          Then press **Try the demo lab** on the first screen. What changed: CHANGELOG.md.
+          NOTES
+          fi
+          echo "id=$(gh release view "$TAG" --json databaseId --jq .databaseId)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            rust-targets: x86_64-pc-windows-msvc
+            args: --bundles nsis
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install the build tool
+        run: npm ci --no-audit --no-fund
+
+      # Once is enough, the code being the same for both; the tests also take their fixture paths the Unix way.
+      - name: Check the app before building it
+        if: runner.os == 'macOS'
+        run: npm test
+
+      # A secret that is not set reaches a step as an empty variable, and the bundler would try to sign with it;
+      # so only the ones that are set are passed on, and without them the Mac app is signed ad hoc (tauri.conf.json).
+      - name: Apple signing, if set up
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            v="${!k}"
+            if [ -n "$v" ]; then
+              { echo "$k<<__END__"; echo "$v"; echo "__END__"; } >> "$GITHUB_ENV"
+            fi
+          done
+
+      - name: Build and add to the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.release.outputs.id }}
+          args: ${{ matrix.args }}

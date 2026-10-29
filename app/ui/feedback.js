@@ -53,14 +53,14 @@ function feedbackText(kind, { screen = '', title = '', version = '', app = false
   return `${k.ask}
 ---
 **Where:** ${title || screen || 'unknown'}${screen ? ` (\`#/${screen}\`)` : ''}
-**Version:** LNP Lab v${version || '?'} (${app ? 'macOS app' : 'browser'})
+**Version:** LNP Lab v${version || '?'} (${app ? 'desktop app' : 'browser'})
 **Browser:** ${browserName(ua)}
 
 <!-- Nothing from your lab is attached. A screenshot helps; leave out anything confidential. -->
 `;
 }
 
-/** Open an address outside the app: the system browser from the macOS app, a new tab in a browser. */
+/** Open an address outside the app: the system browser from the desktop app, a new tab in a browser. */
 export function openExternal(url) {
   if (!url) return null;
   const opener = globalThis.__TAURI__?.opener;

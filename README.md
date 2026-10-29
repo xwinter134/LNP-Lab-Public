@@ -2,7 +2,7 @@
 
 Local-first tool for LNP formulation planning, process design, evaluation and data management.
 Plain HTML and ES modules, no build step: it runs in any modern browser from a small local server, and the same files
-can be built into a macOS app with Tauri (optional, see `docs/MACOS.md`). Single user; your records stay on your
+are built into a desktop app for macOS and Windows with Tauri (see Get it, below, and `docs/MACOS.md`). Single user; your records stay on your
 computer.
 
 - **Feedback:** the 💬 Feedback button at the foot of the sidebar (or under Settings) opens a pre-filled issue on
@@ -16,10 +16,14 @@ computer.
 
 ## Get it
 
-- **macOS app:** download the `.dmg` from [Releases](https://github.com/xwinter134/LNP-Lab-Public/releases), open
-  it and drag LNP Lab to Applications. The first time, right-click the app › **Open** › **Open** (it is not
-  notarised by Apple). Then press **Try the demo lab** on the first screen.
-- **In the browser** (any system): see Run, below.
+Download from [Releases](https://github.com/xwinter134/LNP-Lab-Public/releases/latest), then press **Try the demo
+lab** on the first screen.
+
+- **macOS** (Apple Silicon and Intel): the `.dmg`. Open it and drag LNP Lab to Applications. The first time,
+  right-click the app › **Open** › **Open** (it is not notarised by Apple).
+- **Windows 10 and 11** (64-bit): the `_x64-setup.exe`. It installs for your user, no administrator rights needed.
+  If SmartScreen says it protected your PC: **More info** › **Run anyway** (the installer is not code-signed).
+- **In the browser** (any system, Linux too): see Run, below.
 
 ## Run
 
