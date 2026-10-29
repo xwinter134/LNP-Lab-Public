@@ -14,6 +14,13 @@ computer.
 
 ![Overview](docs/screenshots/overview.png)
 
+## Get it
+
+- **macOS app:** download the `.dmg` from [Releases](https://github.com/xwinter134/LNP-Lab-Public/releases), open
+  it and drag LNP Lab to Applications. The first time, right-click the app › **Open** › **Open** (it is not
+  notarised by Apple). Then press **Try the demo lab** on the first screen.
+- **In the browser** (any system): see Run, below.
+
 ## Run
 
 Needs [Node.js](https://nodejs.org) (the LTS build) and nothing else; there is nothing to install.

@@ -181,14 +181,17 @@ export async function render(el, ctx) {
       ${kpi('Active experiments', active.length, active.slice(0, 2).map((e) => describeId(e.id) + ' ' + (TYPES.find((t) => t.id === e.type)?.name.split(' ')[0] || '')).join(' · '))}
     </div>
     ${latestCard(measurements, settings.qc)}
-    ${empty ? `<div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
+    ${empty ? `<div class="card" id="tryDemo" style="border-color:var(--accent)"><h2>New here? Look around the demo lab first</h2>
+      <p style="margin:0 0 10px">An invented lab with seven experiments and about 40 formulations with results: a reference set, an N/P scan, two designs, a composition screen, a stability study and one experiment still to run. It is kept apart from your own records, which stay empty until you start, and the switch at the foot of the sidebar turns it off again.</p>
+      <button class="primary" id="tryDemoBtn">Try the demo lab</button></div>
+    <div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
       <li><a href="#/advisor">Say what you are trying to find out</a> and the planner will name a design — or <a href="#/designs">browse the catalogue</a> if you already know.</li>
       <li><a href="#/experiments?new=1">Set the experiment up</a>: it creates the formulations, the measurements they are due, their sample names and the calendar entries.</li>
       <li><a href="#/stocks?new=1">Weigh out a lipid stock</a> and <a href="#/buffers?new=1">make up the buffers</a> the runs need.</li>
       <li>Work through each <a href="#/formulation">formulation record</a> at the bench, then <a href="#/measurements">import the instrument export</a>.</li>
       <li>Read the fit and its diagnostics on <a href="#/doe">Design &amp; results</a>, and let the <a href="#/ml">optimizer</a> propose the next round.</li></ol>
       <p class="muted" style="margin-top:8px">Every term in the app carries a <button type="button" class="learn" disabled>?</button> that explains it in a paragraph, with the numbers worth knowing and the mistake that costs a batch. They are all collected under <a href="#/learn">Reference</a>.</p>
-      <p class="muted">Data stays in this browser until you export it (Settings). Toggle "Show advanced options" in the sidebar for the detailed fields.</p></div>` : ''}
+      <p class="muted">Data stays on this computer until you export it (Settings).</p></div>` : ''}
     <div class="grid g2">
       <div class="card"><h2>Due today</h2>${table(['Item', ''], dueToday.map((e) => ({ cells: [raw(`<span class="chip ${e.kind === 'batch' ? 'ok' : e.kind === 'measurement' ? 'info' : ''}">${e.kind}</span> ${e.title}`), raw(`<a href="${e.link || '#/calendar'}">Open</a>`)] })), { empty: 'Nothing due today.' })}
         ${overdue.length ? `<p class="muted"><a href="#/calendar">${overdue.length} overdue on the calendar</a></p>` : ''}</div>
@@ -202,6 +205,8 @@ export async function render(el, ctx) {
     <div class="card"><div style="display:flex;align-items:center;gap:10px"><h2 style="flex:1">Recent formulations</h2><a href="#/formulation">All formulations</a></div>
       ${table(['Formulation', 'Experiment', 'What it is', 'Planned', 'Z-ave / PDI', 'EE %', 'Zeta', 'Status'], recent.map((b) => { const d = latest(b.id, 'dls'), e = latest(b.id, 'ee'), z = latest(b.id, 'zeta'); return { cells: [raw(`<a href="#/formulation?batch=${b.id}"><b>${b.id}</b></a>`), raw(`<a href="#/experiments?id=${b.experimentId}">${b.experimentId}</a>`), b.label, fmtDate(b.plannedDate), d ? `${fmt(d.values.zave_nm, 1)} / ${fmt(d.values.pdi, 2)}` : '–', e ? fmt(e.values.ee_pct, 1) : '–', z ? fmt(z.values.zeta_mV, 1) : '–', raw(chip(b.status, b.status === 'planned' ? '' : b.status === 'produced' ? 'info' : 'ok'))] }; }), { empty: 'Nothing made yet.' })}</div>`;
   wireFigures(el);
+  // The demo's own switch does the rest (main.js): another namespace, seeded on its first start.
+  el.querySelector('#tryDemoBtn')?.addEventListener('click', () => document.getElementById('demoToggle')?.click());
   el.querySelectorAll('[data-hide-orphans]').forEach((b) => b.addEventListener('click', () => { hiddenSet(ctx, b.dataset.hideOrphans); render(el, ctx); }));
   // Redrawn once the export is on record: in the macOS app that is after the save dialog, and a redraw straight
   // away still found no backup and kept the reminder up. Only while the reminder is still on screen, so never

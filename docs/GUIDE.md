@@ -6,8 +6,7 @@ those results say. It runs in your web browser on your own computer. Nothing is 
 your data.
 
 This guide follows a working week: set up on the first day, plan, make, measure, read the results, then let the
-optimizer propose the next round. Every picture comes from the app's demo lab or from an empty lab, with
-**Show advanced options** switched on. Screens change a little from version to version. If a button here has moved,
+optimizer propose the next round. Every picture comes from the app's demo lab or from an empty lab. Screens change a little from version to version. If a button here has moved,
 look for its name on the screen.
 
 **Contents**
@@ -65,9 +64,8 @@ Do not open `index.html` by double-clicking it. Browsers block the app when it i
 - Every `?` next to a term opens a short explanation: what it is, the numbers worth knowing, and the mistake that
   costs a batch. **Reference** in the sidebar lists all of them.
 
-**Simple or advanced.** The switch **Show advanced options** at the foot of the sidebar adds the detailed fields:
-flow rates and FRR in the experiment wizard, custom stability timepoints, editable mol% on a stock, the full pKa
-database for buffers, and a few rarely needed buttons. Switch it on when you need a field you cannot find.
+**One view.** Every field shows; there is no simple or advanced switch any more (0.15). What is rarely needed folds
+under one line where it sits, such as the DoE wizard's randomisation seed and plate wells.
 
 **Light or dark.** **Auto** follows your computer; **Light** and **Dark** fix it.
 
@@ -133,7 +131,7 @@ cancels). Each lipid class has a colour and a letter, the same on every screen: 
 sterol, PEG). Under **Add lipid lot**:
 
 1. Choose the lipid, type the **Lot number**, the **Supplier** and the **Purity %**.
-2. Add **Received** and **Expiry** dates; with advanced options, the purity method and a link or path to the CoA.
+2. Add **Received** and **Expiry** dates, the purity method and a link or path to the CoA.
 3. Press **Add lot**.
 
 **+ lot** on a lipid's row adds a lot to that lipid directly. Click a lot to correct its number, supplier, purity,
@@ -142,7 +140,7 @@ stock was weighed from cannot be deleted.
 
 The lot is then offered on the stock weigh-in, so each stock records which lots went into it. The purity is
 recorded, not corrected for: the weigh-in is grams = mmol × molecular weight, and the HPLC lipid content of the
-stock is the check. A lipid that is not on the list can be added under **Add lipid** (advanced options): a key
+stock is the check. A lipid that is not on the list can be added under **Add lipid**: a key
 without spaces, a name, the class and the molecular weight.
 
 **Compositions.** The registry of recipes by number. **#1** is the MC3 reference (DLin-MC3-DMA / DSPC /
@@ -178,7 +176,7 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
 
 1. Open **Lipid stocks** and press **New stock**.
 2. Choose the **Composition**, the **Total lipid** concentration (mM) and the **Volume** (mL). Date and operator are
-   filled in; with advanced options you also see the container, the filtration and the expiry date.
+   filled in, with the container, the filtration and the expiry date.
 3. Each lipid has a card with the mass to weigh, in grams, large: mmol × molecular weight, with no correction for
    purity. Under it, choose the lot you are weighing from; the latest lot registered for that lipid is chosen for
    you.
@@ -200,9 +198,9 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
   comes out right; the molar ratio is what a large deviation changes.
 - "no lot recorded" on a card means no lot of that lipid is registered under **Materials & lots**. Register the
   lots first if you want the stock to say which ones it was made from.
-- **Mass fractions (for HPLC lipid content)**, with advanced options, gives each lipid's share by weight, for
+- **Mass fractions (for HPLC lipid content)** gives each lipid's share by weight, for
   checking the stock by HPLC.
-- With advanced options the mol% on each card can be changed, and **Add lipid row** adds a lipid. A stock with a
+- The mol% on each card can be changed, and **Add lipid row** adds a lipid. A stock with a
   changed recipe is saved with that recipe.
 - The overview warns when a stock is within 7 days of its expiry.
 
@@ -216,7 +214,7 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
 3. Set the **Volume**, and any **NaCl** or **Sucrose**.
 4. **Prepare with** chooses the reagents; **Recommended** uses an acid and its salt where both are known.
 5. The **Recipe** gives grams of each reagent, then three steps: dissolve in about 80 % of the volume, make up to
-   volume, check the pH. Below are the predicted pH, ionic strength and buffer capacity, and, with advanced options,
+   volume, check the pH. Below are the predicted pH, ionic strength and buffer capacity, and
    the speciation at that pH.
 6. Under **Record**, check the name, date and who prepared it, and tick the roles the buffer will play:
    **loading**, **quench**, **dialysis**, **formulation**.
@@ -230,7 +228,7 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
   the pH and record any adjustment in the notes.
 - The roles decide where a lot is offered: a **loading** buffer appears as the RNA dilution buffer on the bench
   record, a **quench** buffer for pump 3, and so on.
-- With advanced options you can add a second buffer component (for example triphosphate with HEPES).
+- You can add a second buffer component (for example triphosphate with HEPES).
 
 ## 7. Planning an experiment
 
@@ -267,8 +265,7 @@ sample names to use on the instrument, and the calendar entries.
 1. Open **Experiments** and press **New experiment** (or **+ New experiment** on the overview).
 2. Choose the type.
 3. Fill in the form. Common to every type: a **Name**, the **Start** date (day 0, the production day), the
-   **Composition**, the **Lipid stock lot** and **RNA lot** (or "choose later"), and the **RNA per batch** (mg). With
-   advanced options: the RNA working concentration, FRR, quench factor, total flow, lipid stock molarity and how many
+   **Composition**, the **Lipid stock lot** and **RNA lot** (or "choose later"), and the **RNA per batch** (mg), the RNA working concentration, FRR, quench factor, total flow, lipid stock molarity and how many
    formulations you make per day. Tick the **Measurements per batch** (DLS, zeta, EE, RNA content, potency).
 4. Read **What will be created**: the number of formulations and their dates, the expected measurements, the
    measurement days, and an example sample name.
@@ -299,7 +296,7 @@ every arm has two or more batches, the Results card tests the arms against each 
 
 1. Add each formulation to follow (**+ Add formulation**, one composition each).
 2. Tick the **Storage conditions** (4 °C, 25 °C, −20 °C, 37 °C, RT).
-3. Set the **Duration** and **Every n days**, or (advanced) type your own **Custom timepoints**, which override the
+3. Set the **Duration** and **Every n days**, or type your own **Custom timepoints**, which override the
    interval.
 4. Choose the timepoints for potency and the tests to run at each timepoint.
 5. The line **Timepoints:** lists what will be created. Check it before you press **Create experiment**.
@@ -368,7 +365,7 @@ record: everything the app can work out is shown as a target, beside a field for
    volume. Hover over a number to see what it was worked out from. A tile without a number says what it is waiting
    for ("choose an RNA lot").
 2. Under **Inputs**, choose the lipid stock lot and the RNA lot (or type the RNA stock concentration), and check the
-   RNA input, the working concentration, the buffers, FRR, quench factor and total flow. With advanced options, a
+   RNA input, the working concentration, the buffers, FRR, quench factor and total flow. A
    **N/P target** sets the lipid volume from N/P instead of FRR.
 3. Work through the steps. Each folds to one line with its state and key numbers; the one the batch is at opens:
    - **Step 1 · RNA dilution**
@@ -770,7 +767,7 @@ trash, and the counters that keep numbers from being given out twice.
 **What is not in it**
 
 - **Your instrument files.** Only their names and fingerprints are kept; keep the files yourself.
-- **This browser's preferences:** simple or advanced view, light or dark, the folded sidebar list, reminders.
+- **This browser's preferences:** light or dark, the folded sidebar list, reminders.
 - **The other lab.** An export from your own lab does not contain the demo lab, and an export made in demo mode
   contains only the demo lab.
 - **The reference data that ships with the app** (the 16 lipids, the reference composition, the buffer catalogue,
@@ -806,7 +803,7 @@ recent one.
   so at the top of every screen; press **Use this window instead** to make your changes there, and the first one
   then only shows them. Closing a window hands the changes to the one left open. Your own lab and the demo are
   separate: a window on each changes its own.
-- **Delete all data in this browser** (Settings, advanced options) erases the lab you are in, after two questions.
+- **Delete all data in this browser** (Settings) erases the lab you are in, after two questions.
   In demo mode it erases only the demo lab.
 
 If the browser cannot store a change (the disk is full, or the browser blocks storage in a private window), a note

@@ -1,0 +1,83 @@
+# Builds the macOS app (LNP Lab.app in a .dmg, for Apple Silicon and Intel Macs) on GitHub's Mac runners and
+# publishes it as a release, so nobody has to compile it themselves.
+#
+# To publish a new version: Actions › "Build the macOS app" › Run workflow. The release is named after the
+# version in package.json (v0.15.0 …); running it again for the same version replaces that release's files.
+#
+# Signing: without Apple secrets the app is signed ad hoc, and macOS asks once on first opening (right-click ›
+# Open). With a Developer ID, set these repository secrets and the app is signed and notarised instead:
+#   APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_PASSWORD (app-specific), APPLE_TEAM_ID
+name: Build the macOS app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install the build tool
+        run: npm ci --no-audit --no-fund
+
+      - name: Check the app before building it
+        run: npm test
+
+      - name: Read the version
+        id: v
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # A secret that is not set reaches a step as an empty variable, and the bundler would try to sign with it;
+      # so only the ones that are set are passed on, and without them the app is signed ad hoc (tauri.conf.json).
+      - name: Apple signing, if set up
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for k in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            v="${!k}"
+            if [ -n "$v" ]; then
+              { echo "$k<<__END__"; echo "$v"; echo "__END__"; } >> "$GITHUB_ENV"
+            fi
+          done
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v${{ steps.v.outputs.version }}
+          releaseName: LNP Lab ${{ steps.v.outputs.version }}
+          releaseBody: |
+            The macOS app, for Apple Silicon and Intel Macs (macOS 12 or later). Download the .dmg below, open it and
+            drag LNP Lab to Applications.
+
+            If macOS says the app cannot be checked for malicious software: right-click LNP Lab in Applications,
+            choose Open, then Open again. That is needed once.
+
+            Try the demo lab from the first screen. What changed: CHANGELOG.md.
+          releaseDraft: false
+          prerelease: false
+          args: --target universal-apple-darwin
