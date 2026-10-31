@@ -16,6 +16,8 @@
 // from. The origin is what an import is deduplicated by (file hash plus row, spec 6.5).
 import { VARIABLES, VARIABLE_BY_KEY, checkVariable } from './variables.js';
 import { dataRows, completeness } from './facets.js';
+import { LIMITS, checkValues } from './qc.js';
+import { GRID_COLUMNS } from './gridentry.js';
 
 /** RFC 4180 CSV, with ; or , as separator (whichever the header uses), and a decimal comma read as a point. */
 export function parseCsv(text) {
@@ -47,14 +49,52 @@ export const num = (v) => { if (v == null || v === '') return null; if (typeof v
 
 export const EXPERIMENT_TYPES = ['single', 'reference', 'comparison', 'ofat', 'doe', 'stability'];
 
-/** The tests a measurement row may name, with each value's sense limits. */
-export const TESTS = {
-  dls: { zave_nm: [10, 5000], pdi: [0, 1], zave_sd: [0, 2000], countRate_kcps: [0, 1e6] },
-  zeta: { zeta_mV: [-200, 200] },
-  ee: { ee_pct: [0, 100], total_mg_mL: [0, 20], free_mg_mL: [0, 20] },
-  content: { total_mg_mL: [0, 20] },
-  ph: { ph: [0, 14] }, osmolality: { mOsm_kg: [0, 3000] }, endotoxin: { eu_mL: [0, 1e5] },
-};
+/**
+ * The tests a measurement row may name, and the value columns of each, with their sense limits: {test: {key:
+ * [min, max]}} (null where a field has no limit). Not a list of its own (spec 6.1/6.2: "app and import never run
+ * apart"): the fields and limits are the app's, the ones a result typed into the Measurements screen is checked
+ * by (app/calc/qc.js LIMITS, checkValues), plus the further fields the results grid stores per test
+ * (app/calc/gridentry.js GRID_COLUMNS: the count rate, and the SD of replicates under its `spread` key). So a
+ * value the app would refuse is refused here, and a value it takes is taken, with the same words.
+ */
+export const TESTS = (() => {
+  const out = {};
+  for (const [test, rules] of Object.entries(LIMITS)) out[test] = Object.fromEntries(rules.map((r) => [r.key, [r.min ?? null, r.max ?? null]]));
+  for (const c of GRID_COLUMNS) {
+    out[c.test] ||= {};
+    if (!(c.key in out[c.test])) out[c.test][c.key] = [null, null];
+    if (c.spread && !(c.spread in out[c.test])) out[c.test][c.spread] = [0, null];
+  }
+  return out;
+})();
+const VALUE_LABEL = Object.fromEntries([...Object.values(LIMITS).flat().map((r) => [r.key, r.label]), ...GRID_COLUMNS.map((c) => [c.key, c.label])]);
+const SPREAD_KEYS = new Set(GRID_COLUMNS.map((c) => c.spread).filter(Boolean));
+
+/**
+ * One measurement row's values checked as the app checks a result: {values, problems, warnings}. A problem refuses
+ * the row; a warning (a probable unit slip, checkValues' second list) is kept on the result as a flag, as the app
+ * shows it beside a typed one. The app's own sentence is used ("PDI 8.5 is outside 0–1"), with "probably a typing
+ * slip" said of a PDI over 1, which can only be one, and the app's guess at what was meant in brackets.
+ */
+export function checkMeasurementValues(test, row) {
+  const values = {}, problems = [];
+  for (const k of Object.keys(TESTS[test] || {})) {
+    const v = num(row[k]);
+    if (v == null) continue;
+    if (Number.isNaN(v)) problems.push(`${VALUE_LABEL[k] || k} "${row[k]}" is not a number`);
+    else values[k] = v;
+  }
+  const { errors, warnings } = checkValues(test, values);
+  for (const e of errors) {
+    const [base, meant] = e.text.split(/\s+\u2014\s+/);
+    const slip = e.key === 'pdi' && values.pdi > 1 ? ', probably a typing slip' : '';
+    problems.push(`${base}${slip}${meant ? ` (${meant})` : ''}`);
+    delete values[e.key];
+  }
+  // The SD of replicates is worked out by the app, never typed there; imported, it cannot be negative.
+  for (const k of Object.keys(values)) if (SPREAD_KEYS.has(k) && values[k] < 0) { problems.push(`${k} ${values[k]} cannot be negative`); delete values[k]; }
+  return { values, problems, warnings: warnings.map((w) => w.text.replace(/\s+\u2014\s+/, ': ')) };
+}
 
 /** The plan's numbers a formulation row may carry: [column, low, high, label, unit]. */
 export const PLAN_COLUMNS = [
@@ -69,6 +109,8 @@ export const PROCESS_COLS = VARIABLES.filter((v) => v.kind !== 'derived').map((v
  * unit, options, lo, hi, note}]}. Built from the same constants the check uses, so it cannot describe a
  * different import from the one that runs.
  */
+const unitOf = (key) => (Object.values(LIMITS).flat().find((r) => r.key === key) || GRID_COLUMNS.find((c) => c.key === key))?.unit || undefined;
+
 export function tidySchema() {
   const req = (key, note = '') => ({ key, required: true, kind: 'text', note });
   const txt = (key, note = '') => ({ key, required: false, kind: 'text', note });
@@ -86,8 +128,10 @@ export function tidySchema() {
     { key: 'stage', required: false, kind: 'text', note: 'final (default), or an in-process stage such as IPC4' },
     { key: 'date', required: false, kind: 'date' }, txt('operator'), txt('replicate', 'number the replicates of one test and stage'), txt('notes'),
     txt('condition', 'for stability pulls, e.g. 4C'), { key: 'timepoint_days', required: false, kind: 'number', unit: 'days' },
-    ...Object.entries(TESTS).flatMap(([test, vals]) => Object.entries(vals).map(([key, [lo, hi]]) => ({ key, required: false, kind: 'number', lo, hi, note: `for ${test}` })))
-      .filter((f, i, a) => a.findIndex((g) => g.key === f.key) === i),
+    // One column per value key; a key two tests share (total_mg_mL: EE's total RNA and the total lipid of
+    // lipid_content) is listed once, naming both.
+    ...Object.entries(TESTS).flatMap(([test, vals]) => Object.entries(vals).map(([key, [lo, hi]]) => ({ key, required: false, kind: 'number', lo: lo ?? undefined, hi: hi ?? undefined, unit: unitOf(key), note: `for ${test}` })))
+      .reduce((acc, f) => { const g = acc.find((x) => x.key === f.key); if (g) g.note += `, ${f.note.slice(4)}`; else acc.push(f); return acc; }, []),
     txt('source_file'), txt('sheet'),
   ];
   const experiments = [req('exp_key', 'your own name for it, unique; the app gives it an E number'), txt('name'), { key: 'type', required: false, kind: 'category', options: EXPERIMENT_TYPES }, { key: 'date', required: false, kind: 'date' }, txt('notes')];
@@ -302,13 +346,7 @@ export function checkTidy(tables, ref = {}, opts = {}) {
     if (!b) { refuse(T, r, `no formulation ${r.exp_key}/${r.form_key} (or it was refused itself)`); continue; }
     const test = String(r.test || '').toLowerCase();
     if (!TESTS[test]) { refuse(T, r, `test "${r.test}" is not one of ${Object.keys(TESTS).join(', ')}`); continue; }
-    const values = {}, problems = [];
-    for (const [k, [lo, hi]] of Object.entries(TESTS[test])) {
-      const v = num(r[k]); if (v == null) continue;
-      if (!Number.isFinite(v)) problems.push(`${k} "${r[k]}" is not a number`);
-      else if (v < lo || v > hi) problems.push(`${k} ${v} is outside ${lo}–${hi}${k === 'pdi' && v > 1 ? ', probably a typing slip' : ''}`);
-      else values[k] = v;
-    }
+    const { values, problems, warnings } = checkMeasurementValues(test, r);
     if (!Object.keys(values).length && !problems.length) problems.push(`no value for ${test} (columns: ${Object.keys(TESTS[test]).join(', ')})`);
     const stage = r.stage || 'final';
     const dup = `${b.id}|${test}|${stage}|${r.timepoint_days || ''}|${r.condition || ''}|${r.replicate || ''}`;
@@ -320,7 +358,7 @@ export function checkTidy(tables, ref = {}, opts = {}) {
     const p = prov(T, r);
     measurements.push({ id: `${importId}-m${(ref.measurementStart || 0) + measurements.length + 1}`, batchId: b.id, experimentId: b.experimentId, stage, test, values, date: r.date || b.plannedDate, operator: r.operator || '',
       sampleName: sample, remarks: r.notes || '', raw: r.source_file ? { fileName: r.source_file } : null, condition: r.condition || undefined, timepoint: r.timepoint_days ? num(r.timepoint_days) : undefined,
-      flags: [], provenance: { ...p, ...(r.source_file && !r.__origin ? { file: { name: r.source_file } } : {}), ...(r.sheet && !r.__origin ? { sheet: r.sheet } : {}) } });
+      flags: warnings.map((text) => ({ level: 'warn', text })), provenance: { ...p, ...(r.source_file && !r.__origin ? { file: { name: r.source_file } } : {}), ...(r.sheet && !r.__origin ? { sheet: r.sheet } : {}) } });
   }
 
   // A mixer named in the sheet stays on the formulation's conditions; the lab's mixer records (Materials ›

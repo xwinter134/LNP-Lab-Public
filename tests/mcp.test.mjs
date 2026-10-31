@@ -50,7 +50,7 @@ test('dry run, approval token, commit, list, rollback into the trash, and restor
   assert.deepEqual(dr.report.counts.measurements, { read: 9, importable: 7, refused: 2, duplicates: 0 });
   assert.deepEqual(dr.newExperiments.map((e) => e.id), ['E2', 'E3'], 'numbered after the lab');
   assert.ok(dr.quarantine.some((q) => /Lipid-X/.test(q.reason)));
-  assert.ok(dr.quarantine.some((q) => /pdi 8\.5 is outside 0–1, probably a typing slip/.test(q.reason)));
+  assert.ok(dr.quarantine.some((q) => /PDI 8\.5 is outside 0–1, probably a typing slip/.test(q.reason)));
   assert.equal(dr.report.completeness.find((c) => c.key === 'frr').share, 100, 'the completeness matrix of the Data overview');
   assert.match(dr.markdown, /\| Formulations \| 6 \| 5 \| 1 \| 0 \|/);
   assert.match(dr.approvalToken, /^[0-9a-f]{32}$/);
