@@ -240,6 +240,26 @@ a simulated lab whose optimum is known. Thirty campaigns of an eight-run start p
 simulated lab that is nearly quadratic. Gains flatten after about 20 runs, and the model's pick (the run made whose
 predicted score is highest) beats the single best measurement in every mode.
 
+**Against 0.15.** The next stage (0.16) changed the noise prior, the speed of the fit and the interval reported
+with a run, and added the selection, the lipid modes and the fingerprint around the same core. On the campaign
+lab, 15 seeds, an eight-run start plus four rounds of four (`node tests/usability/campaign.mjs --seeds 15
+--rounds 4`), at 24 runs:
+
+| | 0.15 | 0.16 |
+|---|---|---|
+| Run a person would pick, median true score | 0.919 | 0.922 |
+| Model's pick, median | 0.931 | 0.930 |
+| Model's optimum, median | 0.923 | 0.933 |
+| Within 95 % of the true optimum | 10 of 15 | 10 of 15 |
+| Campaigns told to stop before round 4 | 4 of 15 | 4 of 15 |
+| Suggested runs inside the 95 % interval stored with them | 78 % (562 of 720) | 97 % (699 of 720) |
+
+The runs a person and the model would take forward are as good as they were; the predicted optimum moved up a
+little with the new noise prior; and the intervals now hold what they promise (85 % with the new noise prior
+alone, 97 % with the cross-validated calibration, `model.js`, `intervalScale`). The history
+replay (`npm run history`, `docs/history-benchmark.md`) is on the simulated lab until a finished campaign of
+the lab's own is available.
+
 ## When to stop
 
 The same campaigns calibrate the sentence that opens the results (`app/calc/ml/stopping.js`, `roundVerdict`). It
