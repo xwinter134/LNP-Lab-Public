@@ -144,11 +144,14 @@ const PALETTE = SERIES;
 /** Round axis numbers (the calc module's, which charts on this screen share). */
 function ticks(lo, hi, n = 5) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
-  if (lo === hi) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
+  if (lo > hi) [lo, hi] = [hi, lo];
+  // A span too small for the numbers' own precision (two points a rounding apart) is widened like a single
+  // value: a step below it never moves v on, and the loop used to fill memory until "Invalid array length".
+  if (hi - lo <= Math.max(Math.abs(lo), Math.abs(hi)) * 1e-9) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
   const raw = (hi - lo) / n, p = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw) || raw;
   const out = [];
-  for (let v = Math.floor(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Number(v.toPrecision(10)));
+  for (let v = Math.floor(lo / step) * step; v <= hi + step * 1e-9 && out.length < 50; v += step) out.push(Number(v.toPrecision(10)));
   if (out[out.length - 1] < hi) out.push(Number((out[out.length - 1] + step).toPrecision(10)));
   return out;
 }
