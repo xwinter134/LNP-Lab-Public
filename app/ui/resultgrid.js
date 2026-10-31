@@ -265,5 +265,5 @@ function storedCell(m, c) {
   const dp = c.key === 'pdi' ? 3 : c.key === 'rna_mg_mL' || c.key === 'total_mg_mL' ? 3 : 1;
   const shown = x == null ? '–' : fmt(x, dp);
   const flagged = (m.flags || []).length;
-  return `<a class="gstored${flagged ? ' flagged' : ''}" href="#/measurements?id=${esc(m.id)}" title="Stored ${esc(fmtDate(m.date))}${flagged ? ' · ' + esc(m.flags.join(', ')) : ''} — open to correct it">${shown}</a>`;
+  return `<a class="gstored${flagged ? ' flagged' : ''}" href="#/measurements?id=${esc(m.id)}" title="Stored ${esc(fmtDate(m.date))}${flagged ? ' · ' + esc(m.flags.join(', ')) : ''}, open to correct it">${shown}</a>`;
 }

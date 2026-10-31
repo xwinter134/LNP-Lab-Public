@@ -80,7 +80,7 @@ function createBox(ctx) {
     pop.innerHTML = res.groups.length
       ? res.groups.map((g) => `<div class="sr-group" role="presentation" data-kind="${g.kind}"><div class="sr-head">${esc(g.label)}${g.more ? `<span>${g.items.length + g.more}</span>` : ''}</div>`
         + g.items.map((h) => `<a class="sr-item" role="option" aria-selected="false" id="sr-${i}" data-i="${i++}" data-kind="${h.kind}" data-id="${esc(h.id)}" href="${esc(hitHref(h))}"><span class="sr-title${h.kind === 'sample' ? ' sr-mono' : ''}">${esc(h.title)}</span>${h.sub ? `<span class="sr-sub">${esc(h.sub)}</span>` : ''}</a>`).join('')
-        + (g.more ? `<div class="sr-more">and ${g.more} more — type more of the name to narrow it down</div>` : '') + '</div>').join('')
+        + (g.more ? `<div class="sr-more">and ${g.more} more, type more of the name to narrow it down</div>` : '') + '</div>').join('')
         + '<div class="sr-keys">↑ ↓ to move · Enter to open · Esc to close</div>'
       : `<div class="sr-empty">Nothing found for “${esc(q)}”. Try an id (E3-F2, Stock-001), a sample name (E6-F1_4C_T07) or part of a name.</div>`;
     pop.hidden = false; input.setAttribute('aria-expanded', 'true');

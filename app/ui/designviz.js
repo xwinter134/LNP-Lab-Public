@@ -299,7 +299,7 @@ function ternaryPlot(mol, types, names, bounds, total, size, pseudo) {
     const r = st.r + (g.n > 1 ? Math.min(3.4, 1.1 * Math.log2(g.n + 1)) : 0);
     const real = pseudo ? g.p.map((v, i) => lows[i] + v * R) : g.p.map((v) => v * total);
     const tip = real.map((v, i) => `${names[i]} ${(Math.round(v * 10) / 10)}`).join(', ');
-    return `<circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="${r.toFixed(1)}" fill="${st.fill}" stroke="${st.stroke === 'none' ? 'var(--card, #fff)' : st.stroke}" stroke-width="${st.stroke === 'none' ? 0.9 : 1.6}"><title>${esc(tip)} mol%${g.n > 1 ? ` — ${g.n} runs` : ''}</title></circle>`;
+    return `<circle cx="${X(p).toFixed(1)}" cy="${Y(p).toFixed(1)}" r="${r.toFixed(1)}" fill="${st.fill}" stroke="${st.stroke === 'none' ? 'var(--card, #fff)' : st.stroke}" stroke-width="${st.stroke === 'none' ? 0.9 : 1.6}"><title>${esc(tip)} mol%${g.n > 1 ? `, ${g.n} runs` : ''}</title></circle>`;
   }).join('');
 
   return svgWrap(w, h, grid + region + frame + labels + dots,
@@ -358,7 +358,7 @@ export function blendCaption(q, byType, o = {}) {
     ? (o.pseudo === false
       ? 'The triangle is every possible blend of the three lipids; each corner is one lipid alone. The dashed outline is the region your mol% bounds leave, and the design sits inside it.'
       : 'The triangle is the room your lower bounds leave, not the whole simplex: each corner is the blend with one lipid as high as those bounds allow, written underneath it. Drawn any other way an LNP blend is a speck in an empty triangle. The dashed outline is where the upper bounds cut the region further.')
-    : `One axis per lipid, scaled to its own mol% range, and one line per run. ${q} lipids have ${q - 1} degrees of freedom, so no single picture is the design space — this shows which parts of each range were used.`;
+    : `One axis per lipid, scaled to its own mol% range, and one line per run. ${q} lipids have ${q - 1} degrees of freedom, so no single picture is the design space, this shows which parts of each range were used.`;
   const dup = o.crossed ? ' A larger dot is one blend made at several process settings.' : '';
   return `${form}${parts.length ? ` This design places ${parts.join(', ')}.` : ''}${dup}`;
 }

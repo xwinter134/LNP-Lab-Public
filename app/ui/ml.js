@@ -764,7 +764,7 @@ function driversFold(report, state) {
     for (const x of top) { if (out.length === 2 || (out.length && sum >= 0.6)) break; out.push(x); sum += x.share; }
     return `${esc(r.label || r.name)} mostly ${out.map((x) => `${esc(shortName(x))} (${pct(x.share)})`).join(' and ')}`;
   };
-  const say = `${withModel.map(lead).join(' · ')} — associations in your runs, not causes`;
+  const say = `${withModel.map(lead).join(' · ')}, associations in your runs, not causes`;
   const blocks = withModel.map((r) => {
     const max = Math.max(...r.importance.map((x) => x.importance), 1e-9);
     // When the surface has reverted to its prior the lengthscales are noise, so the column that reads them
@@ -809,7 +809,7 @@ function pdPlot(report, r, dim) {
     <line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" class="ax"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="ax"/>
     ${obs.map((v) => `<line x1="${sx((v - f.lo) / (f.hi - f.lo)).toFixed(1)}" y1="${H - B}" x2="${sx((v - f.lo) / (f.hi - f.lo)).toFixed(1)}" y2="${H - B - 6}" class="mn" opacity=".6"/>`).join('')}
     <text x="${L}" y="${H - 6}" class="lb">${atStep(f.lo, f)}</text><text x="${W - R}" y="${H - 6}" class="lb" text-anchor="end">${atStep(f.hi, f)}</text>
-    <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">${esc(f.name)}${f.unit ? ` (${esc(f.unit)})` : ''} — ticks mark the settings you have run</text>
+    <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">${esc(f.name)}${f.unit ? ` (${esc(f.unit)})` : ''}, ticks mark the settings you have run</text>
     <text x="${L - 6}" y="${sy(hi) + 4}" class="lb" text-anchor="end">${sigfig(hi, 3, { maxDp: 3 })}</text><text x="${L - 6}" y="${sy(lo) + 4}" class="lb" text-anchor="end">${sigfig(lo, 3, { maxDp: 3 })}</text></svg>`;
 }
 
@@ -840,7 +840,7 @@ function progressFold(report, state) {
       ${p.points.map((q, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(q.D).toFixed(1)}" r="${q.suggested ? 4.5 : 3}" fill="${q.suggested ? 'var(--c-ml)' : 'var(--ink2)'}" opacity="${q.improved ? 1 : 0.45}"><title>${esc(q.batchId)}: score ${fmt(q.D, 3)}${q.suggested ? ' (suggested)' : ''}</title></circle>`).join('')}
       <line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" class="ax"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="ax"/>
       <text x="${L - 6}" y="${sy(1) + 4}" class="lb" text-anchor="end">1.0</text><text x="${L - 6}" y="${sy(0) + 4}" class="lb" text-anchor="end">0</text>
-      <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">runs in order — the line is the best score so far, filled dots are runs the optimizer proposed</text></svg>
+      <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">runs in order, the line is the best score so far, filled dots are runs the optimizer proposed</text></svg>
     <p class="muted">${esc(verdictLine)}</p>` });
 }
 

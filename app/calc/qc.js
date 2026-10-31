@@ -76,7 +76,7 @@ function refuse(rule, x, guess = true) {
   else if (rule.max != null && x > rule.max) why = rule.minOpen ? `is above ${rule.max}${u}` : `is outside ${range}`;
   if (!why) return null;
   const m = guess ? meant(rule, x) : null;
-  return `${rule.label} ${show(x)}${u} ${why}${m != null && m !== x ? ` — did you mean ${m}?` : ''}`;
+  return `${rule.label} ${show(x)}${u} ${why}${m != null && m !== x ? `, did you mean ${m}?` : ''}`;
 }
 
 // An EE that arrives with its total and free RNA was worked out from them, not typed, so there is no slip of
@@ -106,13 +106,13 @@ export function checkValues(test, values) {
   }
   if (test === 'ee') {
     const { ee_pct: ee, total_mg_mL: total, free_mg_mL: free } = values;
-    if (ee > 0 && ee <= 1) warnings.push({ key: 'ee_pct', text: `EE ${show(ee)} % looks like a fraction — was it ${show(ee * 100)} %?` });
+    if (ee > 0 && ee <= 1) warnings.push({ key: 'ee_pct', text: `EE ${show(ee)} % looks like a fraction, was it ${show(ee * 100)} %?` });
     if (total > 0 && free != null && free > total) warnings.push({ key: 'free_mg_mL', text: `Free RNA ${show(free)} is above total RNA ${show(total)} mg/mL` });
   }
   // An LNP prep carries well under 10 mg/mL of RNA, so a number that size was almost certainly read in µg/mL.
   for (const key of test === 'ee' ? ['total_mg_mL', 'free_mg_mL'] : test === 'content' ? ['rna_mg_mL'] : []) {
     const x = values[key];
-    if (Number.isFinite(x) && x > 10) warnings.push({ key, text: `${CONC_LABEL[key]} ${show(x)} mg/mL is more than an LNP carries — was it µg/mL (${show(x / 1000)} mg/mL)?` });
+    if (Number.isFinite(x) && x > 10) warnings.push({ key, text: `${CONC_LABEL[key]} ${show(x)} mg/mL is more than an LNP carries, was it µg/mL (${show(x / 1000)} mg/mL)?` });
   }
   return { errors, warnings };
 }

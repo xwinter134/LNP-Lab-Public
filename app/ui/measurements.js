@@ -143,7 +143,7 @@ export async function render(el, ctx) {
     // stays for what a grid cell cannot hold (potency with its cell line, remarks, a file reference).
     (settings.entryGrid ? entryCard(ctx, settings, experiments, batches, stored) : '') +
     manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today) +
-    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${r.sampleName}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">—</option>${openSlots.map((s) => `<option value="${s.id}">${s.sampleName} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
+    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${r.sampleName}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">–</option>${openSlots.map((s) => `<option value="${s.id}">${s.sampleName} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
     resultsCard(measurements, experiments, filters, filterBatch, added);
   // The "?" marks in the title. wireLearn guards against wiring the same element twice.
   wireLearn(el);
@@ -307,7 +307,7 @@ export async function render(el, ctx) {
       const b = order.map((t) => r.per[t]?.match).find((m) => m?.batchId);
       if (b) return `${chip(b.batchId, 'info')} <span class="muted">batch, no open slot</span>`;
       const pick = guess?.row === r ? guess.name : '';
-      return `<select data-target="${i}"><option value="">— choose or inbox —</option><option value="__ignore">ignore (blank)</option>
+      return `<select data-target="${i}"><option value="">Choose, or inbox</option><option value="__ignore">ignore (blank)</option>
         ${missing.length ? `<optgroup label="Missing from this file">${missing.map((x) => opt(x.sampleName, pick)).join('')}</optgroup>` : ''}
         ${otherOpen.length ? `<optgroup label="${missing.length ? 'Other open samples' : 'Open samples'}">${otherOpen.map((n) => opt(n, pick)).join('')}</optgroup>` : ''}</select>${pick ? ' <span class="muted onlyLeft">only one left</span>' : ''}`;
     };
@@ -529,7 +529,7 @@ function historyHtml(m) {
   if (!h.length) return '';
   const lines = h.map((x, i) => {
     const was = describeCorrection(m.test, x.values || {}, h[i + 1]?.values || m.values || {});
-    return `<li>Corrected ${esc(fmtDate(x.at))}${x.by ? ` by ${esc(x.by)}` : ''}: ${esc(x.reason)}${was ? ` — was ${esc(was)}` : ''}</li>`;
+    return `<li>Corrected ${esc(fmtDate(x.at))}${x.by ? ` by ${esc(x.by)}` : ''}: ${esc(x.reason)}${was ? `, was ${esc(was)}` : ''}</li>`;
   }).reverse();
   return `<div id="resultHistory"><h3>Corrections</h3><ul class="history">${lines.join('')}</ul></div>`;
 }
@@ -668,7 +668,7 @@ function dueCard(ctx, settings, lines, w, openSlots, today) {
     // Nothing within the week, so the first open slot (they are sorted by due date) is the next thing.
     const n = openSlots[0], exp = w?.choices.find((c) => c.id === n.experimentId)?.exp;
     const count = vials(openSlots.filter((s) => s.experimentId === n.experimentId && s.stage === n.stage && s.dueDate === n.dueDate)).length;
-    body = `<p style="margin:0">Nothing is due in the next ${DUE_AHEAD} days. Next: <a href="#/experiments?id=${encodeURIComponent(n.experimentId)}">${esc(n.experimentId)}</a>${exp?.name ? ` · ${esc(exp.name)}` : ''} — ${esc(n.stage)}, ${plural(count, 'sample')}, due ${esc(dayLabel(n.dueDate))} (in ${plural(daysBetween(today, n.dueDate), 'day')}).</p>`;
+    body = `<p style="margin:0">Nothing is due in the next ${DUE_AHEAD} days. Next: <a href="#/experiments?id=${encodeURIComponent(n.experimentId)}">${esc(n.experimentId)}</a>${exp?.name ? ` · ${esc(exp.name)}` : ''}, ${esc(n.stage)}, ${plural(count, 'sample')}, due ${esc(dayLabel(n.dueDate))} (in ${plural(daysBetween(today, n.dueDate), 'day')}).</p>`;
   } else {
     // The line whose grid is open below is marked, so the grid reads as that line's and not the experiment's.
     const open = ctx.params.grid && w?.scope ? `${w.scope.due}|${w.want.id}|${w.scope.stage}` : '';
@@ -730,9 +730,9 @@ function dueLineHtml(l, i, today, hide, on = false) {
   const gridable = l.rows.some((r) => r.tests.some((t) => GRID_FIELDS[t]));
   const dates = l.first === l.last ? fmtDate(l.first) : `${fmtDate(l.first)} to ${fmtDate(l.last)}`;
   return `<div class="dueLine${on ? ' on' : ''}" data-line="${i}"${on ? ' aria-current="true"' : ''}${hide && !on ? ' hidden' : ''}>
-    <span class="dueWhat"><a href="#/experiments?id=${encodeURIComponent(l.experimentId)}">${esc(l.experimentId)}</a>${l.exp?.name ? ` · ${esc(l.exp.name)}` : ''} — ${esc(l.stage)},
+    <span class="dueWhat"><a href="#/experiments?id=${encodeURIComponent(l.experimentId)}">${esc(l.experimentId)}</a>${l.exp?.name ? ` · ${esc(l.exp.name)}` : ''}, ${esc(l.stage)},
       <button type="button" class="dueN" data-due-names="${i}" aria-expanded="false" title="Show the sample names">${plural(l.rows.length, 'sample')}</button>
-      (${esc(l.tests.map((t) => TEST_LABEL[t] || t).join(', '))}) — <span class="dueWhen ${l.bucket}" title="Due ${esc(dates)}">${esc(dueWhen(l, today))}</span></span>
+      (${esc(l.tests.map((t) => TEST_LABEL[t] || t).join(', '))}), <span class="dueWhen ${l.bucket}" title="Due ${esc(dates)}">${esc(dueWhen(l, today))}</span></span>
     <span class="dueActs"><button type="button" data-due-copy="${i}" title="Copy these sample names, one per line, for the instrument's sample list">Copy names</button><button type="button" data-due-sheet="${i}" title="A CSV with these sample names and a column for every test still due">Blank sheet</button>${gridable ? `<button type="button" data-due-grid="${i}" title="Type these results in as a grid">Grid</button>` : ''}</span>
     <div class="dueNames" data-due-list="${i}" hidden>${l.rows.map((r) => `<code>${esc(r.sampleName)}</code>`).join(' ')}</div></div>`;
 }
@@ -865,10 +865,10 @@ function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today)
   }).join('');
   return `<div class="card" id="manualCard"><div id="manualForm">
     <div class="foldLine"><h2>Type one result</h2>
-      <select id="slotId" name="slotId" aria-label="Expected measurement (sorted by due date)"><option value="">— choose the sample, or free entry —</option>${groups}</select>
+      <select id="slotId" name="slotId" aria-label="Expected measurement (sorted by due date)"><option value="">Choose the sample, or free entry</option>${groups}</select>
       <button type="button" id="manualFree"${open ? ' hidden' : ''}>Free entry</button></div>
     <div id="manualBody"${open ? '' : ' hidden'}><div class="grid g4" style="margin-top:12px">
-      ${field({ id: 'batchId', label: 'Formulation (free entry)', type: 'select', value: filterBatch, options: [{ value: '', label: '—' }, ...batches.map((b) => ({ value: b.id, label: `${b.id} (${b.experimentId})` }))] })}
+      ${field({ id: 'batchId', label: 'Formulation (free entry)', type: 'select', value: filterBatch, options: [{ value: '', label: '–' }, ...batches.map((b) => ({ value: b.id, label: `${b.id} (${b.experimentId})` }))] })}
       ${field({ id: 'stage', label: 'Stage / timepoint', type: 'text', value: 'final', placeholder: 'final, IPC4, T7 …' })}
       ${field({ id: 'test', label: 'Test', type: 'select', value: ctx.params.test || 'dls', options: TESTS.map((t) => ({ value: t.id, label: t.name })).concat([{ value: 'endotoxin', label: 'Endotoxin' }]) })}
       </div><div id="testFields" class="grid g4" style="margin-top:10px"></div>

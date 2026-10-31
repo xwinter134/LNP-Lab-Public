@@ -79,7 +79,7 @@ export function getRef(ctx) {
 export function lipidLabel(ref, key) { const l = ref.lipidByKey[key]; return l ? l.name : key; }
 export function compositionLabel(c, ref) {
   const parts = Object.entries(c.mol_pct).map(([k, v]) => `${lipidLabel(ref, k)} ${v}`).join(' / ');
-  return `#${c.id}${c.synonym ? ' ' + c.synonym : ''} — ${parts}`;
+  return `#${c.id}${c.synonym ? ' ' + c.synonym : ''}, ${parts}`;
 }
 
 /** Latest lot (by received date) with a purity for a lipid key, if the user recorded any; an archived one is not offered. */

@@ -883,7 +883,7 @@ export async function manualEntryRefusesImpossible({ page, open }) {
   await page.fill('input[name=v_pdi]', '5');
   await page.click('#saveManual');
   await page.waitForTimeout(250);
-  await expectText(page, '#manualCheck', /Not saved[\s\S]*PDI 5 is outside 0–1 — did you mean 0\.05\?/, 'the refusal says why');
+  await expectText(page, '#manualCheck', /Not saved[\s\S]*PDI 5 is outside 0–1, did you mean 0\.05\?/, 'the refusal says why');
   if (!(await page.locator('input[name=v_pdi].invalid').count())) throw new Error('the PDI field is not marked');
   if ((await storedMeasurements(page)).length !== before) throw new Error('an impossible PDI was stored');
   if (await slotStatus(page, sampleName, 'dls') !== 'open') throw new Error('the slot was closed by a refused result');
@@ -1018,7 +1018,7 @@ export async function bulkBenchActions({ page, open }) {
   await page.waitForTimeout(150);
   await page.click('#createExp'); await page.waitForTimeout(400);
   const id = await latestOfType(page, 'reference');
-  await expectText(page, '#nextStep', /Next step: make the formulations — 3 planned/, 'a new experiment says what to do next');
+  await expectText(page, '#nextStep', /Next step: make the formulations, 3 planned/, 'a new experiment says what to do next');
   await expectText(page, '#expStage', /planned/, 'and its progress chip starts at planned');
   const forms = async () => (await readCol(page, 'batches')).filter((b) => b.experimentId === id);
 
@@ -1037,7 +1037,7 @@ export async function bulkBenchActions({ page, open }) {
   await page.click('#markAllProduced'); await page.waitForTimeout(250);
   fs = await forms();
   if (fs.length !== 3 || !fs.every((b) => b.status === 'produced')) throw new Error(`Mark all produced left: ${fs.map((b) => b.status).join(', ')}`);
-  await expectText(page, '#nextStep', /Next step: measure — \d+ results still due/, 'once made, the next step is to measure');
+  await expectText(page, '#nextStep', /Next step: measure, \d+ results still due/, 'once made, the next step is to measure');
   await expectText(page, '#expStage', /measuring/, 'and the progress chip follows');
 
   // the list: tick two planned formulations of another experiment, leave the rest alone
@@ -1310,7 +1310,7 @@ export async function benchCardFollowsInputs({ page, open }) {
   });
   if (!order) throw new Error('the "At the bench" card should come before the inputs');
   let c = await card();
-  if (c.rna_stock_mL.text !== '—' || !/choose an RNA lot/.test(c.rna_stock_mL.sub)) throw new Error(`with no RNA lot the stock volume should wait for one: "${c.rna_stock_mL.text}" / "${c.rna_stock_mL.sub}"`);
+  if (c.rna_stock_mL.text !== '–' || !/choose an RNA lot/.test(c.rna_stock_mL.sub)) throw new Error(`with no RNA lot the stock volume should wait for one: "${c.rna_stock_mL.text}" / "${c.rna_stock_mL.sub}"`);
   await setInput(page, 'rna_stock_mg_mL', '1.02');
   // RNA stock 3/1.02 = 2.941 mL into 3/0.4 = 7.5 mL; lipid 7.5/3 = 2.5; quench 2.5 x 2 = 5; pumps 112.5 split 3:1:2;
   // primary product 0.4 x 56.25/112.5 = 0.2 mg/mL, so all 3 mg is 15 mL into dialysis.
@@ -1347,7 +1347,7 @@ export async function benchCardFollowsInputs({ page, open }) {
   // emptying the RNA input leaves the volumes waiting for it, and the pumps (which do not depend on it) standing
   await setInput(page, 'rna_mass_mg', '');
   c = await card();
-  if (c.rna_mL.text !== '—' || !/enter the RNA input/.test(c.rna_mL.sub)) throw new Error(`no RNA input: "${c.rna_mL.text}" / "${c.rna_mL.sub}"`);
+  if (c.rna_mL.text !== '–' || !/enter the RNA input/.test(c.rna_mL.sub)) throw new Error(`no RNA input: "${c.rna_mL.text}" / "${c.rna_mL.sub}"`);
   if (c.p2.text !== '9.23 mL/min') throw new Error(`the pump flows do not depend on the RNA input: "${c.p2.text}"`);
 }
 
@@ -1634,7 +1634,7 @@ export async function correctStoredResult({ page, open }) {
   await page.fill(box, '5');
   await page.fill('#editReason', 'typo');
   await page.click('#saveEdit'); await page.waitForTimeout(200);
-  await expectText(page, '#editCheck', /Not saved[\s\S]*PDI 5 is outside 0–1 — did you mean 0\.05\?/, 'a PDI of 5 is refused on correction as on entry');
+  await expectText(page, '#editCheck', /Not saved[\s\S]*PDI 5 is outside 0–1, did you mean 0\.05\?/, 'a PDI of 5 is refused on correction as on entry');
   if (!(await page.locator(`${box}.invalid`).count())) throw new Error('the refused field is not marked');
   let now = await stored();
   if (now.values.pdi !== 0.5 || now.history?.length) throw new Error('a refused correction changed the record');
@@ -1652,7 +1652,7 @@ export async function correctStoredResult({ page, open }) {
   if (now.history?.length !== 1 || now.history[0].reason !== 'typo' || now.history[0].values?.pdi !== 0.5 || !now.history[0].at) throw new Error(`history: ${JSON.stringify(now.history)}`);
   if ((now.flags || []).some((f) => /PDI/.test(f.text))) throw new Error('the QC flag of the typo outlived its correction');
   if (now.slotId !== m.slotId || now.sampleName !== m.sampleName) throw new Error('the correction moved the result off its slot');
-  await expectText(page, '#resultHistory', /Corrected \d{2} \w{3} \d{4}( by \S+)?: typo — was PDI 0\.5\b/, 'the history is shown under the values');
+  await expectText(page, '#resultHistory', /Corrected \d{2} \w{3} \d{4}( by \S+)?: typo, was PDI 0\.5\b/, 'the history is shown under the values');
   await expectText(page, '#main', /PDI 0\.050/, 'and the result reads the corrected value');
   // The list shows 50 at a time (usability cycle 4, C), and with the smoke run's clock standing still every
   // result is stored in the same millisecond, so this one is looked up as a person would: by its sample name.
@@ -1848,7 +1848,7 @@ export async function orphanedResultsNoted({ page, open }) {
     await restart();
     await open('settings'); // the reload may have landed on the overview already; a change of hash redraws it
     await open('overview');
-    await expectText(page, '#orphansMissing', /2 results belong to a formulation that no longer exists — E900-F1\. Nothing has been changed/, 'the overview names the results and their formulation');
+    await expectText(page, '#orphansMissing', /2 results belong to a formulation that no longer exists, E900-F1\. Nothing has been changed/, 'the overview names the results and their formulation');
     await page.click('#orphansMissing a[href="#/measurements?batch=E900-F1"]');
     await page.waitForFunction(() => location.hash === '#/measurements?batch=E900-F1' && /Results · E900-F1/.test(document.querySelector('#main')?.innerText || ''), null, { timeout: 4000 })
       .catch(async () => { throw new Error(`the note did not open the Measurements screen filtered to E900-F1: ${await page.evaluate(() => location.hash)}`); });
@@ -1948,15 +1948,15 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   for (const n of [2, 3, 4, 5, 6]) {
     if (!(await page.locator(`#step${n} > summary`).isVisible())) throw new Error(`step ${n}'s line is not on the screen`);
   }
-  if (!/^Step 2 · LNP mixing — not started · pumps 56\.25 \/ 18\.75 \/ 37\.50 mL\/min/.test(await line(2))) throw new Error(`step 2's line: "${await line(2)}"`);
-  if (!/^Step 3 · Dialysis — not started · start volume \d+\.\d\d mL/.test(await line(3))) throw new Error(`step 3's line: "${await line(3)}"`);
-  if (!/^Step 4 · TFF concentration — skipped/.test(await line(4))) throw new Error(`step 4's line: "${await line(4)}"`);
-  if (!/^Step 6 · Fill & finish — not started · \d+ × [\d.]+ mL/.test(await line(6))) throw new Error(`step 6's line: "${await line(6)}"`);
+  if (!/^Step 2 · LNP mixing, not started · pumps 56\.25 \/ 18\.75 \/ 37\.50 mL\/min/.test(await line(2))) throw new Error(`step 2's line: "${await line(2)}"`);
+  if (!/^Step 3 · Dialysis, not started · start volume \d+\.\d\d mL/.test(await line(3))) throw new Error(`step 3's line: "${await line(3)}"`);
+  if (!/^Step 4 · TFF concentration, skipped/.test(await line(4))) throw new Error(`step 4's line: "${await line(4)}"`);
+  if (!/^Step 6 · Fill & finish, not started · \d+ × [\d.]+ mL/.test(await line(6))) throw new Error(`step 6's line: "${await line(6)}"`);
   // what a folded step holds is not read: the pump table is on step 2's line, not under it
   await expectNoText(page, '#main', /Pump 1 RNA \(mL\/min\)|End volume after dialysis/, 'a folded step keeps its table out of the page');
   // the line follows the inputs and agrees with the bench card
   await setInput(page, 'rna_stock_mg_mL', '1.02');
-  if (!/— not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
+  if (!/– not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
   if (String(await opened()) !== '1') throw new Error(`a redraw changed the open steps: ${await opened()}`);
 
   // the user's own choice survives the redraws: step 1 folded, step 3 opened and typed in
@@ -1969,7 +1969,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   // signing off step 1 closes it: its line says so, and the next step opens below without folding the rest
   await page.click('#step1 > summary');
   await setInput(page, 'a_rna_date', '2026-10-17');
-  if (!/^Step 1 · RNA dilution — done/.test(await line(1))) throw new Error(`step 1 signed off: "${await line(1)}"`);
+  if (!/^Step 1 · RNA dilution, done/.test(await line(1))) throw new Error(`step 1 signed off: "${await line(1)}"`);
   if (String(await opened()) !== '1,2,3') throw new Error(`step 2 should open once step 1 is done, with 1 and 3 left open: ${await opened()}`);
   await page.evaluate(() => window.lnpDb.flush()); // stored as typed: no Save button to press
   await reopen();
@@ -1981,7 +1981,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   await page.evaluate(() => window.lnpDb.flush());
   await reopen();
   if (String(await opened()) !== '5') throw new Error(`with dialysis recorded the record should open on step 5: ${await opened()}`);
-  if (!/— not recorded/.test(await line(2)) || !/— done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
+  if (!/– not recorded/.test(await line(2)) || !/– done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
     throw new Error(`steps 2 and 3 after dialysis was recorded: "${await line(2)}" / "${await line(3)}"`);
   }
 
@@ -2407,9 +2407,9 @@ export async function measurementsDueLeads({ page, open }) {
     await open('overview');
     await open('measurements');
     if (await page.$eval('#main > .card', (c) => c.id) !== 'dueCard') throw new Error('the Due card is not the first card on Measurements');
-    await expectText(page, '#dueCard .dueGroup.overdue', /Overdue[\s\S]*E970 · Due check — T7, 2 samples \(DLS, EE\) — 3 days overdue/i, 'the overdue timepoint, one line for the experiment and stage');
-    await expectText(page, '#dueCard .dueGroup.today', /E970 · Due check — T10, 2 samples \(DLS\) — due today/, 'the one due today');
-    await expectText(page, '#dueCard .dueGroup.coming', /Coming · next 7 days[\s\S]*E970 · Due check — T12, 2 samples \(DLS, EE\) — due \w{3} \d{1,2} \w{3}/i, 'the one in two days, with its weekday');
+    await expectText(page, '#dueCard .dueGroup.overdue', /Overdue[\s\S]*E970 · Due check, T7, 2 samples \(DLS, EE\), 3 days overdue/i, 'the overdue timepoint, one line for the experiment and stage');
+    await expectText(page, '#dueCard .dueGroup.today', /E970 · Due check, T10, 2 samples \(DLS\), due today/, 'the one due today');
+    await expectText(page, '#dueCard .dueGroup.coming', /Coming · next 7 days[\s\S]*E970 · Due check, T12, 2 samples \(DLS, EE\), due \w{3} \d{1,2} \w{3}/i, 'the one in two days, with its weekday');
     await expectNoText(page, '#dueCard', /T30/, 'and not the one three weeks out');
 
     // the sample names wait behind the count, and Copy puts exactly that line's names on the clipboard
@@ -2460,7 +2460,7 @@ export async function measurementsDueLeads({ page, open }) {
     await writeCol(page, 'experiments', later);
     await open('overview');
     await open('measurements');
-    await expectText(page, '#dueCard', /Nothing is due in the next 7 days\. Next: E970 · Due check — T30, 2 samples, due \w{3} \d{1,2} \w{3} \(in 20 days\)\./, 'nothing due, and the next thing');
+    await expectText(page, '#dueCard', /Nothing is due in the next 7 days\. Next: E970 · Due check, T30, 2 samples, due \w{3} \d{1,2} \w{3} \(in 20 days\)\./, 'nothing due, and the next thing');
     for (const s of later[0].expected) s.status = 'done';
     await writeCol(page, 'experiments', later);
     await open('overview');

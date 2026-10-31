@@ -736,7 +736,7 @@
   // and shows the errors the browser reported; screens loaded later are reported by the router itself.
   (function () {
     var errs = [];
-    function onError(e) { errs.push((e.message || 'error') + (e.filename ? ' — ' + String(e.filename).replace(location.origin + '/', '') + (e.lineno ? ':' + e.lineno : '') : '')); }
+    function onError(e) { errs.push((e.message || 'error') + (e.filename ? ', ' + String(e.filename).replace(location.origin + '/', '') + (e.lineno ? ':' + e.lineno : '') : '')); }
     function onReject(e) { var r = e.reason; errs.push('Unhandled: ' + (r && r.stack ? String(r.stack).split('\n').slice(0, 2).join(' · ') : String(r))); }
     window.addEventListener('error', onError, true);
     window.addEventListener('unhandledrejection', onReject);
@@ -755,7 +755,7 @@
           var p = queue.shift(); if (seen[p]) continue; seen[p] = true;
           var r;
           try { r = await fetch(p, { cache: 'no-store' }); } catch (e) { lines.push(p + ': cannot be fetched (' + e.message + ')'); continue; }
-          if (!r.ok) { lines.push(p + ': HTTP ' + r.status + (r.status === 404 ? ' — the file is missing in the served folder' : ' — the server refused the file')); continue; }
+          if (!r.ok) { lines.push(p + ': HTTP ' + r.status + (r.status === 404 ? ', the file is missing in the served folder' : ', the server refused the file')); continue; }
           var t = await r.text();
           if (p === 'app/main.js') { var m = /APP_VERSION\s*=\s*['"]([^'"]+)['"]/.exec(t); if (m) version = m[1]; }
           if (/^(<<<<<<< |=======$|>>>>>>> )/m.test(t)) lines.push(p + ': contains git merge-conflict markers (<<<<<<<), so the last pull did not complete');

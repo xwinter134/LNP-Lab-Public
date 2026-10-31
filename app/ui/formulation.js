@@ -161,7 +161,7 @@ function benchNumbers(c, batch) {
 /** A bench value as shown: the number, or "—" with what it is waiting for. Shared by the card and the worksheet. */
 const benchValue = (it) => {
   const ok = !it.wait && it.v != null && Number.isFinite(it.v);
-  return { ok, num: ok ? fmt(it.v, it.digits) : '—', sub: ok ? it.sub || '' : it.wait || 'check the inputs' };
+  return { ok, num: ok ? fmt(it.v, it.digits) : '–', sub: ok ? it.sub || '' : it.wait || 'check the inputs' };
 };
 
 /** The card at the top of the record. Display only: no inputs, so the record's change handling is untouched. */
@@ -276,7 +276,7 @@ export async function render(el, ctx) {
     const made = ref.buffers.filter((b) => bufferAnswersTo(b, current) || (!goneBuffers.has(String(b.id)) && (!role || normaliseRoles(b.roles).includes(role) || !(b.roles || []).length)))
       .map((b) => ({ value: bufferAnswersTo(b, current) ? current : b.lot, label: `${b.lot}${bufferAnswersTo(b, current) && current !== b.lot ? ` (${current})` : ''} · ${b.name}` }));
     const cat = ref.buffersCatalog.filter((b) => !role || normaliseRoles(b.roles).includes(role)).map((b) => ({ value: b.name + (b.code ? ` (${b.code})` : ''), label: `${b.name} (common buffer)` }));
-    return [{ value: '', label: '—' }, ...made, ...cat];
+    return [{ value: '', label: '–' }, ...made, ...cat];
   };
   // The parts of the record the screen works on, with what an older record lacks filled in. Again whenever the
   // record is brought up to date with what another window stored (below), which may have put new objects in.
@@ -426,9 +426,9 @@ export async function render(el, ctx) {
     // lot deleted since stays named, marked so, rather than the menu falling back to "choose".
     const ft = (s) => ftTag(s, settings.ftWarnCycles);
     const shelf = ctx.store.all('stocks'); // as stored now: a thaw logged since the record opened counts
-    const stockOpts = [{ value: '', label: '— choose —' }, ...shelf.filter((s) => s.compositionId === batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} · ${fmt(s.molarity_mM, 1)} mM · ${s.status}${ft(s)}` })), ...shelf.filter((s) => s.compositionId !== batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}) · ${fmt(s.molarity_mM, 1)} mM${ft(s)}` })),
+    const stockOpts = [{ value: '', label: 'Choose…' }, ...shelf.filter((s) => s.compositionId === batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} · ${fmt(s.molarity_mM, 1)} mM · ${s.status}${ft(s)}` })), ...shelf.filter((s) => s.compositionId !== batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}) · ${fmt(s.molarity_mM, 1)} mM${ft(s)}` })),
       ...(batch.stockId && !c.stock ? [{ value: batch.stockId, label: `${batch.stockId} (deleted)` }] : [])];
-    const rnaOpts = [{ value: '', label: '—' }, ...ref.pick('rnaLots', plan.rna.lotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` })),
+    const rnaOpts = [{ value: '', label: '–' }, ...ref.pick('rnaLots', plan.rna.lotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` })),
       ...(plan.rna.lotId && !c.rnaLot ? [{ value: plan.rna.lotId, label: `${plan.rna.lotId} (deleted)` }] : [])];
     const groups = benchNumbers(c, batch), progress = stepProgress(batch);
     if (progress.current) reached.add(progress.current);
@@ -436,7 +436,7 @@ export async function render(el, ctx) {
     const stepBox = (n, title, body) => {
       const { state } = progress.steps[n - 1], open = stepOpen.get(n) ?? reached.has(n);
       return `<details class="card fold step" id="step${n}" data-step="${n}" ${open ? 'open' : ''}>
-        <summary><h2>${c.quick ? '' : `Step ${n} · `}${title}<span class="stepSay"> — <span class="stepState st-${state.replace(/ /g, '-')}">${state}</span> · ${stepSay(n, c, groups)}</span></h2></summary>${body}</details>`;
+        <summary><h2>${c.quick ? '' : `Step ${n} · `}${title}<span class="stepSay">, <span class="stepState st-${state.replace(/ /g, '-')}">${state}</span> · ${stepSay(n, c, groups)}</span></h2></summary>${body}</details>`;
     };
     const tr = (label,target, actualHtml = '') => `<tr><td>${label}</td><td style="text-align:right"><b>${target}</b></td><td>${actualHtml}</td></tr>`;
     const tbl = (rows) => `<table><thead><tr><th>Parameter</th><th style="text-align:right">Target</th><th>Actual / record</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
@@ -483,7 +483,7 @@ export async function render(el, ctx) {
       tr('RNA stock volume (mL)', fmt(c.rnaStock_mL, 3), inp('a_rna_stock_mL', a.rna_stock_mL)),
       tr('Working solution total (mL)', fmt(c.dil.total_mL, 3), inp('a_rna_total_mL', a.rna_total_mL)),
       tr('Dilution buffer (mL)', fmt(c.dil.diluent_mL, 3), `${txt('a_rna_diluent_lot', esc(a.rna_diluent_lot || proc.aqueous?.buffer || ''), 220)} <span class="muted">lot</span>`),
-      tr('Prepared by / date', '—', `${txt('a_rna_operator', a.rna_operator || settings.operator, 70)} <input type="date" name="a_rna_date" value="${a.rna_date || ''}" style="width:150px">`),
+      tr('Prepared by / date', '–', `${txt('a_rna_operator', a.rna_operator || settings.operator, 70)} <input type="date" name="a_rna_date" value="${a.rna_date || ''}" style="width:150px">`),
     ]) : '<div class="note">Set the RNA stock concentration (or choose an RNA lot) to compute the dilution.</div>';
 
     const m = c.mix;
@@ -959,8 +959,8 @@ function formTable(rows, results, sel) {
         cells: [
           raw(`<input type="checkbox" data-sel="${esc(b.id)}" data-status="${esc(b.status || '')}" aria-label="Select ${esc(b.id)}" style="width:auto"${sel.has(b.id) ? ' checked' : ''}>`),
           raw(`<a href="#/formulation?batch=${esc(b.id)}"><b>${esc(b.id)}</b></a>`),
-          b.label || '—',
-          raw(`<span class="muted">${esc(settingsOf(b)) || '—'}</span>`),
+          b.label || '–',
+          raw(`<span class="muted">${esc(settingsOf(b)) || '–'}</span>`),
           fmtDate(b.plannedDate),
           raw(chip(b.status, b.status === 'planned' ? '' : 'info')),
           fmt(r.dls?.values?.zave_nm, 1), fmt(r.dls?.values?.pdi, 3), fmt(r.ee?.values?.ee_pct, 1),
@@ -969,7 +969,7 @@ function formTable(rows, results, sel) {
     }), { empty: 'Nothing planned.' });
 }
 
-const ORPHAN_INTRO = '<p class="muted" style="margin:0 0 6px">These formulations have no experiment to be numbered inside — usually imported records, or an experiment that was deleted.</p>';
+const ORPHAN_INTRO = '<p class="muted" style="margin:0 0 6px">These formulations have no experiment to be numbered inside, usually imported records, or an experiment that was deleted.</p>';
 
 /**
  * One experiment (or the orphans): a header that folds the table away, with counts by status and its

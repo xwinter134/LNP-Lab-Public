@@ -29,7 +29,7 @@ export const MODEL_TYPES = { linear: 'Main effects', interaction: 'Main effects 
  * only one that can tell you whether the blend you optimised still wins at a different flow rate.
  */
 export const DOE_MODES = {
-  process: { name: 'Process parameters only', note: 'Independent factors — flow rate ratio, N/P, total flow, temperature. A classical response surface.' },
+  process: { name: 'Process parameters only', note: 'Independent factors, flow rate ratio, N/P, total flow, temperature. A classical response surface.' },
   mixture: { name: 'Lipid mixture only', note: 'Choose the lipids and their mol% ranges. The design lives on the simplex and the model is a Scheffe polynomial, which is what the sum-to-100 constraint requires.' },
   crossed: { name: 'Mixture and process together', note: 'One experiment over both. It answers whether the best blend stays the best blend when the process changes, which two separate experiments cannot.' },
 };
@@ -43,8 +43,8 @@ export const MIXTURE_KINDS = {
 
 export const MIXTURE_ORDERS = {
   linear: 'Linear blending only',
-  quadratic: 'Quadratic — pairwise blending (usual choice)',
-  special_cubic: 'Special cubic — three-way blending terms',
+  quadratic: 'Quadratic: pairwise blending (usual choice)',
+  special_cubic: 'Special cubic: three-way blending terms',
 };
 
 /** 'process' unless the spec says otherwise, so every design saved before this existed still reads correctly. */

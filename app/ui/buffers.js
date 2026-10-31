@@ -179,7 +179,7 @@ export async function render(el, ctx) {
           <div class="wcAfter">
             <div class="wcStep"><span class="n">1</span><div><b>Dissolve</b><div class="muted">in roughly ${fmt(state.volume_mL * 0.8, 0)} mL of water</div></div></div>
             <div class="wcStep"><span class="n">2</span><div><b>Make up</b><div class="muted">water ad ${fmt(state.volume_mL, 0)} mL</div></div></div>
-            <div class="wcStep"><span class="n">3</span><div><b>Check</b><div class="muted">predicted pH ${fmt(res.pH, 2)} — measure and adjust</div></div></div>
+            <div class="wcStep"><span class="n">3</span><div><b>Check</b><div class="muted">predicted pH ${fmt(res.pH, 2)}, measure and adjust</div></div></div>
           </div>
           <div class="grid g3" style="margin-top:12px">
             <div class="kpi"><div class="l">Predicted pH</div><div class="v">${fmt(res.pH, 2)}</div><div class="muted">${state.activity ? `what the meter reads (activity, Davies), 25 °C · p[H] ${fmt(res.pcH, 2)}` : 'concentration scale, 25 °C'}</div></div>
@@ -213,9 +213,9 @@ export async function render(el, ctx) {
         </div>
         <details class="fold bufSecond" style="margin-top:10px"${secondShown ? ' open' : ''}><summary class="muted">${second ? `Second component: ${shortName(state.system2)} ${fmt(state.conc2_mM, 0)} mM` : 'Add a second buffer component (e.g. 3P with HEPES)'}</summary>
         <div class="grid g4" style="margin-top:6px">
-          <div><label for="system2">Second component</label><select id="system2" name="system2">${raw(sysOptions(state.system2, '— none —'))}</select></div>
+          <div><label for="system2">Second component</label><select id="system2" name="system2">${raw(sysOptions(state.system2, 'None'))}</select></div>
           ${raw(field({ id: 'conc2_mM', label: 'Second component (mM)', value: state.conc2_mM, step: 1 }))}
-          ${raw(field({ id: 'reagent2', label: 'Added as', type: 'select', value: state.reagent2, options: reagents2.length ? reagents2.map((x) => ({ value: x.name, label: x.name })) : [{ value: '', label: '—' }] }))}
+          ${raw(field({ id: 'reagent2', label: 'Added as', type: 'select', value: state.reagent2, options: reagents2.length ? reagents2.map((x) => ({ value: x.name, label: x.name })) : [{ value: '', label: '–' }] }))}
           <div class="muted" style="align-self:end">Included in the pH solution and the recipe; the first system is adjusted to hit the target pH.</div>
         </div></details>
         <h2 style="margin-top:14px">Recipe</h2>

@@ -43,7 +43,7 @@ What only Gholan can provide or decide, collected from all six phases. Each item
 | E15 | Store a model summary so Claude insights can read the GP's lengthscales | not stored |
 | E17 | Leaving a form with typed, unsaved input asks first (spec 9.1). The experiment wizard and the buffer designer keep drafts instead and do not ask; should they ask too? | drafts, no question |
 | E18 | Comparing two views: each bar is the share of its own view (so a view of 40 reads against one of 400). Counts instead? | shares, counts beside them |
-| E16 | Em dashes: about 100 older UI texts use one, mostly "—" for an empty choice; the style rule says no em dashes. What should an empty choice show? | unchanged |
+| E16 | Em dashes are gone from the screens (spec 12.1); an empty value or choice now shows an en dash "–", a choice still to make "Choose…". Something else for the empty value (blank, "none", "n/a")? | "–" |
 | E19 | Reagents (`app/data/reagents.json`) are reference data with no screen to add or edit them, so they are not part of archiving (9.5). Should the lab manage its own reagents? They would then be archived like the other components | shipped only, not archivable |
 | E20 | A deleted experiment stays in the trash, past 30 days and through "Empty trash", while its results or a study still name its formulations (12.2). Should results alone keep it, or only studies? | results, studies and study values keep it |
 | E21 | Publish the MCP server to npm (`lnp-lab-mcp`), and under whose npm account | packed, not published (`npm run pack:npm` in `mcp/`) |

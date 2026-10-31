@@ -233,7 +233,7 @@ function designWords(spec, runs) {
       ? `A lipid-blend design over ${andList(comps)} mol% (always adding up to ${fmt(Number(spec.total) || 100, 0)})`
       : `A blend × process design over ${andList(comps)} mol% and ${andList(factors)}`;
   const model = mode === 'process' ? (MODEL_TYPES[spec.model] || spec.model || '').replace(/ \(.*\)$/, '').toLowerCase()
-    : `${(MIXTURE_ORDERS[spec.mixtureOrder || 'quadratic'] || '').replace(/ —.*/, '').toLowerCase()} blending${mode === 'crossed' ? ` × ${(MODEL_TYPES[spec.model] || '').replace(/ \(.*\)$/, '').toLowerCase()}` : ''}`;
+    : `${(MIXTURE_ORDERS[spec.mixtureOrder || 'quadratic'] || '').replace(/:.*/, '').toLowerCase()} blending${mode === 'crossed' ? ` × ${(MODEL_TYPES[spec.model] || '').replace(/ \(.*\)$/, '').toLowerCase()}` : ''}`;
   const goals = (spec.responses || []).map((r) => {
     const g = r.goal === 'target' ? `target ${sigfig(Number(r.target ?? RESPONSES.find((x) => x.name === r.name)?.target))}` : GOAL_WORDS[r.goal] || r.goal;
     return `${WORD[r.name] || r.name} (${g})`;

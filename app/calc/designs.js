@@ -136,7 +136,7 @@ export const CATALOG = [
     what: 'The lipids you name, each over a mol% range, as compositions that span the region those ranges leave.',
     estimates: ['what each lipid contributes', 'whether two lipids blend better or worse than their average'],
     cannot: 'Separate a lipid from what it displaces. On a simplex nothing is held constant, so every effect is a direction, not a culprit.',
-    when: 'The lipids are the question. Above all when two of the same class are in play — two ionizable lipids, or a second PEG — which a class-based factor cannot tell apart.',
+    when: 'The lipids are the question. Above all when two of the same class are in play (two ionizable lipids, or a second PEG) which a class-based factor cannot tell apart.',
     note: 'The design lives on a simplex and the model is a Scheffé polynomial with no intercept, because four mol% that sum to 100 have three degrees of freedom and a constant column would be a combination of them.',
     topic: 'mixture', screen: 'experiments?new=1&type=doe&mode=mixture' },
 

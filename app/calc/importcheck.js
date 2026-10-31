@@ -93,14 +93,15 @@ export function checkMeasurementValues(test, row) {
   }
   const { errors, warnings } = checkValues(test, values);
   for (const e of errors) {
-    const [base, meant] = e.text.split(/\s+\u2014\s+/);
+    // qc.js says "X is outside A–B, did you mean Y?"; the import puts the guess in brackets after the reason.
+    const [base, meant] = e.text.split(/,\s+(?=did you mean)/);
     const slip = e.key === 'pdi' && values.pdi > 1 ? ', probably a typing slip' : '';
     problems.push(`${base}${slip}${meant ? ` (${meant})` : ''}`);
     delete values[e.key];
   }
   // The SD of replicates is worked out by the app, never typed there; imported, it cannot be negative.
   for (const k of Object.keys(values)) if (SPREAD_KEYS.has(k) && values[k] < 0) { problems.push(`${k} ${values[k]} cannot be negative`); delete values[k]; }
-  return { values, problems, warnings: warnings.map((w) => w.text.replace(/\s+\u2014\s+/, ': ')) };
+  return { values, problems, warnings: warnings.map((w) => w.text.replace(/,\s+(?=was it|did you mean)/, ': ')) };
 }
 
 /** The plan's numbers a formulation row may carry: [column, low, high, label, unit]. */

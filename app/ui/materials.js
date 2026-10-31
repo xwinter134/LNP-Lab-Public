@@ -460,7 +460,7 @@ function compositions(body, ctx) {
     return Math.max(0, ...ref.compositions.map((c) => Number(c.id) || 0), ...trashed) + 1;
   };
   // The active lipids, and one already in the recipe even when it has been archived since.
-  const lipidOptions = (ref, chosen) => [{ value: '', label: '—' }, ...ref.pick('lipids', chosen).map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` }))];
+  const lipidOptions = (ref, chosen) => [{ value: '', label: '–' }, ...ref.pick('lipids', chosen).map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` }))];
 
   function draw() {
     const ref = getRef(ctx), next = nextId(ref);
@@ -472,7 +472,7 @@ function compositions(body, ctx) {
         m(`<b>${esc(c.id)}</b>`), c.synonym || '', m(compositionBar(c.mol_pct, ref)),
         m(`${fmt(sum, 1)}${Math.abs(sum - 100) > 0.05 ? ' ' + chip('not 100', 'warn') : ''}`),
         m(shipped(c.id) ? chip('reference, read-only') : chip(c.history?.length ? 'yours, edited' : 'yours', 'info')),
-        m(useSummary(compositionUse(ctx, c.id)) || '<span class="muted">—</span>')] });
+        m(useSummary(compositionUse(ctx, c.id)) || '<span class="muted">–</span>')] });
       if (here) rows.push({ attrs: 'class="mat-editor"', full: shipped(c.id) && open === c.id ? shippedNote(c) : compEditor(ref, c, compositionUse(ctx, c.id), next) });
     }
     body.innerHTML = `<div class="card"><h2>Composition registry (${ref.active.compositions.length})</h2>
@@ -653,7 +653,7 @@ function rna(body, ctx) {
       rows.push({ attrs: `class="mat-row${here ? ' mat-open' : ''}" data-open="${esc(r.id)}" tabindex="0" aria-expanded="${here}" title="Click to edit"`, cells: [
         m(`<b>${esc(r.id)}</b>`), m(chip(cargoLabel(r.cargo), r.cargo === 'siRNA' ? 'info' : '')), r.construct || '', r.variant || '', fmt(r.conc_mg_mL, 2),
         fmt(lotMassPerPhosphate(r), 0), r.method || '', fmtDate(r.received),
-        m(u.batches.length ? plural(u.batches.length, 'formulation') : '<span class="muted">—</span>')] });
+        m(u.batches.length ? plural(u.batches.length, 'formulation') : '<span class="muted">–</span>')] });
       if (here) rows.push({ attrs: 'class="mat-editor"', full: editor(r, ref) });
     }
     if (open === NEW) rows.push({ attrs: 'class="mat-editor"', full: editor(null, ref) });
@@ -948,7 +948,7 @@ function devices(body, ctx) {
     title: 'Instruments', noun: 'instrument', label: (x) => x.name || x.id,
     headers: ['Name', 'Vendor', { label: 'Pumps', right: true }, 'Mixers it takes', 'Quench', 'Notes'],
     cells: (x, ref) => [m(`<b>${esc(x.name)}</b>`), x.vendor || '', x.pumps ?? '–',
-      m((x.mixers || []).map((id) => ref.mixers.find((q) => q.id === id)).filter(Boolean).map((q) => chip(q.name)).join(' ') || '<span class="muted">—</span>'),
+      m((x.mixers || []).map((id) => ref.mixers.find((q) => q.id === id)).filter(Boolean).map((q) => chip(q.name)).join(' ') || '<span class="muted">–</span>'),
       QUENCH[x.quench] || x.quench || '–', m(`<span class="muted">${esc(x.notes || '')}</span>`)],
     form: (x, ref) => {
       const takes = new Set(x?.mixers || []);
@@ -974,7 +974,7 @@ function devices(body, ctx) {
     title: 'Mixers', noun: 'mixer', label: (x) => x.name || x.id,
     headers: ['Name', 'Kind', { label: 'Inlets', right: true }, 'Taken by', 'Notes'],
     cells: (x, ref) => [m(`<b>${esc(x.name)}</b>`), x.kind || '', x.inlets ?? '–',
-      m(ref.devices.filter((d) => (d.mixers || []).includes(x.id)).map((d) => esc(d.name)).join(', ') || '<span class="muted">—</span>'), m(`<span class="muted">${esc(x.notes || '')}</span>`)],
+      m(ref.devices.filter((d) => (d.mixers || []).includes(x.id)).map((d) => esc(d.name)).join(', ') || '<span class="muted">–</span>'), m(`<span class="muted">${esc(x.notes || '')}</span>`)],
     form: (x) => `${efield({ id: 'name', label: 'Name', type: 'text', value: x?.name || '' })}
       ${efield({ id: 'kind', label: 'Kind', type: 'text', value: x?.kind || '', placeholder: 'T-mixer, IJM, microfluidic chip …' })}
       ${efield({ id: 'inlets', label: 'Inlets', value: x?.inlets ?? 2, step: 1, min: 1 })}

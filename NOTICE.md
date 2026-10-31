@@ -5,10 +5,10 @@ its own terms.
 
 ## CurTiPot (pKa database and the pH calculation)
 
-- `app/data/pka.json` — the pKa database (263 entries; HEPES and MOPS added by hand) is taken from **CurTiPot**,
+- `app/data/pka.json`: the pKa database (263 entries; HEPES and MOPS added by hand) is taken from **CurTiPot**,
   the pH and acid–base titration spreadsheet by **Ivano G. R. Gutz**, Instituto de Química, Universidade de São
   Paulo (USP): <https://www.iq.usp.br/gutz/Curtipot_.html>.
-- `app/calc/buffer.js` — a JavaScript re-implementation of CurTiPot's pH_calc approach (charge balance over
+- `app/calc/buffer.js`: a JavaScript re-implementation of CurTiPot's pH_calc approach (charge balance over
   polyprotic systems, Davies activity correction). The code is new; the method and the reference example used in
   the tests are CurTiPot's.
 

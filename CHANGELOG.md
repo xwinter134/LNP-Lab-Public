@@ -15,6 +15,8 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
 **Finding your way** (spec 9.1)
 - **A trail under every title** (Plan › Plan an experiment › Questions › …), each step a link, with a Back arrow
   beside it. Cmd+[ and Cmd+] (Ctrl elsewhere) and the mouse's back and forward buttons work in the Mac app too.
+- Leaving a form with typed, unsaved input asks first, whichever way you leave. `npm run back` walks 39 steps of
+  the planner, the troubleshooter, the wizards and the design catalogue and presses Back after each.
 
 **Buffers and materials** (spec 9.2, 9.5)
 - The role "Formulation" is now **Final / Storage**; older lots read the new word. New lots are named by code, pH
@@ -22,9 +24,12 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
   catalogue buffer has one. Older lots keep their Buffer-NNN name, and every new lot keeps its Buffer number as its
   record id, so every formulation and process still finds its lot. The lots are one row per buffer, opening into
   a table of its lots, with tabs by role.
-- **Archive instead of refuse.** A lipid a recipe uses and a composition formulations read their recipe from could
-  not be deleted; the question now offers to archive them: hidden from lists and pickers, kept for the records
-  that use them, restored under **Archived** on Materials. A buffer lot formulations name is archived the same way.
+- **Nothing in use is deleted.** Whatever a record still names (lipids, lots, compositions, RNA lots, buffers,
+  devices, mixers, TFF modules, dialysis cassettes, filters) is archived instead: hidden from lists and pickers,
+  kept for the records that use them, restored under **Archived** on Materials. The trash keeps an entry while
+  anything names it, past 30 days and through Empty trash, and says what still names it.
+- Buffer lots record the measured pH, what is left and the expiry; the codes are the lab's own under
+  **Materials › Buffer catalog**. Each ionizable lipid can keep its structure as a **SMILES** string.
 
 **The data model** (spec 4)
 - **Process conditions** on each formulation: what 0.15 does not already record (ethanol share, temperature at
@@ -32,10 +37,11 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
   designer, the RNA lot and the composition say (loading buffer, pH and strength, mixer and its type, downstream,
   target buffer, sterile filtration, cargo, ionizable lipid, PEG-free) is shown, not asked again.
 - **Where each record came from:** formulations, results and compositions carry their source (typed in,
-  instrument file with its name and hash, imported tables with file, sheet and row).
+  instrument file with its name and hash, imported tables with file, sheet and row); a small symbol on the
+  formulation, the result and the composition opens the details.
 - The update to this version adds the source and an empty conditions record to older records, guesses nothing,
-  marks none as edited, and keeps a copy of every record first. `scripts/migration-check.mjs` checks this on a
-  copy of any database file.
+  marks none as edited, and keeps a copy of every record first, listed under **Settings › Before updates** with
+  Download and Restore. `scripts/migration-check.mjs` checks this on a copy of any database file.
 
 **Data** (spec 5)
 - A new screen with every formulation, filtered like a shop: facets with counts (lipids by class and PEG-free,
@@ -43,19 +49,30 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
   size and PDI) and free text through the search. Above, the selection's numbers; in the middle a sortable table
   with columns to choose; on the right the distributions, whose bars filter, and how complete each field is.
 - Every filter is in the address. **Use in optimizer** hands the selection over in words; **CSV** and **XLSX**
-  export it; **Save view** puts it in the sidebar, and two views can be compared. 10,000 formulations filter in
-  well under the 200 ms the spec allows.
+  export it with where each record came from; **Save view** puts it in the sidebar, views are renamed, deleted
+  and compared. pH, size and PDI are ranges with two sliders; a link with `?ids=` opens a set of formulations.
+  10,000 formulations filter in 45 to 151 ms (`npm run scale:data`), under the 200 ms the spec allows.
 
 **Optimizer** (spec 7)
 - A **Data and model** panel above the **Data used** card: one ionizable lipid and one mixer type at a time (the
   combination with most data first, unless you chose another), a data budget above 400 runs (100–800), the lipid
   mode (one model per lipid, a lipid kernel in which lipids learn from each other, descriptors behind a switch, or
   chosen by cross-validation), why each formulation is in or out, and a map of the runs used.
-- A **fingerprint** on every round; **Reproduce** repeats a round and says whether it matches; the experiment
-  report prints it. **Prediction against measurement** holds each measured suggestion against its interval.
+- On opening it asks which lipid and mixer type is meant; the **Data used** card counts exactly what that
+  selection keeps, with "other lipid or mixer" and "data budget" as reasons.
+- A **fingerprint** on every round and every analysis (data hash, mode, kernel rank, descriptors, factors, goals,
+  seed, versions, fitted hyperparameters); **Reproduce** repeats one and says whether it matches; the experiment
+  report and the batch worksheet print it. **Prediction against measurement** holds each measured suggestion
+  against its interval.
+- **Intervals that hold:** a run's 95 % interval is calibrated by cross-validation. On the simulated lab 97 % of
+  suggested runs came back inside it (0.15: 78 %); the suggestions themselves are as good as in 0.15
+  (`docs/ML.md`, "Against 0.15").
+- The lipid kernel's rank 2 is now a different model from rank 1 (it started where it could not move), and the
+  rank can be chosen.
 - Loading buffer pH and molarity can be freed as factors. The noise prior no longer lets a fit without replicates
   explain noise as structure; the stop rule says it was calibrated on a simulated lab. Fitting is about three
-  times faster at 300 runs. `npm run history` replays a finished campaign.
+  times faster at 300 runs. A biological result can be a goal, held out by study, with size and PDI as limits.
+  `npm run history` replays a finished campaign.
 
 **Bringing in old data** (spec 6, 10, 11.2)
 - `docs/HISTORICAL-DATA.md` and `scripts/import-tidy.mjs`: three tidy tables in, a quality report, a quarantine of
@@ -63,6 +80,11 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
 - An optional **MCP server** (`mcp/`) for Claude Desktop or Claude Code: Claude maps old sheets, the server checks
   every row with the app's rules and writes only after you approve the report, in the Mac app only while LNP Lab
   is closed. **Quarantine** holds refused rows to fix; **Settings › Imports** undoes an import whole.
+- One rule set: the import refuses exactly what the app refuses, and a likely slip (PDI 8.5) says what was
+  probably meant. Studies and their biological values come in the same way.
+- You approve, not Claude: writing an import asks you in the client's own dialog, or for a code shown only to you.
+  The server can be packed as an npm package (`lnp-lab-mcp`, not published) and reads a backup file for the
+  browser version.
 - **Claude insights** (personal build only), through the same server, since a third-party app may not sign in
   with a Claude account. With either switched on, Claude reads the lab data; the switch says so the first time.
 
@@ -77,8 +99,12 @@ the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OP
   groups, a reference and controls; values typed, from plate reader exports or from IVIS images; results
   normalised to the reference and tested against it with the effect size always shown.
 - **IVIS images:** the mice are found on the photograph and measured with the instrument's calibration
-  (`docs/BLI-BENCHMARK.md`: r = 0.90 against published values on 354 mice). The animal study module is shown in
-  the design catalogue but locked.
+  (`docs/BLI-BENCHMARK.md`: r = 0.90 against published values on 354 mice). A saved image can be reviewed: the
+  liver region moved, the mask corrected with a brush, every change logged with the algorithm's version. The
+  animal study module is shown in the design catalogue but locked.
+
+**Style** (spec 12.1)
+- No em dashes on any screen or in the documentation; an empty value shows "–", a choice still to make "Choose…".
 
 ## 0.15.0: siRNA or mRNA, one view, a real 3D surface, Insights you can ask anything
 

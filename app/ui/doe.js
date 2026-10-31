@@ -327,7 +327,7 @@ function doeBody(el, ctx, sel) {
   const design = mode === 'process'
     ? { help: info(spec.designType === 'plackett_burman' || spec.designType === 'full_factorial' ? 'screening' : 'rsm'), name: DESIGN_TYPES[spec.designType]?.name || spec.designType, sub: `${names.length} factors · model: ${spec.model}` }
     : { help: info('mixture'), name: mode === 'mixture' ? 'Lipid blend' : 'Blend and process',
-      sub: `${comps.length} lipids${names.length ? ` · ${names.length} process factor${names.length === 1 ? '' : 's'}` : ''} · ${(MIXTURE_ORDERS[spec.mixtureOrder || 'quadratic'] || '').replace(/ —.*/, '').toLowerCase()} blending` };
+      sub: `${comps.length} lipids${names.length ? ` · ${names.length} process factor${names.length === 1 ? '' : 's'}` : ''} · ${(MIXTURE_ORDERS[spec.mixtureOrder || 'quadratic'] || '').replace(/:.*/, '').toLowerCase()} blending` };
   const byType = Object.entries(sm.byType).map(([k, v]) => `${v} ${k}`).join(' · ');
   // With results in, the design is background to the answer under it: one line rather than four tiles, as the
   // fit below and the folded run table say the rest (usability cycle 6, L1). Before, the tiles are the page.
@@ -360,7 +360,7 @@ function doeBody(el, ctx, sel) {
         <a class="btn" href="#/experiments?id=${sel.id}">The plan</a><a class="btn" href="#/formulation">Formulations</a></div>
       <div style="display:grid;grid-template-columns:minmax(0,2.3fr) minmax(220px,1fr);gap:18px;align-items:start">
         <div>${runTable}
-          ${mode === 'process' ? '' : `<div class="muted" style="margin-top:2px">Lipids: ${comps.map((c) => `${c.name} ${sigfig(c.lo)}–${sigfig(c.hi)} mol%`).join(' · ')} — every run adds up to ${fmt(Number(spec.total) || 100, 0)}</div>`}
+          ${mode === 'process' ? '' : `<div class="muted" style="margin-top:2px">Lipids: ${comps.map((c) => `${c.name} ${sigfig(c.lo)}–${sigfig(c.hi)} mol%`).join(' · ')}, every run adds up to ${fmt(Number(spec.total) || 100, 0)}</div>`}
           ${!spec.factors?.length ? '' : `<div class="muted" style="margin-top:2px">${mode === 'process' ? 'Factors' : 'Process factors'}: ${spec.factors.map((f) => `${esc(factorLabel(f))} ${isCategorical(f) ? `${esc(categoricalName(f, -1))} / ${esc(categoricalName(f, 1))}` : `${sigfig(Number(f.low))} / ${sigfig(toReal(f, 0))} / ${sigfig(Number(f.high))}`}${f.applyTo ? (FACTORS.find((x) => x.key === f.applyTo)?.doeName === f.name ? '' : ` → ${FACTORS.find((x) => x.key === f.applyTo)?.name}`) : ' (record only)'}`).join(' · ')}${balance ? `. ${esc(balance.note)}` : ''}</div>`}
         </div>
         <div>${mode === 'process'
@@ -742,7 +742,7 @@ function blendOptimum(fit, terms, spec, goal, comps, procNames) {
     <p>${SHORT[goal.name] || goal.name}: <b>${sigfig(best.y)}</b></p>
     ${table(['Lipid', { label: 'mol%', right: true }], comps.map((c, i) => ({ cells: [raw(mono(esc(c.name))), sigfig(best.mol[i])] })))}
     ${procRows}
-    <p class="muted">A first look only, and only over the ${pool.length} candidate blends in the region you set — not a continuous optimum, and it uses one response rather than balancing them all.</p>`,
+    <p class="muted">A first look only, and only over the ${pool.length} candidate blends in the region you set, not a continuous optimum, and it uses one response rather than balancing them all.</p>`,
   };
 }
 

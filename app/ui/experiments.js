@@ -586,13 +586,13 @@ function wizard(el, ctx, ref, settings, type) {
     const mix = specMode(ds) !== 'process';
     const blends = mix ? ` over <b>${sm.distinctBlends}</b> distinct blend${sm.distinctBlends === 1 ? '' : 's'}` : '';
     const chosen = mix && sm.selected ? ` chosen from ${sm.poolSize} candidates` : '';
-    const modelName = mix ? `${MIXTURE_ORDERS[ds.mixtureOrder].replace(/ —.*/, '')}${specMode(ds) === 'crossed' ? ` × ${MODEL_TYPES[ds.model].toLowerCase()}` : ''}` : MODEL_TYPES[ds.model];
-    return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${k}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''} — model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
+    const modelName = mix ? `${MIXTURE_ORDERS[ds.mixtureOrder].replace(/:.*/, '')}${specMode(ds) === 'crossed' ? ` × ${MODEL_TYPES[ds.model].toLowerCase()}` : ''}` : MODEL_TYPES[ds.model];
+    return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${k}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''}, model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
       ${mix && sm.note ? `<div class="muted" style="margin-top:4px">${esc(sm.note)}</div>` : ''}
       ${sm.residualDf < 3 ? `<div class="note warn">Fewer than 3 residual degrees of freedom: ${mix ? 'raise the run budget, add centre replicates, or drop to a linear blending model' : 'add centre points or replicates'} before running.</div>` : ''}
       ${mix && sm.distinctBlends < sm.mixTerms ? `<div class="note warn">Only ${sm.distinctBlends} distinct blends, and the blending model has ${sm.mixTerms} terms. The blend effects cannot be separated: widen the mol% ranges, raise the budget, or drop to a linear blending model.</div>`
-        : mix && sm.distinctBlends < sm.mixTerms + 2 ? `<div class="muted" style="margin-top:4px">${sm.distinctBlends} distinct blends for a ${sm.mixTerms}-term blending model — just enough. Another blend or two would give the blend effects some room.</div>` : ''}
-      ${mix && !ds.budget && sm.runs > 40 ? `<div class="note warn">No run budget set, so every one of the ${sm.poolSize} candidate blends becomes a batch. That is a candidate pool, not an experiment — set a budget (${suggestedBudget(ds)} would fit this model with 5 runs to spare).</div>` : ''}`;
+        : mix && sm.distinctBlends < sm.mixTerms + 2 ? `<div class="muted" style="margin-top:4px">${sm.distinctBlends} distinct blends for a ${sm.mixTerms}-term blending model, just enough. Another blend or two would give the blend effects some room.</div>` : ''}
+      ${mix && !ds.budget && sm.runs > 40 ? `<div class="note warn">No run budget set, so every one of the ${sm.poolSize} candidate blends becomes a batch. That is a candidate pool, not an experiment, set a budget (${suggestedBudget(ds)} would fit this model with 5 runs to spare).</div>` : ''}`;
   }
   /**
    * The design as a picture, pinned beside the wizard while it is filled in: the cube, square or triangle of
@@ -629,10 +629,10 @@ function wizard(el, ctx, ref, settings, type) {
         ${field({ id: 'name', label: 'Name', type: 'text', value: state.name, placeholder: `${T.name} …` })}
         ${field({ id: 'startDate', label: 'Start (day 0 = production)', type: 'date', value: state.startDate })}
         ${!['comparison', 'stability'].includes(type) ? field({ id: 'compositionId', label: 'Composition', type: 'select', value: state.compositionId, options: compOpts }) : ''}
-        ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: state.stockId, options: [{ value: '', label: '— choose later —' }, ...stocks.map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}, ${fmt(s.molarity_mM, 1)} mM)${ftTag(s, settings.ftWarnCycles)}` }))] })}
+        ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: state.stockId, options: [{ value: '', label: 'Choose later' }, ...stocks.map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}, ${fmt(s.molarity_mM, 1)} mM)${ftTag(s, settings.ftWarnCycles)}` }))] })}
         ${field({ id: 'cargo', label: 'Cargo', type: 'select', value: state.cargo, options: CARGO_TYPES.map((c) => ({ value: c.id, label: c.label })),
           hint: `N/P with ${cargoInfo(state.cargo).massPerPhosphate} g/mol per phosphate; typical N/P about ${cargoInfo(state.cargo).defaultNP}` })}
-        ${field({ id: 'rnaLotId', label: `${cargoLabel(state.cargo)} lot`, type: 'select', value: state.rnaLotId, options: [{ value: '', label: '— choose later —' }, ...ref.pick('rnaLots', state.rnaLotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` }))] })}
+        ${field({ id: 'rnaLotId', label: `${cargoLabel(state.cargo)} lot`, type: 'select', value: state.rnaLotId, options: [{ value: '', label: 'Choose later' }, ...ref.pick('rnaLots', state.rnaLotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` }))] })}
         ${state.mode === 'quick'
           ? field({ id: 'volume_mL', label: 'Volume to formulate (mL)', value: state.volume_mL, step: 0.5, min: 0, hint: quickHint() })
           : field({ id: 'rna_mg', label: 'RNA per batch (mg)', value: state.rna_mg, step: 0.1 })}
@@ -719,7 +719,7 @@ function wizard(el, ctx, ref, settings, type) {
       const cRow = (c, i) => {
         const lip = ref.lipidByKey?.[c.lipidKey];
         return { cells: [
-          raw(`<select name="doe_c_lipidKey_${i}" style="min-width:210px">${c.lipidKey ? '' : '<option value="">— choose a lipid —</option>'}${lipidOpts.map((o) => `<option value="${o.value}" ${o.value === c.lipidKey ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
+          raw(`<select name="doe_c_lipidKey_${i}" style="min-width:210px">${c.lipidKey ? '' : '<option value="">Choose a lipid…</option>'}${lipidOpts.map((o) => `<option value="${o.value}" ${o.value === c.lipidKey ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
           raw(lip ? `<span class="chip">${esc(lip.class)}</span>` : '<span class="muted">–</span>'),
           raw(`<input type="number" step="any" min="0" name="doe_c_lo_${i}" value="${c.lo ?? ''}" style="width:84px">`),
           raw(`<input type="number" step="any" min="0" name="doe_c_hi_${i}" value="${c.hi ?? ''}" style="width:84px">`),
@@ -736,14 +736,14 @@ function wizard(el, ctx, ref, settings, type) {
 
       const lipidCard = !isMix ? '' : `<h2 style="margin-top:14px">Lipids in the blend ${info('mixture')}</h2>
         <p class="muted">Pick the lipids and the mol% range each may take. Any number from two upwards, and more
-          than one lipid of the same class is fine — a blend of two ionizable lipids is a question this design
+          than one lipid of the same class is fine, a blend of two ionizable lipids is a question this design
           can answer and a class-based factor cannot. The blend always adds up to ${fmt(total, 0)} mol%, so the
           runs below are the compositions that span your ranges, not every combination of them.</p>
         ${table(['Lipid', 'Class', `Lowest (mol%)`, 'Highest (mol%)', ''], d.components.map(cRow), { empty: 'Add at least two lipids.' })}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <button id="addComp" style="padding:4px 10px">+ Add lipid</button>
           <button id="fromComposition" style="padding:4px 10px" title="take the lipids and ±30 % ranges from the composition chosen above">From composition #${state.compositionId}</button>
-          <span class="muted">Lower bounds add to <b>${fmt(sumLo, 1)}</b>, upper to <b>${fmt(sumHi, 1)}</b>${straddles ? '' : ` — they must straddle ${fmt(total, 0)}`}</span>
+          <span class="muted">Lower bounds add to <b>${fmt(sumLo, 1)}</b>, upper to <b>${fmt(sumHi, 1)}</b>${straddles ? '' : `, they must straddle ${fmt(total, 0)}`}</span>
         </div>
         <div class="grid g4" style="margin-top:10px">
           ${field({ id: 'doe_mixtureKind', label: 'Blend design', type: 'select', value: d.mixtureKind, options: Object.entries(MIXTURE_KINDS).map(([id, x]) => ({ value: id, label: x.name })) })}
@@ -1157,8 +1157,8 @@ function detail(el, ctx, ref, settings, id) {
   // left to act on and is not shown.
   const bulkBar = stage.planned ? `<div class="bulkbar" id="bulkBench">
       <button id="markAllProduced" data-bulk="produced" ${stage.planned ? '' : 'disabled'} title="${stage.planned ? `Set the ${stage.planned} planned formulation${stage.planned === 1 ? '' : 's'} to produced` : 'Nothing is still planned'}">Mark all produced</button>
-      <span class="bulk-group"><label class="inline" for="bulkStock">Lipid stock for all</label><select id="bulkStock"><option value="">— choose —</option>${stockOpts}</select><button id="applyStock">Apply</button></span>
-      <span class="bulk-group"><label class="inline" for="bulkRna">RNA lot for all</label><select id="bulkRna"><option value="">— choose —</option>${rnaOpts}</select><button id="applyRna">Apply</button></span>
+      <span class="bulk-group"><label class="inline" for="bulkStock">Lipid stock for all</label><select id="bulkStock"><option value="">Choose…</option>${stockOpts}</select><button id="applyStock">Apply</button></span>
+      <span class="bulk-group"><label class="inline" for="bulkRna">RNA lot for all</label><select id="bulkRna"><option value="">Choose…</option>${rnaOpts}</select><button id="applyRna">Apply</button></span>
     </div>` : '';
 
   // Repeating opens the wizard filled in from this experiment, to change what the repeat is for before
