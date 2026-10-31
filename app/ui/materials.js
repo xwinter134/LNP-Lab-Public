@@ -1097,8 +1097,10 @@ function descriptorCard(ref) {
       : raw(`<input type="number" data-desc="${esc(l.key)}" name="${esc(f.key)}" step="${f.step}" value="${v ?? ''}" style="width:78px">`);
   };
   return `<div class="card" id="descriptorCard"><h2>Lipid descriptors for the optimizer</h2>
-    <p class="muted">The descriptor mode describes each ionizable lipid by these numbers. It opens from about 20 lipids with descriptors and runs. Computing them from a SMILES string needs RDKit.js, which is not part of this version; enter them from the literature or the supplier.</p>
-    ${table(['Lipid', ...DESCRIPTORS.map((f) => `${f.name}${f.unit ? ` (${f.unit})` : ''}`)], ion.map((l) => ({ cells: [raw(`<b>${esc(l.name)}</b>`), ...DESCRIPTORS.map((f) => cell(l, f))] })))}</div>`;
+    <p class="muted">The descriptor mode describes each ionizable lipid by these numbers. It opens from about 20 lipids with descriptors and runs. The structure is kept once per lipid as a SMILES string, for the record and for a later version that computes the descriptors from it; computing them needs RDKit.js, which is not part of this version, so enter the numbers from the literature or the supplier.</p>
+    ${table(['Lipid', 'SMILES', ...DESCRIPTORS.map((f) => `${f.name}${f.unit ? ` (${f.unit})` : ''}`)], ion.map((l) => ({ cells: [raw(`<b>${esc(l.name)}</b>`),
+      raw(`<input type="text" data-desc="${esc(l.key)}" name="smiles" value="${esc(l.smiles || '')}" spellcheck="false" autocomplete="off" placeholder="e.g. CCCCCCCC…" style="width:180px;font-family:var(--mono, monospace)" aria-label="SMILES of ${esc(l.name)}">`),
+      ...DESCRIPTORS.map((f) => cell(l, f))] })))}</div>`;
 }
 
 function wireDescriptors(body, ctx, ref) {
@@ -1107,6 +1109,15 @@ function wireDescriptors(body, ctx, ref) {
     if (!t) return;
     const key = t.dataset.desc, l = ref.lipidByKey[key];
     const stored = ctx.store.get('lipids', key) || ctx.store.all('lipids').find((x) => x.key === key) || { id: key, key };
+    if (t.name === 'smiles') {
+      // Kept as typed; only what no SMILES string can contain is refused (spaces inside, letters outside the
+      // element symbols and the bracket syntax are left to the chemistry that reads it later).
+      const sm = t.value.trim();
+      if (sm && !/^[A-Za-z0-9@+\-\[\]()=#$%:./\\*]+$/.test(sm)) { toast('A SMILES string has no spaces or other characters outside its notation', 'warn'); return; }
+      ctx.store.put('lipids', { ...stored, smiles: sm || null });
+      toast(`${l?.name || key}: SMILES saved`, 'ok');
+      return;
+    }
     const v = t.type === 'number' ? (t.value === '' ? null : Number(t.value)) : t.value || null;
     const descriptors = { ...(l?.descriptors || {}), ...(stored.descriptors || {}), [t.name]: v };
     ctx.store.put('lipids', { ...stored, descriptors });

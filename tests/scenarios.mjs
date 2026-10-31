@@ -6354,3 +6354,35 @@ export async function beforeUpdatesTrashAndStudies({ page, open }) {
   }
 }
 scenarios.push(componentsArchivedWhenUsed, bufferLotsAndCatalogCodes, provenanceSymbolOpensDetails, beforeUpdatesTrashAndStudies);
+
+/**
+ * Spec 7.3.2: the structure of each ionizable lipid is kept once, as a SMILES string, on the descriptor card
+ * (shown with the descriptor mode switched on); text no SMILES can be is refused.
+ */
+export async function lipidSmilesIsKept({ page, open }) {
+  const was = { settings: await readCol(page, 'settings'), lipids: await readCol(page, 'lipids') };
+  try {
+    const s = was.settings.find((x) => x.id === 'default') || { id: 'default' };
+    await writeCol(page, 'settings', [...was.settings.filter((x) => x.id !== 'default'), { ...s, mlDescriptors: true }]);
+    await open('materials?tab=lipids');
+    await page.waitForSelector('#descriptorCard input[name=smiles]', { timeout: 5000 });
+    const key = await page.$eval('#descriptorCard input[name=smiles]', (i) => i.dataset.desc);
+    const smiles = 'CCCCCCCCC(CCCCCCCC)CCCCCCC(=O)OCCCCCCN(CCO)CCCCCCC(=O)OCCCCCCCCCCC';
+    await page.fill(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'not a smiles');
+    await page.dispatchEvent(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'change');
+    await page.waitForTimeout(200);
+    if ((await readCol(page, 'lipids')).some((l) => l.key === key && l.smiles)) throw new Error('text with spaces was kept as a SMILES');
+    await page.fill(`#descriptorCard input[name=smiles][data-desc="${key}"]`, smiles);
+    await page.dispatchEvent(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'change');
+    await page.waitForTimeout(200);
+    const stored = (await readCol(page, 'lipids')).find((l) => l.key === key);
+    if (stored?.smiles !== smiles) throw new Error(`the SMILES was not kept: ${JSON.stringify(stored)}`);
+    await open('materials?tab=lipids');
+    await page.waitForSelector('#descriptorCard input[name=smiles]', { timeout: 5000 });
+    const shown = await page.$eval(`#descriptorCard input[name=smiles][data-desc="${key}"]`, (i) => i.value);
+    if (shown !== smiles) throw new Error('the SMILES is not shown again');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+scenarios.push(lipidSmilesIsKept);
