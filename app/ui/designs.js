@@ -14,10 +14,12 @@
 // text across the window, so move the arrow to the left"): its arrow sits on the left of its label, at the left
 // edge of the tile; opened, the tile takes the whole width of the catalogue and the four parts of the text sit
 // side by side rather than in a narrow column under the figure; and every visit starts with all of them closed.
-import { header, esc, field, chip } from './kit.js';
-import { CATEGORIES, CATALOG, runsFor, fitsFactors, setupLink } from '../calc/designs.js';
+import { raw, header, esc, table, field, chip } from './kit.js';
+import { CATEGORIES, CATALOG, runsFor, fitsFactors, setupLink, ANIMAL_STUDY, ANIMAL_WELFARE_NOTICE } from '../calc/designs.js';
 import { catalogueFigure, catalogueLegend } from './designviz.js';
 import { info, wireLearn } from './learn.js';
+import { getSettings } from '../refdata.js';
+import { animalPlanEnabled } from '../calc/bio.js';
 
 const FACTOR_CHOICES = [2, 3, 4, 5];
 
@@ -56,10 +58,17 @@ export async function render(el, ctx) {
         ${factors.length ? `<div class="muted dc-fit">From the planner: ${factors.length} factors, carried into whichever design you set up.</div>` : ''}
       </div>
       ${CATEGORIES.map((c) => section(c, counted, budget, k, factors)).join('')}
+      ${animalCard(ctx)}
     </div>`;
 
   const root = el.querySelector('#catRoot');
   wireLearn(root);
+  // The animal study opens its notice; "Create plan" stays disabled while the flag is off (spec 8.6).
+  el.querySelector('#animalStudy')?.addEventListener('click', (e) => {
+    if (e.target.closest('#animalPlan')) return;
+    const n = el.querySelector('#welfareNotice');
+    if (n) { n.hidden = !n.hidden; el.querySelector('#animalStudy').setAttribute('aria-expanded', String(!n.hidden)); }
+  });
   root.addEventListener('toggle', (e) => {
     const d = e.target.closest?.('details[data-entry]'); if (!d) return;
     if (d.open) opened.add(d.dataset.entry); else opened.delete(d.dataset.entry);
@@ -109,4 +118,29 @@ function tile({ e, runs, fits }, budget, k, factors) {
       </div>
     </details>
   </article>`;
+}
+
+const LOCK = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="4" y="9" width="12" height="8.5" rx="2" fill="currentColor" fill-opacity=".18"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg>';
+
+/**
+ * The animal study module (spec 8.6): greyed, with a lock, showing the structure a plan would have and the idea
+ * behind it. A click opens the animal-welfare notice, a placeholder for Gholan's own text (11.3). "Create plan"
+ * is disabled while settings.flags.animalStudyPlan is off, which it is, with no switch in Settings. Shown only
+ * when an in-vivo layer is on, so a lab that does not record animal data sees the catalogue as before.
+ */
+function animalCard(ctx) {
+  const s = getSettings(ctx);
+  if (!s.bio?.invivo && !s.bio?.biodist && !s.bio?.tropism) return '';
+  const can = animalPlanEnabled(s);
+  const W = ANIMAL_WELFARE_NOTICE;
+  return `<div class="card" id="animalStudyCard"><h2>In vivo</h2>
+    <div id="animalStudy" role="button" tabindex="0" aria-expanded="false" aria-controls="welfareNotice" style="opacity:.6;cursor:pointer;border:1px dashed var(--line-strong);border-radius:10px;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="color:var(--ink2)">${LOCK}</span><b>${esc(ANIMAL_STUDY.name)}</b> ${chip('locked')}<span class="muted" style="flex:1">${esc(ANIMAL_STUDY.what)}</span>
+        <button type="button" id="animalPlan" ${can ? '' : 'disabled'} title="${can ? 'Create a plan' : 'Not available: in-vivo planning is switched off'}">Create plan</button></div>
+      ${table(['Part of the plan', 'What it would hold'], ANIMAL_STUDY.structure.map(([a, b]) => ({ cells: [a, b] })))}
+      <p class="muted" style="margin-bottom:0"><b>The idea:</b> ${esc(ANIMAL_STUDY.idea)} Click for the notice on animal welfare.</p>
+    </div>
+    <div id="welfareNotice" class="note warn" hidden style="margin-top:10px"><b>${esc(W.title)}</b>
+      <ul style="margin:6px 0">${W.points.map(([a, b]) => `<li><b>${esc(a)}.</b> ${esc(b)}</li>`).join('')}</ul>
+      <div class="muted">${esc(W.note)}</div></div></div>`;
 }

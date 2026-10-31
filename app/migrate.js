@@ -13,7 +13,7 @@
 // better left strange than renamed into a collision.
 import { experimentId, formulationId, stockId } from './schema.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Does this store still use the old names? */
 function needsRename(store) {
@@ -129,13 +129,68 @@ export function renameToNumberedScheme(store) {
   return { experiments: expMap, batches: batchMap, stocks: stockMap };
 }
 
+/*
+ * Schema 3 (spec 4.4): provenance on every formulation, measurement and composition, and room for the new process
+ * variables on each formulation (plan.conditions, app/calc/variables.js).
+ *
+ * What it writes is only what is known: `provenance.source` is 'manual' on records that were typed in, and
+ * 'instrument-import' with the file name and hash on a measurement that carries them in `raw`. The new process
+ * variables are left empty (an empty plan.conditions), because a buffer's pH or a mixer that was never recorded
+ * is not something to fill in for the user. The ionizable lipid and "PEG-free" need no field at all: they are
+ * read from the composition whenever they are needed.
+ *
+ * Idempotent: a record that already has a provenance, or a plan.conditions, is left exactly as it is, so running
+ * it twice changes nothing the second time.
+ */
+export function addProvenanceAndProcess(store) {
+  const counts = { batches: 0, measurements: 0, compositions: 0 };
+  // Whole collections through replace(), in their order, rather than put() record by record: put() stamps
+  // updatedAt, and a migration is not an edit. Every formulation would otherwise read as changed on the day of
+  // the update, which the "last changed" lists and the backup reminder would then report.
+  const each = (col, fix) => {
+    const rows = store.all(col);
+    let changed = false;
+    const next = rows.map((r) => { const n = r && typeof r === 'object' ? fix(r) : r; if (n !== r) { changed = true; counts[col]++; } return n; });
+    if (changed) store.replace(col, next);
+  };
+  each('batches', (b) => {
+    let next = b;
+    if (!b.provenance) next = { ...next, provenance: { source: 'manual' } };
+    if (b.plan && typeof b.plan === 'object' && !b.plan.conditions) next = { ...next, plan: { ...next.plan, conditions: {} } };
+    return next;
+  });
+  each('measurements', (m) => (m.provenance ? m : { ...m, provenance: m.raw?.sha256 ? { source: 'instrument-import', file: { name: m.raw.fileName || null, sha256: m.raw.sha256 } } : { source: 'manual' } }));
+  each('compositions', (c) => (c.provenance ? c : { ...c, provenance: { source: 'manual' } }));
+  return counts;
+}
+
+// The collections a pre-migration backup holds: every one a backup file would, read from the store itself.
+const BACKUP_SKIP = new Set(['trash', 'preMigration']);
+
+/**
+ * A copy of every collection, kept in the store before a migration writes (spec 4.4): {id: 'v2-<time>', from,
+ * to, at, data: {collection: rows}}. In the store rather than a download because the migration runs at start-up
+ * without asking, and a dialog then would be in the way; Settings lists it, and Restore works from it like from a
+ * backup file. Only the most recent two are kept, so a lab that updates often does not carry every one.
+ */
+export function backupBeforeMigration(store, from, to, now = new Date(), collections = null) {
+  const cols = collections || (typeof store.exportAll === 'function' ? Object.keys(store.exportAll().collections) : []);
+  const data = {};
+  for (const c of cols) if (!BACKUP_SKIP.has(c)) data[c] = store.all(c);
+  const rec = { id: `v${from}-${now.toISOString()}`, from, to, at: now.toISOString(), data };
+  const kept = store.all('preMigration').sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 1);
+  store.replace('preMigration', [...kept, rec]);
+  return rec;
+}
+
 /**
  * Run whatever this store still needs. Safe to call on every load: it checks before it writes, and a store
  * already at the current version is untouched.
  *
- * The rename is one transaction, and the version is recorded only once the renamed records are stored. The
- * store writes in the background now: a rename that cannot be stored is undone, and recording the version
- * regardless would leave the old names in place for good, with nothing ever trying again.
+ * Each step is one transaction, and the version is recorded only once its records are stored. The store writes
+ * in the background: a migration that cannot be stored is undone, and recording the version regardless would
+ * leave the old records in place for good, with nothing ever trying again. Before anything is changed, a copy of
+ * every collection is kept in the same transaction (backupBeforeMigration).
  */
 export function migrate(store) {
   const key = `${store.ns}.schemaVersion`;
@@ -143,6 +198,12 @@ export function migrate(store) {
   try { at = Number(localStorage.getItem(key)) || 0; } catch {}
   if (at >= SCHEMA_VERSION) return null;
   const done = () => { try { localStorage.setItem(key, String(SCHEMA_VERSION)); } catch {} };
-  if (!needsRename(store)) { done(); return null; }
-  return store.transaction(() => renameToNumberedScheme(store), { what: 'the renumbering of older records', onSaved: done });
+  const empty = !store.all('batches').length && !store.all('measurements').length && !store.all('compositions').length && !store.all('experiments').length;
+  if (empty) { done(); return null; }
+  return store.transaction(() => {
+    backupBeforeMigration(store, at || 1, SCHEMA_VERSION);
+    const renamed = needsRename(store) ? renameToNumberedScheme(store) : null;
+    const added = addProvenanceAndProcess(store);
+    return { renamed, added };
+  }, { what: 'the update of older records', onSaved: done });
 }

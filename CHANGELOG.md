@@ -6,6 +6,80 @@ starts at 0.15.0; the entries before it describe how the app got there.
 
 The version you are running is shown at the foot of the sidebar.
 
+## 0.16.0: the next stage: Data, an optimizer that says what it rests on, old data in, and the biology
+
+The specification "LNP Lab: Spezifikation der nächsten Ausbaustufe", phases 1 to 6. Everything new is off until
+switched on in Settings, except the breadcrumbs, the Data screen and the optimizer's panel; with nothing switched on
+the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OPEN-POINTS.md`.
+
+**Finding your way** (spec 9.1)
+- **A trail under every title** (Plan › Plan an experiment › Questions › …), each step a link, with a Back arrow
+  beside it. Cmd+[ and Cmd+] (Ctrl elsewhere) and the mouse's back and forward buttons work in the Mac app too.
+
+**Buffers and materials** (spec 9.2, 9.5)
+- The role "Formulation" is now **Final / Storage**; older lots read the new word. New lots are named by code, pH
+  and date (`CIT50-pH4.0-20261031`, then `-2`); the code is suggested from the recipe and editable, and every
+  catalogue buffer has one. Older lots keep their Buffer-NNN name, and every new lot keeps its Buffer number as its
+  record id, so every formulation and process still finds its lot. The lots are one row per buffer, opening into
+  a table of its lots, with tabs by role.
+- **Archive instead of refuse.** A lipid a recipe uses and a composition formulations read their recipe from could
+  not be deleted; the question now offers to archive them: hidden from lists and pickers, kept for the records
+  that use them, restored under **Archived** on Materials. A buffer lot formulations name is archived the same way.
+
+**The data model** (spec 4)
+- **Process conditions** on each formulation: what 0.15 does not already record (ethanol share, temperature at
+  mixing, cryoprotectant and its concentration, the final RNA concentration) is typed there; what the process
+  designer, the RNA lot and the composition say (loading buffer, pH and strength, mixer and its type, downstream,
+  target buffer, sterile filtration, cargo, ionizable lipid, PEG-free) is shown, not asked again.
+- **Where each record came from:** formulations, results and compositions carry their source (typed in,
+  instrument file with its name and hash, imported tables with file, sheet and row).
+- The update to this version adds the source and an empty conditions record to older records, guesses nothing,
+  marks none as edited, and keeps a copy of every record first. `scripts/migration-check.mjs` checks this on a
+  copy of any database file.
+
+**Data** (spec 5)
+- A new screen with every formulation, filtered like a shop: facets with counts (lipids by class and PEG-free,
+  buffer, pH, mixer type, downstream, cargo, experiment, period, operator, source and import, what was measured,
+  size and PDI) and free text through the search. Above, the selection's numbers; in the middle a sortable table
+  with columns to choose; on the right the distributions, whose bars filter, and how complete each field is.
+- Every filter is in the address. **Use in optimizer** hands the selection over in words; **CSV** and **XLSX**
+  export it; **Save view** puts it in the sidebar, and two views can be compared. 10,000 formulations filter in
+  well under the 200 ms the spec allows.
+
+**Optimizer** (spec 7)
+- A **Data and model** panel above the **Data used** card: one ionizable lipid and one mixer type at a time (the
+  combination with most data first, unless you chose another), a data budget above 400 runs (100–800), the lipid
+  mode (one model per lipid, a lipid kernel in which lipids learn from each other, descriptors behind a switch, or
+  chosen by cross-validation), why each formulation is in or out, and a map of the runs used.
+- A **fingerprint** on every round; **Reproduce** repeats a round and says whether it matches; the experiment
+  report prints it. **Prediction against measurement** holds each measured suggestion against its interval.
+- Loading buffer pH and molarity can be freed as factors. The noise prior no longer lets a fit without replicates
+  explain noise as structure; the stop rule says it was calibrated on a simulated lab. Fitting is about three
+  times faster at 300 runs. `npm run history` replays a finished campaign.
+
+**Bringing in old data** (spec 6, 10, 11.2)
+- `docs/HISTORICAL-DATA.md` and `scripts/import-tidy.mjs`: three tidy tables in, a quality report, a quarantine of
+  refused rows with reasons, and an import file out; nothing guessed, nothing imported twice.
+- An optional **MCP server** (`mcp/`) for Claude Desktop or Claude Code: Claude maps old sheets, the server checks
+  every row with the app's rules and writes only after you approve the report, in the Mac app only while LNP Lab
+  is closed. **Quarantine** holds refused rows to fix; **Settings › Imports** undoes an import whole.
+- **Claude insights** (personal build only), through the same server, since a third-party app may not sign in
+  with a Claude account. With either switched on, Claude reads the lab data; the switch says so the first time.
+
+**Entering and troubleshooting** (spec 9.3, 9.4)
+- **Results as a grid** of an experiment's formulations on Measurements (a switch), beside the data sheet of
+  Design & results: three replicates in a cell, a block pasted from Excel, warnings in colour, one Save with Undo.
+- **A troubleshooting assistant** (a switch): the batch's context, the causes weighed with reasons, your similar
+  batches, and a small experiment plan created in one click.
+
+**Biology** (spec 8)
+- Four layers, each switched on by itself (in vitro, in vivo potency, biodistribution, cell tropism): studies with
+  groups, a reference and controls; values typed, from plate reader exports or from IVIS images; results
+  normalised to the reference and tested against it with the effect size always shown.
+- **IVIS images:** the mice are found on the photograph and measured with the instrument's calibration
+  (`docs/BLI-BENCHMARK.md`: r = 0.90 against published values on 354 mice). The animal study module is shown in
+  the design catalogue but locked.
+
 ## 0.15.0: siRNA or mRNA, one view, a real 3D surface, Insights you can ask anything
 
 From the user's second review (October 2026).

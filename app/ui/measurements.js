@@ -7,6 +7,7 @@
 // import card and the manual form are one line each until they are used; and the results list is filtered and
 // paged, and since cycle 5 one line (how many, how many flagged, the last added) until it is opened.
 import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask } from './kit.js';
+import { provenanceLine } from '../calc/provenance.js';
 import { parseISO } from '../calc/dates.js';
 import { getSettings } from '../refdata.js';
 import { info, wireLearn } from './learn.js';
@@ -19,6 +20,8 @@ import { mountImportEval, linkAssignedToImport } from './importeval.js';
 import { GRID_FIELDS, cellNumber, saveMeasurement, gridHtml, wireGrid } from './resultgrid.js';
 
 export { saveMeasurement };
+import { entryCard, wireEntry, previewCellHtml } from './entrygrid.js';
+import { COLUMN_BY_ID, GRID_COLUMNS } from '../calc/gridentry.js';
 
 /**
  * The tests a table can be imported as, and the columns the preview shows for each. The preview used to show
@@ -135,6 +138,9 @@ export async function render(el, ctx) {
           <textarea id="pasteBox" rows="5" placeholder="Sample Name,Z-Average (d.nm),PdI&#10;E3-F2_final,82.4,0.08"></textarea>
           <button id="pasteGo">Read what I pasted</button></details></div>
       <div id="importPreview"></div></div>` +
+    // Spec 9.3, behind its setting: the grid of an experiment's formulations, above the one-result form, which
+    // stays for what a grid cell cannot hold (potency with its cell line, remarks, a file reference).
+    (settings.entryGrid ? entryCard(ctx, settings, experiments, batches, stored) : '') +
     manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today) +
     (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${r.sampleName}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">—</option>${openSlots.map((s) => `<option value="${s.id}">${s.sampleName} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
     resultsCard(measurements, experiments, filters, filterBatch, added);
@@ -145,6 +151,8 @@ export async function render(el, ctx) {
 
   // ---- what is due ----
   wireDue(el, ctx, settings, lines, w, openSlots);
+
+  if (settings.entryGrid) wireEntry(el, ctx, settings, experiments, batches, stored, { save: (m) => saveMeasurement(ctx, settings, m), redraw: () => render(el, ctx) });
 
   // ---- manual entry ----
   const body = el.querySelector('#manualBody');
@@ -316,12 +324,24 @@ export async function render(el, ctx) {
     let again = false;
     // Rows read from several names (E3-F2_final 1, 2 and 3) say so under the name, so a person sees what was averaged.
     const FROM_SHOWN = 6;
+    // Spec 9.3: with the results grid on, the preview's numbers are drawn as the grid draws them, replicates and
+    // colours included, so a file read in and a sheet typed in look the same. Only the drawing changes: what is
+    // matched, ticked, refused and stored is decided above, as before.
+    const gridLook = !!settings.entryGrid;
+    const gridCell = (test, c, p) => {
+      const col = GRID_COLUMNS.find((x) => x.test === test && x.key === c.key);
+      if (!col) return esc(fmt(p.s[c.key], c.d));
+      const bad = p.check.errors.filter((e) => e.key === c.key).map((e) => e.text);
+      const warn = [...p.check.warnings.filter((w) => w.key === c.key).map((w) => w.text),
+        ...p.flags.filter((f) => f.level === 'warn' && f.text.toLowerCase().startsWith(COLUMN_BY_ID[col.id].label.toLowerCase())).map((f) => f.text)];
+      return previewCellHtml(p.values, col.id, bad.length ? 'bad' : warn.length ? 'warn' : '', bad.length ? bad : warn);
+    };
     const fromNames = (r) => (r.names.some((x) => x !== r.sampleName) ? `<div class="muted runsOf" style="font-size:11px">from ${r.names.slice(0, FROM_SHOWN).map(esc).join(', ')}${r.names.length > FROM_SHOWN ? ` and ${r.names.length - FROM_SHOWN} more` : ''}</div>` : '');
     const body = rows.map((r, i) => {
       const cells = groups.map((g) => g.cols.map((c, j) => {
         const p = r.per[g.test];
         const cls = [j === 0 && multi ? 'g0' : '', p?.has && p.check.errors.length ? 'refused' : ''].filter(Boolean).join(' ');
-        return `<td class="${cls}" style="text-align:right">${esc(fmt(p?.s[c.key], c.d))}</td>`;
+        return `<td class="${cls}" style="text-align:right">${gridLook && p ? gridCell(g.test, c, p) : esc(fmt(p?.s[c.key], c.d))}</td>`;
       }).join('')).join('');
       const qc = r.withValue.flatMap((t) => { const p = r.per[t]; return [...p.check.errors.map((e) => chip(e.text, 'bad')), ...p.check.warnings.map((w) => chip(w.text, 'warn')), ...p.flags.map((f) => chip(f.text, f.level === 'warn' ? 'warn' : 'info'))]; }).join(' ') || chip('ok', 'ok');
       return `<tr ${r.refused.length && !r.ok.length ? 'class="refused"' : ''} data-row="${i}"><td><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>${fromNames(r)}</td><td>${targetCell(r, i)}</td>${cells}<td style="text-align:right">${r.n}</td><td>${qc}</td><td><input type="checkbox" data-imp="${i}" ${r.ok.length && !dup ? 'checked' : ''} style="width:auto"></td></tr>`;
@@ -354,7 +374,7 @@ export async function render(el, ctx) {
     const when = el.querySelector('#importDate')?.value || todayISO(), who = el.querySelector('#importOperator')?.value ?? settings.operator ?? '';
     el.querySelector('#importPreview').innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 6px"><b>${esc(file.name)}</b><span class="muted" id="importReadAs">${readAs} · ${parsed.rows.length} row${parsed.rows.length === 1 ? '' : 's'} → ${samples.length} sample${samples.length === 1 ? '' : 's'} · SHA-256 ${hash.slice(0, 8)}…</span>${chip(`${matched} matched`, 'ok')} ${chip(`${rows.length - matched} unmatched`, rows.length - matched ? 'warn' : '')}${refusedRows.length ? ' ' + chip(`${refusedRows.length} refused`, 'bad') : ''}</div>
       ${dupHtml}${missingHtml}${apartHtml}
-      <div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      <div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}${gridLook ? ' egrid' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>
       ${refusedNote ? `<div class="note warn">${refusedNote}</div>` : ''}
       <div class="impGo"><button class="primary" id="doImport">Import selected</button>
         <label class="inline">measured <input type="date" id="importDate" value="${esc(when)}" aria-label="Date measured, unless the file gives one"></label>
@@ -449,6 +469,7 @@ function detail(el, ctx, settings, id) {
     `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', m.operator || '–'], ['Stage', m.stage || '–'], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
       ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${f.text}</div>`).join('')}
       <div id="resultValues">${valuesView(m)}</div>
+      <p class="muted">Source: ${esc(provenanceLine(m))}</p>
       ${m.raw ? `<p class="muted">Raw: ${m.raw.fileName || ''} ${m.raw.sha256 ? '· SHA-256 ' + m.raw.sha256.slice(0, 16) + '…' : ''} ${m.raw.parser ? '· parser ' + m.raw.parser + ' v' + m.raw.parserVersion : ''}</p>` : ''}
       ${m.remarks ? `<p>${m.remarks}</p>` : ''}</div>`;
   el.querySelector('#editResult').addEventListener('click', () => {

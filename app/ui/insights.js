@@ -19,6 +19,7 @@ import { processOf } from '../calc/process.js';
 import { PAGE_ROWS, moreLine, focusFirstNew } from './pager.js';
 import { wireFigures, SERIES } from './charts.js';
 import { customDefs, saveCustomDefs, newCustomId, customField, customInput, setCustom } from './customparams.js';
+import { claudeReportCard } from './claudereport.js';
 
 const RESPONSES = { zave_nm: { test: 'dls', label: 'Z-average (nm)' }, pdi: { test: 'dls', label: 'PDI' }, ee_pct: { test: 'ee', label: 'EE (%)' }, zeta_mV: { test: 'zeta', label: 'Zeta (mV)' } };
 const CLASSES = ['ionizable', 'helper', 'sterol', 'peg'];
@@ -413,7 +414,7 @@ export async function render(el, ctx) {
   const customSay = defs.length ? `${defs.length} defined: ${defs.map((d) => d.name).join(', ')}; filled in on ${ctx.store.all('batches').filter((b) => defs.some((d) => b.custom?.[d.id] != null && b.custom[d.id] !== '')).length} formulations` : 'none yet: add your own, such as a lipid mix number or a room temperature';
 
   const sel = (id, label, value, options) => field({ id, label, type: 'select', value, options });
-  el.innerHTML = header('Evaluate', 'Insights', `<button id="exportCsv" title="Every formulation as one row: settings, materials, lots, custom parameters and results">Export CSV</button>`) +
+  el.innerHTML = header('Evaluate', 'Insights', `<button id="exportCsv" title="Every formulation as one row: settings, materials, lots, custom parameters and results">Export CSV</button>`) + claudeReportCard(ctx) +
     `<div class="card" id="insightSummary"><h2>What this shows</h2><ul class="drivers">${summary.sentences.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>
     <div class="card"><div class="grid g4" id="filters">
       ${sel('response', 'Response', resp, Object.entries(RESPONSES).map(([k, v]) => ({ value: k, label: v.label })))}

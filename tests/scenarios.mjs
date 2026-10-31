@@ -65,8 +65,8 @@ export async function buffersDesignAndSave({ page, open }) {
   await page.fill('input[name=name]', 'Acetate 50 mM pH 5.5');
   await page.click('#saveBuffer');
   await page.waitForTimeout(200);
-  // lots are numbered in sequence now, not coded
-  await expectText(page, '#bufferList', /Buffer-001/, 'saved buffer lot is numbered');
+  // lots are named code-pH-date (spec 9.2), and keep their Buffer number as well
+  await expectText(page, '#bufferList', /[A-Z0-9]+-pH\d+\.\d-\d{8}/, 'saved buffer lot is named by code, pH and date');
   await expectText(page, '#bufferList', /Acetate 50 mM pH 5\.5/, 'and carries its name');
 }
 
@@ -92,7 +92,7 @@ export async function materialsAddLots({ page, open }) {
   await open('materials?tab=tff');
   await open('materials?tab=consumables');
   // a tab that no longer exists must fall back rather than break the screen
-  await open('materials?tab=mixers');
+  await open('materials?tab=no-such-tab');
   await expectText(page, '#tabBody', /Lipid/, 'an unknown tab falls back to the first one');
 }
 
@@ -3877,7 +3877,7 @@ scenarios.push(createPressedTwiceMakesOne);
 export async function failedCreateKeepsStockAndLot({ page, open }) {
   for (const { hash, field, value, button, col, draftKey, landed, what } of [
     { hash: 'stocks?new=1', field: 'molarity_mM', value: '21.5', button: '#saveStock', col: 'stocks', draftKey: 'lnp-lab.draft.stock', landed: /^#\/stocks\?id=Stock-\d+$/, what: /The new stock Stock-\d+ was undone[\s\S]*press “Create stock” again/ },
-    { hash: 'buffers?new=1', field: 'conc_mM', value: '35', button: '#saveBuffer', col: 'buffers', draftKey: 'lnp-lab.draft.buffer', landed: /^#\/buffers\?id=Buffer-\d+$/, what: /The new lot Buffer-\d+ was undone[\s\S]*press “Save lot” again/ },
+    { hash: 'buffers?new=1', field: 'conc_mM', value: '35', button: '#saveBuffer', col: 'buffers', draftKey: 'lnp-lab.draft.buffer', landed: /^#\/buffers\?id=Buffer-\d+$/, what: /The new lot \S+ \(Buffer-\d+\) was undone[\s\S]*press “Save lot” again/ },
   ]) {
     const before = (await readCol(page, col)).length;
     await open(hash);
@@ -4639,13 +4639,13 @@ export async function aFailedActionIsUndoneWhole({ page, open }) {
     // A new buffer lot: the number the form shows is the number stored, after a press that was undone.
     await go('buffers?new=1');
     await page.waitForSelector('#saveBuffer', { timeout: 3000 });
-    const lot = (await page.locator('#bufferForm').innerText()).match(/Lot:\s*(Buffer-\d+)/)?.[1];
+    const lot = (await page.locator('#bufferForm').innerText()).match(/also (Buffer-\d+)/)?.[1];
     await failing('the lot', () => page.click('#saveBuffer'));
     await go('settings'); // where the note sends the user
     const there = await page.locator('#storageNote').innerText();
     if (/this screen|Save lot/.test(there)) throw new Error(`on Settings the note still speaks of the buffer form: "${there}"`);
     await go('buffers?new=1');
-    const again = (await page.locator('#bufferForm').innerText()).match(/Lot:\s*(Buffer-\d+)/)?.[1];
+    const again = (await page.locator('#bufferForm').innerText()).match(/also (Buffer-\d+)/)?.[1];
     if (again !== lot) throw new Error(`the form showed ${lot}, and after the undone press it shows ${again}`);
     await page.click('#saveBuffer');
     await page.waitForFunction(() => /^#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 3000 });
@@ -4861,11 +4861,21 @@ export async function materialsEditComposition({ page, open }) {
     if (!asked.some((q) => /Change the recipe of composition #\d+[\s\S]*already made[\s\S]*Save as new composition/.test(q))) throw new Error(`no question before changing a used recipe: ${JSON.stringify(asked)}`);
     const edited = (await readCol(page, 'compositions')).find((c) => c.id === copy.id);
     if (edited.mol_pct.DMG0PEG2000 !== 3 || edited.history?.[0]?.mol_pct?.DMG0PEG2000 !== 2.5) throw new Error(`edited composition stored as ${JSON.stringify(edited)}`);
-    // Deleting a recipe a formulation uses is refused.
+    // Deleting a recipe a formulation uses is refused; the question offers to archive it instead (spec 9.5).
+    // Whichever way the question is answered (an earlier scenario may leave a handler that says yes), the
+    // composition stays in the store; archived, it is restored and its editor opened again.
+    const archived0 = await readCol(page, 'archive');
     await page.click(`#tabBody tr.mat-row[data-open="${copy.id}"]`);
     await page.click('[data-editor] [data-act=delete]');
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(150);
     if (!(await readCol(page, 'compositions')).some((c) => c.id === copy.id)) throw new Error('a used composition was deleted');
+    if (!(await page.locator('[data-editor]').count())) {
+      await writeCol(page, 'archive', archived0);
+      // its "Archived … Undo" note goes too, or the next scenario's Undo would press this one
+      await page.evaluate(() => document.querySelectorAll('#toast > *').forEach((n) => n.remove()));
+      await open('materials?tab=compositions');
+      await page.click(`#tabBody tr.mat-row[data-open="${copy.id}"]`);
+    }
     // "Save as new" leaves the original as it was.
     await page.fill(`[data-editor] [name=c_p${iPeg}]`, '1');
     await page.fill(`[data-editor] [name=c_p${iChol}]`, '39');
@@ -5608,7 +5618,9 @@ export async function bufferIonicStrengthAgrees({ page, open }) {
     await expectText(page, '#bufferResult', /what the meter reads/, 'the predicted pH says which scale it is');
     await page.click('#saveBuffer');
     await page.waitForFunction(() => /#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 4000 });
-    const lot = (await page.evaluate(() => location.hash)).split('=')[1];
+    // The address names the record (Buffer-NNN); the lot is offered by the name on the bottle, code-pH-date.
+    const recId = (await page.evaluate(() => location.hash)).split('=')[1];
+    const lot = (await readCol(page, 'buffers')).find((b) => b.id === recId)?.lot || recId;
 
     await open('experiments?new=1&type=single');
     const proc = Number(await page.inputValue('input[name=pr_aq_ionicStrength_mM]'));
@@ -5644,3 +5656,460 @@ export async function feedbackOpensAnIssue({ page, open }) {
   if (!opened.length || new URL(opened[0]).searchParams.get('labels') !== 'enhancement') throw new Error('Settings › Feedback does not open an idea');
 }
 scenarios.push(feedbackOpensAnIssue);
+
+/**
+ * Spec 9.1: "Plan an experiment → Choose a design yourself" had no way back on screen. Every step of the
+ * wizard now shows a trail, and the Back arrow returns one step at a time, then up the trail once history ends.
+ */
+export async function backArrowWalksTheWizard({ page, open }) {
+  await open('advisor');
+  const steps = ['advisor?mode=wizard', 'advisor?mode=wizard&aim=trouble', 'designs'];
+  for (const s of steps) { await open(s); if (!(await page.$('#crumbs'))) throw new Error(`no breadcrumbs on #/${s}`); }
+  const trail = await page.locator('#crumbs').innerText();
+  if (!/Plan[\s\S]*Design catalogue/.test(trail)) throw new Error(`the trail on the design catalogue reads "${trail}"`);
+  for (const want of [steps[1], steps[0], 'advisor']) {
+    await page.click('#crumbBack');
+    await page.waitForFunction((w) => location.hash === '#/' + w, want, { timeout: 3000 }).catch(() => {});
+    const now = await page.evaluate(() => location.hash);
+    if (now !== '#/' + want) throw new Error(`Back went to ${now}, expected #/${want}`);
+  }
+  // Each step's trail links to the step above it, which is where Back goes once there is no history.
+  await open('advisor?mode=wizard&aim=trouble');
+  await page.waitForSelector('#crumbs a', { timeout: 3000 });
+  const crumb = await page.$$eval('#crumbs a', (as) => as.at(-1)?.getAttribute('href'));
+  if (crumb !== '#/advisor?mode=wizard') throw new Error(`the step above "Work out what went wrong" links to ${crumb}`);
+}
+scenarios.push(backArrowWalksTheWizard);
+
+/**
+ * Spec 9.5: a composition formulations read their recipe from cannot be deleted. Delete asks whether to archive
+ * it instead; archived, it leaves the new-experiment picker, shows under "Archived" on Materials, and Restore
+ * brings it back. The formulation keeps its recipe throughout.
+ */
+export async function archiveAComposition({ page, open }) {
+  const was = { compositions: await readCol(page, 'compositions'), batches: await readCol(page, 'batches'), archive: await readCol(page, 'archive') };
+  const accept = (d) => d.accept().catch(() => {}); // another scenario's handler may have accepted it already
+  page.on('dialog', accept);
+  try {
+    const id = Math.max(100, ...was.compositions.map((c) => Number(c.id) || 0)) + 1;
+    await writeCol(page, 'compositions', [...was.compositions, { id, synonym: 'Archive smoke', mol_pct: { MC3: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100 }]);
+    await writeCol(page, 'batches', [...was.batches, { id: 'E991-F1', experimentId: 'E991', compositionId: id, status: 'made', plan: {} }]);
+    await open('materials?tab=compositions');
+    await page.click(`#tabBody tr.mat-row[data-open="${id}"]`);
+    await page.click('[data-editor] [data-act=delete]');
+    await page.waitForFunction((i) => [...document.querySelectorAll('#archivedCard [data-unarchive]')].some((b) => b.dataset.unarchive === `composition|${i}`), id, { timeout: 4000 })
+      .catch(() => { throw new Error(`composition #${id} was not archived`); });
+    if (!(await readCol(page, 'compositions')).some((c) => c.id === id)) throw new Error('the archived composition left the store');
+    await open('experiments?new=1');
+    const offered = await page.$$eval('select[name=compositionId] option', (os) => os.map((o) => o.value));
+    if (offered.includes(String(id))) throw new Error(`archived composition #${id} is still offered for a new experiment`);
+    await open('materials?tab=compositions');
+    await page.click('#archivedCard > summary');
+    await page.click(`#archivedCard [data-unarchive="composition|${id}"]`);
+    // Other records may be archived too (the card then stays); this one's Restore button goes.
+    await page.waitForFunction((i) => !document.querySelector(`#archivedCard [data-unarchive="composition|${i}"]`), id, { timeout: 4000 })
+      .catch(() => { throw new Error('Restore left it archived'); });
+  } finally {
+    page.off('dialog', accept);
+    await writeCol(page, 'compositions', was.compositions);
+    await writeCol(page, 'batches', was.batches);
+    await writeCol(page, 'archive', was.archive);
+  }
+}
+scenarios.push(archiveAComposition);
+
+/**
+ * Spec 4.1: a formulation records what 0.15 does not already know on its "Process conditions" card; what the
+ * process designer, the RNA lot and the composition say is shown there, not asked again. A value out of range
+ * is kept and warned about.
+ */
+export async function processConditionsAreRecorded({ page, open }) {
+  const batch = (await readCol(page, 'batches')).find((b) => b.plan && b.compositionId != null);
+  if (!batch) throw new Error('the earlier scenarios should have left a formulation');
+  await open(`formulation?batch=${batch.id}`);
+  await page.click('#conditionsCard > summary');
+  await page.selectOption('select[name=cond_cryoprotectant]', 'Sucrose');
+  await page.fill('input[name=cond_ethanolPct]', '150');
+  await page.press('input[name=cond_ethanolPct]', 'Tab');
+  await page.waitForFunction(() => /above 100/.test(document.querySelector('#conditionsCard')?.innerText || ''), null, { timeout: 3000 })
+    .catch(() => { throw new Error('an ethanol share of 150 % was not warned about'); });
+  if (!(await page.$('#conditionsCard[open]'))) throw new Error('the card folded on redraw');
+  await expectText(page, '#conditionsCard', /Ionizable lipid[\s\S]*from the composition/, 'the lipid is read from the composition');
+  await page.waitForTimeout(400);
+  const c = (await readCol(page, 'batches')).find((b) => b.id === batch.id)?.plan?.conditions || {};
+  if (c.cryoprotectant !== 'Sucrose' || c.ethanolPct !== 150) throw new Error(`stored conditions: ${JSON.stringify(c)}`);
+  if ((await readCol(page, 'batches')).find((b) => b.id === batch.id)?.plan?.process?.cryoprotectant) throw new Error('a condition was written into the process designer\'s record');
+}
+scenarios.push(processConditionsAreRecorded);
+
+/**
+ * Spec 5: the data overview. A facet click filters and goes into the URL, Back undoes it, the counts stay
+ * shop-style, a bar sets a filter, a saved view appears in the sidebar, and the selection reaches the optimizer.
+ */
+export async function dataOverviewFilters({ page, open }) {
+  await open('data');
+  const total = Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  if (!(total > 0)) throw new Error('the data overview lists no formulations');
+  const first = page.locator('#facets .facet[data-key="ionizable"] .fval').first();
+  if (!(await first.count())) throw new Error('no ionizable lipid facet');
+  const want = Number((await first.locator('.n').innerText()).replace(/\D/g, ''));
+  await first.click();
+  await page.waitForFunction(() => /ionizable=/.test(location.hash), null, { timeout: 3000 });
+  const n = Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  if (n !== want) throw new Error(`the facet said (${want}), the selection holds ${n}`);
+  if (!(await page.$('#vbody tr[data-open]'))) throw new Error('the table is empty');
+  await page.goBack();
+  await page.waitForFunction(() => !/ionizable=/.test(location.hash), null, { timeout: 3000 });
+  // a completeness row lists the formulations that lack the field
+  await page.locator('.hbar.comp').first().click();
+  await page.waitForFunction(() => /missing=/.test(location.hash), null, { timeout: 3000 });
+  // a saved view lands in the sidebar
+  await open('data?mixerType=T-junction');
+  await page.click('#saveView');
+  await page.fill('#viewName', 'Smoke view');
+  await page.click('#viewNameOk');
+  await page.waitForFunction(() => [...document.querySelectorAll('#nav a.sub')].some((a) => /Smoke view/.test(a.textContent)), null, { timeout: 3000 })
+    .catch(() => { throw new Error('the saved view is not in the sidebar'); });
+  // and the selection goes to the optimizer as its data basis
+  await open('data');
+  await page.click('#toMl');
+  await page.waitForSelector('#mlSelection', { timeout: 5000 });
+  const note = await page.locator('#mlSelection').innerText();
+  if (!/formulations?/.test(note)) throw new Error(`the optimizer says: ${note}`);
+}
+scenarios.push(dataOverviewFilters);
+
+/**
+ * Spec 9.3: with "Enter results as a grid" on, an experiment's formulations are rows to type into. Replicates in
+ * one cell, a block pasted out of Excel, a PDI no measurement can have (red, kept in the grid) and an EE below
+ * the QC limit (orange, stored); one Save all, the values stored as an imported DLS result stores them, then Undo.
+ * The import preview draws its cells the same way.
+ */
+export async function resultsGridWithReplicatesPasteAndUndo({ page, open }) {
+  const was = await readCol(page, 'settings');
+  await writeCol(page, 'settings', [...was.filter((s) => s.id !== 'default'), { ...(was.find((s) => s.id === 'default') || { id: 'default' }), entryGrid: true }]);
+  try {
+    await open('experiments?new=1&type=reference');
+    await page.fill('input[name=name]', 'Grid entry smoke');
+    await page.fill('input[name=ref_n]', '3'); await page.dispatchEvent('input[name=ref_n]', 'change');
+    await page.click('#createExp'); await page.waitForTimeout(300);
+    const exp = (await readCol(page, 'experiments')).find((e) => e.name === 'Grid entry smoke');
+    if (!exp || exp.batchIds.length !== 3) throw new Error('the reference experiment for the grid was not created');
+    await open(`measurements?egexp=${exp.id}`);
+    await page.waitForSelector('#entryGrid input.ecell', { timeout: 5000 });
+    const rows = await page.$$eval('#entryGrid tbody tr', (tr) => tr.map((r) => r.dataset.key));
+    if (rows.join() !== exp.batchIds.join()) throw new Error(`the grid's rows are ${rows}, not the formulations ${exp.batchIds}`);
+    const cell = (row, col) => page.locator(`#entryGrid input.ecell[data-row="${row}"][data-colid="${col}"]`);
+    // Three replicates with decimal commas; the mean and SD appear under the cell as it is typed.
+    await cell(0, 'zave').fill('82; 85; 80');
+    await cell(0, 'pdi').fill('0,10; 0,12; 0,11');
+    const sum = await cell(0, 'zave').evaluate((el) => el.nextElementSibling.textContent);
+    if (sum !== '82.3 ± 2.5 (n = 3)') throw new Error(`under the replicates: "${sum}"`);
+    // Enter goes down the column.
+    await cell(0, 'zave').focus(); await page.keyboard.press('Enter');
+    if (!(await cell(1, 'zave').evaluate((el) => el === document.activeElement))) throw new Error('Enter did not go down the column');
+    // A block out of Excel, pasted into row 2's Z-ave: two lines of Z-ave, PDI and EE.
+    await cell(1, 'zave').evaluate((el, text) => {
+      const dt = new DataTransfer(); dt.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, '90\t0.15\t95\r\n91\t1.4\t70\r\n');
+    if (await cell(2, 'ee').inputValue() !== '70') throw new Error('the pasted block did not reach the last cell');
+    if (!(await cell(2, 'pdi').evaluate((el) => el.classList.contains('egBad')))) throw new Error('a PDI of 1.4 is not marked red');
+    if (!(await cell(2, 'ee').evaluate((el) => el.classList.contains('egWarn')))) throw new Error('an EE of 70 % under the QC limit is not marked orange');
+    if (await cell(1, 'pdi').evaluate((el) => el.classList.contains('egWarn') || el.classList.contains('egBad'))) throw new Error('a plausible PDI is marked');
+    const before = (await readCol(page, 'measurements')).length;
+    await page.click('#egSave');
+    await page.waitForSelector('#egSaved', { timeout: 5000 });
+    const ms = (await readCol(page, 'measurements')).filter((m) => exp.batchIds.includes(m.batchId));
+    const dls0 = ms.find((m) => m.batchId === exp.batchIds[0] && m.test === 'dls');
+    if (!dls0 || dls0.values.runs?.length !== 3 || Math.abs(dls0.values.zave_nm - 82.333) > 0.01 || Math.abs(dls0.values.zave_sd - 2.517) > 0.01 || Math.abs(dls0.values.pdi - 0.11) > 1e-6) throw new Error(`the replicates were stored as ${JSON.stringify(dls0?.values)}`);
+    if (ms.length !== 4) throw new Error(`expected 4 results (two DLS, two EE), found ${ms.length}: ${ms.map((m) => m.batchId + ' ' + m.test).join(', ')}`);
+    if (ms.some((m) => m.batchId === exp.batchIds[2] && m.test === 'dls')) throw new Error('the DLS result with a PDI of 1.4 was stored');
+    if (!ms.find((m) => m.batchId === exp.batchIds[2] && m.test === 'ee')?.flags?.length) throw new Error('the EE of 70 % was not stored with its QC flag');
+    const slots = (await readCol(page, 'experiments')).find((e) => e.id === exp.id).expected;
+    if (slots.filter((s) => s.status === 'done').length !== 4) throw new Error('the saved results did not close their slots');
+    if (await cell(2, 'pdi').inputValue() !== '1.4') throw new Error('the refused PDI left the grid');
+    if (await cell(0, 'zave').inputValue() !== '') throw new Error('a saved cell was kept');
+    // Undo takes the whole save back.
+    await page.click('#egUndo');
+    await page.waitForFunction(async (n) => (await window.lnpDb.read('measurements')).length === n, before, { timeout: 5000 })
+      .catch(() => { throw new Error('Undo left the results stored'); });
+    const reopened = (await readCol(page, 'experiments')).find((e) => e.id === exp.id).expected;
+    if (reopened.some((s) => s.status !== 'open')) throw new Error('Undo did not reopen the slots');
+    // The import preview, with the grid on, draws its numbers as the grid does.
+    await page.click('#pasteFold > summary');
+    await page.fill('#pasteBox', `Sample Name,Z-Average (d.nm),PdI\n${exp.batchIds[0]}_final,82.4,0.08\n${exp.batchIds[0]}_final,84.0,0.09`);
+    await page.click('#pasteGo');
+    await page.waitForSelector('#importPreview table.egrid .ecell', { timeout: 5000 });
+    await expectText(page, '#importPreview', /82\.4; 84[\s\S]*83\.2 ± 1\.1 \(n = 2\)/, 'the preview shows the runs and their mean as the grid does');
+  } finally {
+    await writeCol(page, 'settings', was);
+  }
+}
+scenarios.push(resultsGridWithReplicatesPasteAndUndo);
+
+/**
+ * Spec 9.4: with the troubleshooting assistant on, "Work out what went wrong" reads a formulation's context,
+ * weighs the causes by it (an FRR of 2:1 first for a high PDI, too little PEG ruled out at 3 mol%), plans small
+ * experiments, and hands one to the experiment wizard filled in. Every step is in the address: Back after each
+ * returns to the step before, the context as it was sent.
+ */
+export async function troubleshooterThreeSteps({ page, open }) {
+  const was = await readCol(page, 'settings');
+  await writeCol(page, 'settings', [...was.filter((s) => s.id !== 'default'), { ...(was.find((s) => s.id === 'default') || { id: 'default' }), troubleAssistant: true }]);
+  const back = async (want, label) => {
+    await page.click('#crumbBack');
+    await page.waitForFunction((w) => w.test(location.hash), want, { timeout: 3000 })
+      .catch(async () => { throw new Error(`${label}: Back went to ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150);
+  };
+  try {
+    await open('experiments?new=1&type=single');
+    await page.fill('input[name=name]', 'Troubleshoot smoke');
+    await page.click('#createExp'); await page.waitForTimeout(300);
+    const exp = (await readCol(page, 'experiments')).find((e) => e.name === 'Troubleshoot smoke');
+    const id = exp.batchIds[0];
+    const batches = await readCol(page, 'batches');
+    const b = batches.find((x) => x.id === id);
+    b.plan.mixing.frr = 2; b.plan.mixing.totalFlow = 60;
+    // The process designer's record (calc/process.js): a T-mixer, citrate at pH 4 as the loading buffer.
+    b.plan.process = { ...(b.plan.process || {}), mixerId: 't-mixer', aqueous: { ...(b.plan.process?.aqueous || {}), buffer: 'Citrate 25 mM, pH 4.0', pH: 4, mM: 25 } };
+    await writeCol(page, 'batches', batches);
+
+    // Step 1: the context, read off the formulation and editable.
+    await open('advisor?mode=wizard&aim=trouble');
+    await page.selectOption('#tsBatch', id);
+    await page.waitForFunction(() => /batch=/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('#ts_frr', { timeout: 3000 });
+    if (await page.inputValue('#ts_frr') !== '2') throw new Error(`the FRR was not read off ${id}: "${await page.inputValue('#ts_frr')}"`);
+    if (await page.inputValue('#ts_mixer') !== 'T-mixer') throw new Error(`the mixer type was not read off the formulation: "${await page.inputValue('#ts_mixer')}"`);
+    await page.fill('#ts_peg', '3');
+    await page.check('input[name=ts_symptom][value=pdi]');
+    await page.click('#tsDiagnose');
+    await page.waitForFunction(() => /step=diagnose/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('.tsCause', { timeout: 3000 });
+
+    // Step 2: the diagnosis, the ratio first with its reason, too little PEG ruled out.
+    const first = await page.$eval('.tsCause', (c) => c.dataset.cause);
+    if (first !== 'frr') throw new Error(`the first cause for a high PDI at FRR 2:1 is ${first}`);
+    await expectText(page, '.tsCause[data-cause="frr"]', /FRR 2:1 is below the usual 3:1, which fits a high PDI/, 'the reason the ratio moved up');
+    if (!(await page.$('.tsCause.tsOut[data-cause="peg"]'))) throw new Error('too little PEG is not ruled out at 3 mol%');
+    await expectText(page, '.tsCause.tsOut[data-cause="peg"]', /PEG 3 mol% is already high/, 'and says why');
+    await expectText(page, '#crumbs', /Context[\s\S]*Diagnosis/, 'the trail names the steps');
+    await back(/aim=trouble(?![\s\S]*step=)/, 'Back from the diagnosis');
+    if (await page.inputValue('#ts_peg') !== '3') throw new Error('Back to the context lost the PEG that was typed');
+    if (!(await page.isChecked('input[name=ts_symptom][value=pdi]'))) throw new Error('Back to the context lost the symptom');
+    await page.click('#tsDiagnose');
+    await page.waitForFunction(() => /step=diagnose/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('#tsToPlan', { timeout: 3000 });
+
+    // Step 3: the plan. The ratio at three levels beside 2:1, with a button into the wizard.
+    await page.click('#tsToPlan');
+    await page.waitForFunction(() => /step=plan/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('.tsPlan[data-plan="ofat:frr"]', { timeout: 3000 });
+    await expectText(page, '.tsPlan[data-plan="ofat:frr"]', /FRR at 3 levels, with 2:1 as control/, 'the plan for the ratio');
+    await back(/step=diagnose/, 'Back from the plan');
+    await page.waitForSelector('#tsToPlan', { timeout: 3000 });
+    await page.click('#tsToPlan');
+    await page.waitForSelector('.tsPlan[data-plan="ofat:frr"] a[data-create]', { timeout: 3000 });
+    await page.click('.tsPlan[data-plan="ofat:frr"] a[data-create]');
+    await page.waitForFunction(() => /#\/experiments\?new=1&type=ofat/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('select[name=ofat_factor]', { timeout: 3000 });
+    if (await page.inputValue('select[name=ofat_factor]') !== 'frr') throw new Error('the wizard did not open on the ratio');
+    if (await page.inputValue('input[name=ofat_levelsText]') !== '2, 3, 4, 5') throw new Error(`the wizard's levels: ${await page.inputValue('input[name=ofat_levelsText]')}`);
+    await back(/step=plan/, 'Back from the wizard');
+  } finally {
+    await writeCol(page, 'settings', was);
+  }
+}
+scenarios.push(troubleshooterThreeSteps);
+
+/**
+ * Spec 6.5 and 10: an import of tables comes into the app with its refused rows, Quarantine appears in the
+ * sidebar, a row fixed there and checked again joins its import, Settings › Imports undoes the import whole into
+ * the trash, and in a personal build the Insights screen shows Claude's report and says when it is out of date.
+ * The import file is the one scripts/import-tidy.mjs makes, the same format the MCP server writes for the
+ * browser version.
+ */
+export async function claudeImportAndQuarantine({ page, open }) {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const accept = (d) => d.accept().catch(() => {});
+  page.on('dialog', accept);
+  try {
+    await open('settings');
+    if (!(await page.$('#claudeCard'))) throw new Error('Settings has no Claude card');
+    if (await page.$('#privacyNote')) throw new Error('the privacy note shows with both modules off');
+    const out = mkdtempSync(join(tmpdir(), 'lnp-scn-'));
+    execFileSync(process.execPath, ['scripts/import-tidy.mjs', 'docs/historical-example', '--first', '900', '--out', out], { stdio: 'pipe' });
+    const file = readFileSync(join(out, 'import.json'));
+    const importId = JSON.parse(file).importId;
+    await page.setInputFiles('#importFile', { name: 'import.json', mimeType: 'application/json', buffer: file });
+    await page.waitForSelector('#importsCard', { timeout: 5000 }).catch(() => { throw new Error('the imports card did not appear after the import'); });
+    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*3 open`), 'the import is listed with what it brought');
+    await open('overview');
+    if (!(await page.$('#nav a[href="#/quarantine"]'))) throw new Error('Quarantine is not in the sidebar while rows wait there');
+
+    await open('quarantine');
+    await expectText(page, '#quarantineSay', /3 rows an import refused/, 'the quarantine list');
+    await page.locator('#main tr', { hasText: 'Lipid-X' }).locator('a', { hasText: 'Open' }).click();
+    await page.waitForSelector('#qCheck');
+    await page.fill('[name=qf_ionizable_lipid]', 'DLin-MC3-DMA');
+    await page.click('#qCheck');
+    await page.waitForFunction(() => /2 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
+      .catch(() => { throw new Error('the fixed row is still listed'); });
+    const fixed = (await readCol(page, 'batches')).find((b) => b.provenance?.fixedFrom);
+    if (!fixed || fixed.provenance.importId !== importId || fixed.experimentId !== 'E901') throw new Error(`the fixed formulation: ${JSON.stringify(fixed?.provenance)} in ${fixed?.experimentId}`);
+
+    await open('settings');
+    await page.click(`[data-undo-import="${importId}"]`);
+    await page.waitForFunction((id) => /in the trash/.test(document.querySelector(`#importsCard tr[data-import="${id}"]`)?.innerText || ''), importId, { timeout: 3000 })
+      .catch(() => { throw new Error('the import is not shown as in the trash'); });
+    const left = (await readCol(page, 'batches')).filter((b) => b.provenance?.importId === importId);
+    if (left.length) throw new Error(`${left.length} formulations of the undone import are still in the lab`);
+    if (!(await readCol(page, 'trash')).some((t) => t.kind === 'import' && t.records.some((r) => r.rec?.id === fixed.id))) throw new Error('the fixed row did not go to the trash with its import');
+    await expectText(page, '#trashCard', new RegExp(`import ${importId}`), 'Recently deleted lists the import');
+
+    // Claude insights: offered only by a personal build (here the developer switch), and with the notice first.
+    await open('overview');
+    await open('settings');
+    if (await page.$('[data-module=personalBuild]')) throw new Error('Claude insights is offered outside a personal build');
+    await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+    await open('overview');
+    await open('settings');
+    await page.check('[data-module=personalBuild]');
+    await page.waitForSelector('#privacyNote', { timeout: 3000 });
+    await expectText(page, '#privacyNote', /sent to Anthropic[\s\S]*sends nothing over the network/, 'the privacy note');
+    // A report written when the lab had as many formulations as now is current; 21 more make it out of date.
+    const batches = await readCol(page, 'batches');
+    await writeCol(page, 'insightReports', [{ id: 'report-smoke', createdAt: '2026-10-01T10:00:00.000Z', title: 'Smoke report', dataState: { formulations: batches.length, lastDate: '2026-09-30' },
+      findings: [{ text: 'Higher FRR, smaller particles', analysis: 'correlation', formulationIds: batches.slice(0, 2).map((b) => b.id), value: 'r −0.9' }] }]);
+    await open('insights');
+    await expectText(page, '#claudeReport', /Smoke report[\s\S]*Higher FRR, smaller particles/, 'the report on Insights');
+    if (await page.$('#claudeReportStale')) throw new Error('a current report is called out of date');
+    await writeCol(page, 'batches', [...batches, ...Array.from({ length: 21 }, (_, i) => ({ id: `E999-F${i + 1}`, experimentId: 'E999', plannedDate: '2026-10-01', status: 'measured', plan: {} }))]);
+    await open('overview');
+    await open('insights');
+    await expectText(page, '#claudeReportStale', /Report out of date, regenerate it in Claude\. 21 formulations/, 'the stale report');
+    await writeCol(page, 'batches', batches);
+    await writeCol(page, 'insightReports', []);
+  } finally {
+    page.off('dialog', accept);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(claudeImportAndQuarantine);
+
+/**
+ * Spec 7.4, 7.5, 4.2: the optimizer's "Data and model" panel. Open before a fit, asking which lipid and mixer
+ * (the one with most data preselected); freeing a factor updates "about 5 × k runs" live; after a fit its line
+ * names the mode, the data and the fingerprint, and Reproduce makes the run again and says it matches.
+ */
+export async function optimizerTransparency({ page, open }) {
+  await open('overview'); // a fresh visit, not the fitted screen an earlier scenario left
+  await open('ml');
+  if (!(await page.$('#mlPanel[open]'))) throw new Error('the panel should be open before a fit');
+  if (!(await page.$('#selCombo'))) throw new Error('no lipid and mixer choice');
+  await expectText(page, '#mlPanel', /Data\s+\d+ of \d+ formulations/, 'the data line');
+  const before = await page.locator('#spaceNeed').innerText();
+  // a click, not check(): the change redraws the card, so the box clicked is not the one that ends up checked
+  const key = await page.locator('input[name^="s_on_"]:not(:checked)').first().getAttribute('name');
+  await page.click(`input[name="${key}"]`);
+  await page.waitForFunction((b) => document.querySelector('#spaceNeed')?.innerText !== b, before, { timeout: 3000 })
+    .catch(() => { throw new Error(`freeing a factor did not update "${before}"`); });
+  await expectText(page, '#spaceNeed', /With \d+ free factors?, about \d+ runs are needed/, 'runs needed, live');
+  await page.click(`input[name="${key}"]`);
+  await page.waitForTimeout(300);
+  await page.click('#runBtn');
+  await page.waitForSelector('#mlLede', { timeout: 60000 });
+  await expectText(page, '#mlPanel > summary', /mode · \d+ of \d+ formulations · fingerprint [0-9a-f]{12}/, 'the panel line after a fit');
+  await page.click('#mlPanel > summary');
+  await page.click('#reproduceNow');
+  await page.waitForFunction(() => /Reproduced|Not reproduced/.test(document.querySelector('#reproduceOut')?.innerText || ''), null, { timeout: 60000 });
+  await expectText(page, '#reproduceOut', /^Reproduced/, 'the run comes out the same');
+  await page.click('#whyFold > summary');
+  await page.waitForSelector('#whyBody table', { timeout: 3000 }).catch(() => { throw new Error('the list is drawn when the fold opens'); });
+  await expectText(page, '#whyFold', /In the model[\s\S]*Reason/, 'a reason per formulation');
+}
+scenarios.push(optimizerTransparency);
+
+/**
+ * Spec 8: the biological layers. Off, nothing shows; switched on, Studies joins the sidebar and the layers get
+ * their tabs. A study is set up with a reference and a test formulation, values are typed into its grid and
+ * evaluated against the reference, the formulation's layer tab shows them, an IVIS folder (the CC0 fixture) is
+ * analysed, assigned and saved, and the animal study sits locked in the design catalogue with its notice.
+ */
+export async function biologicalLayers({ page, open }) {
+  const batches = (await readCol(page, 'batches')).filter((b) => b.plan);
+  if (batches.length < 2) throw new Error('the earlier scenarios should have left two formulations');
+  const [refB, testB] = batches;
+  await open(`formulation?batch=${refB.id}`);
+  if (await page.$('.layerTabs')) throw new Error('layer tabs show with every layer off');
+  if (await page.$('#nav a[href="#/studies"]')) throw new Error('Studies is in the sidebar with every layer off');
+  await open('settings');
+  await page.check('input[name=bio_invivo]');
+  await page.check('input[name=bio_biodist]');
+  await page.waitForSelector('#nav a[href="#/studies"]', { timeout: 5000 }).catch(() => { throw new Error('Studies did not join the sidebar'); });
+  // a new study, its plan
+  await open('studies?new=1');
+  await page.fill('#newForm input[name=name]', 'Smoke liver screen');
+  await page.click('#createStudy');
+  await page.waitForSelector('#planForm', { timeout: 5000 });
+  const study = (await readCol(page, 'studies')).find((s) => s.name === 'Smoke liver screen');
+  if (!study) throw new Error('the study was not stored');
+  const rows = page.locator('#groupTable tbody tr');
+  await rows.nth(0).locator('[name=g_batch]').fill(refB.id);
+  await rows.nth(1).locator('[name=g_batch]').fill(testB.id);
+  await page.fill('#planForm input[name=licence]', 'Smoke-123');
+  await page.press('#planForm input[name=licence]', 'Tab');
+  await page.waitForFunction(([id, b]) => window.lnpDb.read('studies').then((ss) => ss.find((s) => s.id === id)?.groups?.[1]?.batchId === b), [study.id, testB.id], { timeout: 5000 })
+    .catch(() => { throw new Error('the plan was not stored'); });
+  // typed values: the reference at about 1000, the candidate about ten times higher
+  await open(`studies?id=${study.id}&part=enter&layer=invivo`);
+  const vals = [900, 1100, 1000, 950, 1050, 9000, 11000, 10000, 12000, 8000];
+  const boxes = page.locator('#enterGrid [name=e_value]');
+  for (let i = 0; i < vals.length; i++) await boxes.nth(i).fill(String(vals[i]));
+  await page.click('#saveValues');
+  await page.waitForFunction((id) => window.lnpDb.read('bioMeasurements').then((ms) => ms.filter((m) => m.studyId === id).length === 10), study.id, { timeout: 5000 })
+    .catch(() => { throw new Error('the ten values were not stored'); });
+  await open(`studies?id=${study.id}&part=results`);
+  await expectText(page, '#partBody', /fold over reference[\s\S]*Group 2: (9|10)[\d.]*-fold over reference \(95 % CI [\d.]+–[\d.]+\), n = 5 vs 5, p \(Holm\)/, 'the candidate against the reference, with its effect size');
+  if (!(await page.$('#partBody svg'))) throw new Error('no fold chart');
+  // the formulation's layer tab shows the study
+  await open(`formulation?batch=${testB.id}`);
+  await page.click('.layerTabs a[data-layer-tab="invivo"]');
+  await page.waitForSelector('.layerTabs a.primary[data-layer-tab="invivo"]', { timeout: 5000 });
+  await expectText(page, '#main', new RegExp(`${study.id}[\\s\\S]*fold over reference`), 'the in vivo tab of the formulation');
+  // an IVIS folder: three mice found, assigned and saved
+  await open(`studies?id=${study.id}&part=ivis`);
+  const dir = new URL('./fixtures/ivis/BMD20230209123405/', import.meta.url).pathname;
+  await page.setInputFiles('#bliFiles', ['AnalyzedClickInfo.txt', 'ClickInfo.txt', 'luminescent.TIF', 'photograph.TIF', 'readbias.TIF', 'background.TIF'].map((f) => dir + f));
+  await page.waitForSelector('.bliItem canvas', { timeout: 20000 }).catch(() => { throw new Error('the IVIS folder was not analysed'); });
+  const mice = page.locator('.bliItem tr[data-mouse]');
+  if ((await mice.count()) !== 3) throw new Error(`found ${await mice.count()} mice, expected 3`);
+  await expectText(page, '.bliItem', /BMD20230209123405/, 'the acquisition, named by its click number');
+  const ids = await page.$$eval('.bliItem input[data-f=subject]', (xs) => xs.map((x) => x.value));
+  if (ids.join(' ') !== '579G 580G 581G') throw new Error(`animals suggested: ${ids.join(' ')}`);
+  for (let i = 0; i < 3; i++) await mice.nth(i).locator('select[data-f=group]').selectOption(i < 2 ? 'G1' : 'G2');
+  await page.click('.bliItem [data-bli-save]');
+  await page.waitForFunction((id) => window.lnpDb.read('bliImages').then((bs) => bs.some((b) => b.studyId === id && b.mice.length === 3 && b.algorithm?.version)), study.id, { timeout: 5000 })
+    .catch(() => { throw new Error('the image record was not stored'); });
+  const ms = (await readCol(page, 'bioMeasurements')).filter((m) => m.studyId === study.id && m.imageId);
+  if (ms.length !== 6 || !ms.every((m) => m.file?.sha256)) throw new Error(`stored ${ms.length} values from the image`);
+  // the animal study: locked, its notice a placeholder
+  await open('designs');
+  if (!(await page.$('#animalStudyCard'))) throw new Error('no animal study module with an in-vivo layer on');
+  if (!(await page.isDisabled('#animalPlan'))) throw new Error('"Create plan" is not disabled');
+  await page.click('#animalStudy');
+  await expectText(page, '#welfareNotice', /placeholder[\s\S]*3R principle[\s\S]*Licence obligation/i, 'the welfare notice');
+  // and off again: nothing of it shows
+  await open('settings');
+  await page.uncheck('input[name=bio_invivo]');
+  await page.uncheck('input[name=bio_biodist]');
+  await page.waitForFunction(() => !document.querySelector('#nav a[href="#/studies"]'), null, { timeout: 5000 }).catch(() => { throw new Error('Studies stayed in the sidebar'); });
+  await open('designs');
+  if (await page.$('#animalStudyCard')) throw new Error('the animal study shows with every layer off');
+}
+scenarios.push(biologicalLayers);

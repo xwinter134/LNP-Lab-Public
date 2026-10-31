@@ -211,6 +211,53 @@ export function affordable(n, k) {
     .sort((a, b) => a.runs - b.runs);
 }
 
+/* ------------------------------------------------------------------ the animal study (spec 8.6), visible but locked */
+
+/*
+ * In-vivo planning is shown in the catalogue and cannot be run. The structure is here so the screens, the data
+ * model and the optimizer hook (app/calc/bio.js normalisedByFormulation) can be built against it; the action
+ * that would turn it into a plan stays disabled behind settings.flags.animalStudyPlan (off, with no switch in
+ * Settings). Planning animal experiments needs a biometric review and an approved licence, which no app replaces.
+ * It is not in CATALOG: it has no run count, no wizard and no "Set up".
+ */
+export const ANIMAL_STUDY = {
+  id: 'animal_study', name: 'Animal study', locked: true,
+  what: 'A small in-vivo panel: a few candidate formulations against the lab reference, measured in the organs that matter.',
+  structure: [
+    ['Groups', 'about 5 candidates plus the reference formulation, and a negative control (PBS or empty LNP) where background matters'],
+    ['Animals per group', 'from a power calculation on the log-scale spread of earlier studies, not from habit'],
+    ['Dose', 'mg RNA per kg, the same for every group'],
+    ['Timepoints', 'one or a few, in hours after dosing'],
+    ['Reference group', 'the lab standard, run in the same study, so every value can be normalised to it'],
+    ['Organs', 'liver by default; spleen, lung, kidney, heart, lymph nodes, injection site when the question needs them'],
+  ],
+  idea: 'The optimizer proposes the panel: physicochemistry (size, PDI, encapsulation) as a constraint every candidate must meet, the normalised organ signal as the goal, and as few animals as the question allows.',
+};
+
+/**
+ * The placeholder for the animal-welfare notice shown when the module is opened. Gholan writes the real text
+ * (spec 11.3); until then this says what it will cover, and says that it is a placeholder.
+ */
+export const ANIMAL_WELFARE_NOTICE = {
+  placeholder: true,
+  title: 'Animal welfare (placeholder)',
+  points: [
+    ['3R principle', 'Replace animal experiments where an in-vitro read-out answers the question; Reduce the number of animals to what the statistics need; Refine procedures to minimise pain and distress.'],
+    ['Licence obligation', 'Every animal experiment needs an approved licence from the responsible authority before it starts. The licence number is recorded with each study.'],
+    ['Responsibility', 'The user and the licence holder are responsible for every experiment planned or recorded here. The app records and evaluates; it does not approve.'],
+    ['No planning without review', 'No study is planned in this app without a biometric review of group sizes and an approved licence. That is why "Create plan" is switched off.'],
+  ],
+  note: 'Placeholder text, to be replaced by Gholan\'s own notice (spec 11.3).',
+};
+
+/** An empty plan in the module's structure, for the screens to show; never written to the store while locked. */
+export function animalStudyDraft({ candidates = 5, animalsPerGroup = null, dose_mg_kg = null, timepoints_h = [], organs = ['liver'] } = {}) {
+  return {
+    groups: [{ role: 'reference', name: 'Reference', n: animalsPerGroup }, ...Array.from({ length: candidates }, (_, i) => ({ role: 'test', name: `Candidate ${i + 1}`, n: animalsPerGroup }))],
+    dose_mg_kg, timepoints_h, organs, constraint: 'physicochemistry within the QC limits', goal: 'normalised organ signal',
+  };
+}
+
 /** Cross-check: every design the DoE screen offers, and every experiment type, has a catalogue entry. */
 export function catalogGaps() {
   const designs = Object.keys(DESIGN_TYPES).filter((d) => !CATALOG.some((e) => e.kind === 'doe' && e.design === d));

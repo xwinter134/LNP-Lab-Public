@@ -156,12 +156,12 @@ export async function render(el, ctx) {
       const { plan, rec, lipidsIn, err } = compute();
       const limit = settings.ftWarnCycles;
       // A composition deleted under Materials since: the stock keeps its mol% and still names it, marked so.
-      const compOptions = [...ref.compositions.map((c) => ({ value: c.id, label: compositionLabel(c, ref) })),
+      const compOptions = [...ref.pick('compositions', state.compositionId).map((c) => ({ value: c.id, label: compositionLabel(c, ref) })),
         ...(comp ? [] : [{ value: state.compositionId, label: `#${state.compositionId} (deleted; this stock keeps its recipe)` }])];
       // One card per lipid rather than a wide table. At a balance you read one number, weigh it, type what
       // the balance said, and move on; a row of ten columns makes you find that number again each time.
       const cards = plan ? plan.rows.map((r) => {
-        const lotsFor = ref.lipidLots.filter((x) => x.lipidKey === r.key);
+        const lotsFor = ref.pick('lipidLots', state.lots[r.key]).filter((x) => x.lipidKey === r.key);
         const a = rec.rows.find((x) => x.key === r.key);
         const dev = a?.deviationPct;
         const devClass = dev == null ? '' : Math.abs(dev) > 2 ? 'dev warn' : 'dev ok';
@@ -343,7 +343,7 @@ export async function render(el, ctx) {
     // A menu of the lipids not yet in the recipe, not prompt(): the macOS app's window shows no prompt() and
     // answers null at once, so a lipid could never be added there.
     function addLipidMenu() {
-      const free = ref.lipids.filter((l) => !(l.key in state.molPct));
+      const free = ref.active.lipids.filter((l) => !(l.key in state.molPct));
       return free.length ? `<select id="addLipid" aria-label="Add lipid row" style="width:auto"><option value="">Add lipid row …</option>${free.map((l) => `<option value="${esc(l.key)}">${esc(l.name)}</option>`).join('')}</select>` : '';
     }
 

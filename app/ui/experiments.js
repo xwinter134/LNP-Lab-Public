@@ -20,6 +20,8 @@ import { designSvgFromRuns, designCaption, blendSvgFromRuns, blendCaption } from
 import { specComponents, factorLabel, isCategorical, TWO_LEVEL_DESIGNS } from '../calc/doe.js';
 import { CARGO_TYPES, cargoInfo, cargoLabel, cargoOf, massPerPhosphate } from '../calc/cargo.js';
 import { ftTag } from '../calc/freezethaw.js';
+import { readPlanParams } from '../calc/advise.js';
+import { layerTab, layerTabBar, renderLayerTab } from './biolayers.js';
 
 /** What "Repeat as new" carries over, by type, for the note at the top of the filled-in wizard. */
 const CARRIED = {
@@ -265,10 +267,13 @@ function wizard(el, ctx, ref, settings, type) {
     model: MODEL_TYPES[ctx.params.model] ? ctx.params.model : '',
     mode: DOE_MODES[ctx.params.mode] ? ctx.params.mode : '',
     center: Number.isFinite(Number(ctx.params.center)) && ctx.params.center !== '' ? Number(ctx.params.center) : null,
+    // The troubleshooting assistant (spec 9.4) also hands over an OFAT factor and its levels, DoE ranges, the
+    // composition and process settings of the batch it started from, and a name (readPlanParams in advise.js).
+    ...readPlanParams(ctx.params, FACTORS.map((f) => f.key)),
   };
   // In registry order, so a fresh install opens on the first example rather than whichever entry
   // happens to have the highest number.
-  const comps = ref.compositions.slice();
+  const comps = ref.active.compositions.slice();
   const defaultComp = comps[0]?.id;
   // The cargo (mRNA, siRNA) starts as the last experiment's; choosing an RNA lot sets it to the lot's.
   const cargo0 = lastCargo(ctx);
@@ -290,6 +295,17 @@ function wizard(el, ctx, ref, settings, type) {
     // the process every formulation is made by. The mode starts from the type (calc/process.js says why), the
     // process from the last experiment planned, so a lab that always runs the same rig sets it up once.
     mode: defaultModeFor(type), volume_mL: settings.defaultQuickVolume_mL ?? QUICK_VOLUME_mL, process: lastProcess(ctx, ref) };
+
+  // What the troubleshooting assistant handed over goes on top of the defaults: the batch's own composition and
+  // settings, so the plan changes only what it means to, and the factor with its levels or ranges. A draft and
+  // "Repeat as new" are applied after this and still win.
+  if (fromPlanner.name) state.name = fromPlanner.name;
+  if (fromPlanner.comp != null && ref.compositionById[fromPlanner.comp]) state.compositionId = fromPlanner.comp;
+  if (fromPlanner.base.frr != null) state.frr = fromPlanner.base.frr;
+  if (fromPlanner.base.tfr != null) state.totalFlow = fromPlanner.base.tfr;
+  if (fromPlanner.base.quench != null) state.quenchFactor = fromPlanner.base.quench;
+  if (fromPlanner.factor) state.ofat = { factor: fromPlanner.factor, levelsText: fromPlanner.levels.length ? fromPlanner.levels.join(', ') : state.ofat.levelsText };
+  for (const f of state.doe.factors) { const r = fromPlanner.ranges[f.applyTo]; if (r) { f.low = r[0]; f.high = r[1]; } }
 
   // Whether the run budget is still the app's suggestion or a number the user typed.
   let budgetTouched = false;
@@ -615,7 +631,7 @@ function wizard(el, ctx, ref, settings, type) {
         ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: state.stockId, options: [{ value: '', label: '— choose later —' }, ...stocks.map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}, ${fmt(s.molarity_mM, 1)} mM)${ftTag(s, settings.ftWarnCycles)}` }))] })}
         ${field({ id: 'cargo', label: 'Cargo', type: 'select', value: state.cargo, options: CARGO_TYPES.map((c) => ({ value: c.id, label: c.label })),
           hint: `N/P with ${cargoInfo(state.cargo).massPerPhosphate} g/mol per phosphate; typical N/P about ${cargoInfo(state.cargo).defaultNP}` })}
-        ${field({ id: 'rnaLotId', label: `${cargoLabel(state.cargo)} lot`, type: 'select', value: state.rnaLotId, options: [{ value: '', label: '— choose later —' }, ...ref.rnaLots.map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` }))] })}
+        ${field({ id: 'rnaLotId', label: `${cargoLabel(state.cargo)} lot`, type: 'select', value: state.rnaLotId, options: [{ value: '', label: '— choose later —' }, ...ref.pick('rnaLots', state.rnaLotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` }))] })}
         ${state.mode === 'quick'
           ? field({ id: 'volume_mL', label: 'Volume to formulate (mL)', value: state.volume_mL, step: 0.5, min: 0, hint: quickHint() })
           : field({ id: 'rna_mg', label: 'RNA per batch (mg)', value: state.rna_mg, step: 0.1 })}
@@ -698,7 +714,7 @@ function wizard(el, ctx, ref, settings, type) {
         raw(`<select name="doe_f_applyTo_${i}">${applyOpts.map((o) => `<option value="${o.value}" ${o.value === (f.applyTo || '') ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`),
         raw(`<button data-rmf="${i}" class="ghost" style="padding:4px 8px" title="remove">✕</button>`)] });
 
-      const lipidOpts = ref.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${l.class}` }));
+      const lipidOpts = ref.active.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${l.class}` }));
       const cRow = (c, i) => {
         const lip = ref.lipidByKey?.[c.lipidKey];
         return { cells: [
@@ -811,7 +827,7 @@ function wizard(el, ctx, ref, settings, type) {
     form.querySelector('#addCustomF')?.addEventListener('click', () => { state.doe.factors.push({ name: '', unit: '', low: '', center: '', high: '', applyTo: '' }); draw(); el.querySelector(`[name="doe_f_name_${state.doe.factors.length - 1}"]`)?.focus(); });
     form.querySelector('#addComp')?.addEventListener('click', () => {
       const taken = new Set(state.doe.components.map((c) => c.lipidKey));
-      const next = ref.lipids.find((l) => !taken.has(l.key));
+      const next = ref.active.lipids.find((l) => !taken.has(l.key));
       state.doe.components.push({ lipidKey: next?.key || '', lo: '', hi: '' });
       bumpBudget(); draw(); el.querySelector(`[name="doe_c_lipidKey_${state.doe.components.length - 1}"]`)?.focus();
     });
@@ -1033,6 +1049,10 @@ function detail(el, ctx, ref, settings, id) {
   // The records are read once and looked up from maps: the formulations by id, this experiment's results by
   // formulation. A lookup per row over the whole store is what made a year of data slow (cycle 4, S2).
   const batches = batchIndex(ctx.store.all('batches')).of(exp);
+  // A biological layer's tab (spec 8.5): every formulation of the experiment, in the studies that ran them.
+  const tabHref = (t) => `#/experiments?id=${encodeURIComponent(exp.id)}${t ? `&tab=${t}` : ''}`;
+  const onLayer = layerTab(ctx);
+  if (onLayer) return renderLayerTab(el, ctx, { layer: onLayer, batchIds: batches.map((b) => b.id), crumb: raw(`<a href="#/experiments">Experiments</a> › ${esc(describeId(exp.id))}`), title: exp.name, bar: layerTabBar(ctx, onLayer, tabHref, 'Experiment'), what: `the formulations of ${describeId(exp.id)}` });
   const ids = new Set(batches.map((b) => b.id));
   const measurements = ctx.store.all('measurements').filter((m) => m.experimentId === id || ids.has(m.batchId));
   const results = measurementIndex(measurements);
@@ -1131,7 +1151,7 @@ function detail(el, ctx, ref, settings, id) {
   const stockChoice = shared((b) => b.stockId), rnaChoice = shared((b) => b.plan?.rna?.lotId);
   const stockOpts = [...stocks.filter((s) => s.compositionId === exp.compositionId), ...stocks.filter((s) => s.compositionId !== exp.compositionId)]
     .map((s) => `<option value="${esc(s.id)}" ${s.id === stockChoice ? 'selected' : ''}>${esc(s.id)}${s.compositionId !== exp.compositionId ? ` (#${esc(String(s.compositionId))})` : ''} · ${fmt(s.molarityActual_mM || s.molarity_mM, 1)} mM${s.status ? ` · ${esc(s.status)}` : ''}${esc(ftTag(s, settings.ftWarnCycles))}</option>`).join('');
-  const rnaOpts = ref.rnaLots.map((r) => `<option value="${esc(r.id)}" ${r.id === rnaChoice ? 'selected' : ''}>${esc(r.id)} · ${esc(cargoLabel(r.cargo))} · ${esc(r.construct || '')} · ${fmt(r.conc_mg_mL, 2)} mg/mL</option>`).join('');
+  const rnaOpts = ref.pick('rnaLots', rnaChoice).map((r) => `<option value="${esc(r.id)}" ${r.id === rnaChoice ? 'selected' : ''}>${esc(r.id)} · ${esc(cargoLabel(r.cargo))} · ${esc(r.construct || '')} · ${fmt(r.conc_mg_mL, 2)} mg/mL</option>`).join('');
   // Bulk inputs go only on what is still to be made (wireBench), so once nothing is planned the bar has nothing
   // left to act on and is not shown.
   const bulkBar = stage.planned ? `<div class="bulkbar" id="bulkBench">
@@ -1151,6 +1171,7 @@ function detail(el, ctx, ref, settings, id) {
   el.innerHTML = header(raw(`<a href="#/experiments">Experiments</a> › ${esc(describeId(exp.id))}`), exp.name,
       `<span class="chip info">${T?.name || exp.type}</span><span class="chip cargoChip" id="expCargo" title="The cargo the formulations carry">${esc(cargo)}</span><span class="chip ${statusKind}" id="expStage" title="${exp.status === 'done' ? 'Marked done' : 'From the formulations and results on record'}">${esc(shownStatus)}</span>${repeatLink}
       ${['doe', 'ofat'].includes(exp.type) ? `<a class="btn" href="#/doe?id=${exp.id}">Design &amp; results</a>` : ''}<button id="reportExp" title="A page for the lab notebook: the plan, the data table, the statistics and the figures, to print or save as PDF">Report</button><a class="btn" href="#/calendar?month=${exp.startDate.slice(0, 7)}">Calendar</a><button id="setStatus">${exp.status === 'done' ? 'Reopen' : 'Mark done'}</button><button id="delExp" style="color:var(--warn)">Delete</button>`) +
+    layerTabBar(ctx, 'core', tabHref, 'Experiment') +
     nextStepStrip(exp, stage, res) +
     `<div class="card">${overview}</div>
      <div id="expProcess"></div>

@@ -603,10 +603,36 @@ export function experimentReport({ exp, batches, measurements = [], ref, setting
     ${headerBlock(exp, batches, ms, { ref, settings: settings || {}, stocks, today })}
     <h2>Plan</h2><p>${esc(planText(exp, batches, ref))} ${esc(progressText(exp))}</p>
     ${results}
+    ${fingerprintBlock(exp)}
     <div class="sig"><div>Date / signature operator</div><div>Date / signature review</div></div>
     <p class="foot">LNP Lab${version ? ` v${esc(version)}` : ''} · printed ${esc(stamp)} · Data: ${plural(ms.length, 'measurement')}${last ? `, last result ${esc(fmtDate(last))}` : ''}</p>`;
   return { title: `${exp.id} report · ${exp.name || describeId(exp.id)}`, body };
 }
+
+/**
+ * The model fingerprint of an experiment the optimizer proposed (spec 7.5): enough to make the same suggestion
+ * again, printed so the paper record carries it too. Nothing for any other experiment.
+ */
+export function fingerprintBlock(exp) {
+  const fp = exp?.design?.ml?.fingerprint;
+  if (!fp?.hash) return '';
+  const hp = Object.entries(fp.hyper || {}).filter(([, h]) => h).map(([name, h]) =>
+    `${name}: lengthscales ${h.lengthscales.map((l) => sig(l)).join(', ')}; noise variance ${sig(h.noiseVariance)}${h.lipidMatrix ? `; lipid matrix ${h.lipidMatrix.map((r) => `[${r.map(sig).join(' ')}]`).join(' ')}` : ''}`);
+  const s = fp.setup || {};
+  const rows = [
+    ['Fingerprint', `<code>${esc(fp.hash)}</code>`],
+    ['Data', `${plural(fp.n, 'record')}, SHA-256 <code>${esc(fp.dataHash)}</code>`],
+    ['Selection', esc([s.lipid ? `lipid ${s.lipid}` : 'any lipid', s.mixer ? `mixer ${s.mixer}` : 'any mixer', s.budget ? `budget ${s.budget}` : ''].filter(Boolean).join(', '))],
+    ['Model', esc(`${fp.mode} mode${fp.chosenBy === 'auto' ? ', chosen automatically' : ''}; split ${s.strategy}; ${s.acquisition}, ${s.q} runs, seed ${s.seed}`)],
+    ['Factors', esc((s.space || []).map((f) => `${f.key} ${f.lo}–${f.hi}`).join(', '))],
+    ['Goals', esc((s.goals || []).map((g) => `${g.name} ${g.goal} (weight ${g.weight})`).join(', '))],
+    ['Fitted', esc(hp.join(' · ') || 'none')],
+    ['Versions', esc(`LNP Lab ${fp.appVersion || '?'}, optimizer ${fp.mlVersion}`)],
+  ];
+  return `<h2>Model fingerprint</h2><dl class="meta">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+    <p class="note">The optimizer's Reproduce button refits from this record and says whether the suggestions come out the same.</p>`;
+}
+const sig = (v) => (Number.isFinite(v) ? String(Number(v.toPrecision(4))) : '–');
 
 /** Gather an experiment's records and open its report in the print window. `opts.model`: the DoE model on screen. */
 export function openReport(ctx, expId, { model = null } = {}) {

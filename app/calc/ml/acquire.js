@@ -159,7 +159,9 @@ export function suggestRuns(a) {
     .filter((x) => x.u.every(Number.isFinite))
     .sort((x, y) => y.D - x.D).slice(0, 3).map((x) => x.u);
 
-  const cand = feasibleCandidates(candidates(space, { n: a.nCandidates ?? 1200, rnd, around }), space, a.mixture);
+  // `a.candidates` (unit vectors) replaces the random candidate set: the historical benchmark (spec 7.7,
+  // tests/usability/history.mjs) may only propose runs that were actually made. Nothing in the app passes it.
+  const cand = a.candidates || feasibleCandidates(candidates(space, { n: a.nCandidates ?? 1200, rnd, around }), space, a.mixture);
   let models = a.models;
   const picks = [];
   const samples = a.samples ?? 128;

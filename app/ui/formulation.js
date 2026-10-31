@@ -3,6 +3,11 @@
 import { raw, fmt, field, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, redrawSoon, swapHtml, autoSaver, sharedRecord, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
 import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, biosafetyAliquot, fillFinish, IPC_STAGES } from '../calc/batch_record.js';
+import { normaliseRoles, bufferAnswersTo } from '../calc/buffer.js';
+import { archivedSet } from '../calc/usage.js';
+import { VARIABLES, TYPED_VARIABLES, VARIABLE_STEPS, readVariable, sourceOf, checkVariable } from '../calc/variables.js';
+import { provenanceLine } from '../calc/provenance.js';
+import { bufferCode } from '../calc/buffer.js';
 import { flowsFromTotal, TYPES, experimentProgress } from '../calc/experiment.js';
 import { describeId } from '../schema.js';
 import { batchIndex, measurementIndex, batchResults, pageOf } from '../calc/indexes.js';
@@ -16,6 +21,7 @@ import { customDefs, customCard, setCustom } from './customparams.js';
 import { cargoOf, cargoLabel, cargoInfo, massPerPhosphate } from '../calc/cargo.js';
 import { withThaw, thawedOn, thawsOf, overThaw, ftTag, ftWords } from '../calc/freezethaw.js';
 import { thawLine } from './thaw.js';
+import { layerTab, layerTabBar, renderLayerTab, formulationCrumb } from './biolayers.js';
 
 /** The record field a `ds_<step>_…` input writes to, where the step's short name is not the field's name. */
 const DS_STEP = { final: 'finalFormulation' };
@@ -250,6 +256,10 @@ export async function render(el, ctx) {
   const batch = ctx.params.batch ? ctx.store.get('batches', ctx.params.batch) : null;
   if (!batch) return list(el, ctx);
   const exp = ctx.store.get('experiments', batch.experimentId);
+  // A biological layer's tab (spec 8.5) is its own view; the bench record below is the "Formulation" tab.
+  const tabHref = (t) => `#/formulation?batch=${encodeURIComponent(batch.id)}${t ? `&tab=${t}` : ''}`;
+  const onLayer = layerTab(ctx);
+  if (onLayer) return renderLayerTab(el, ctx, { layer: onLayer, batchIds: [batch.id], crumb: formulationCrumb(batch), title: describeId(batch.id), bar: layerTabBar(ctx, onLayer, tabHref), what: batch.id });
   // A batch may carry a composition override: the DoE and ML modules write one when a run varies lipid mol%.
   // The operator follows this screen, so it has to show the recipe that will actually be weighed out, not the
   // registry entry the batch was derived from.
@@ -257,9 +267,13 @@ export async function render(el, ctx) {
   const comp = overriddenComposition(registryComp, batch.plan?.compositionOverride, ref);
   const overridden = comp !== registryComp;
   const stocks = ctx.store.all('stocks');
-  const bufferOpts = (role) => {
-    const made = ref.buffers.filter((b) => !role || (b.roles || []).includes(role) || !(b.roles || []).length).map((b) => ({ value: b.lot, label: `${b.lot} · ${b.name}` }));
-    const cat = ref.buffersCatalog.filter((b) => !role || b.roles.includes(role)).map((b) => ({ value: b.name + (b.code ? ` (${b.code})` : ''), label: `${b.name} (common buffer)` }));
+  // Archived lots are not offered (spec 9.5), but the lot a batch already names always is, under whichever name
+  // it was written with (a lot saved before 0.14 is Buffer-NNN, a newer one is code-pH-date).
+  const goneBuffers = archivedSet(ctx.store, 'buffer');
+  const bufferOpts = (role, current) => {
+    const made = ref.buffers.filter((b) => bufferAnswersTo(b, current) || (!goneBuffers.has(String(b.id)) && (!role || normaliseRoles(b.roles).includes(role) || !(b.roles || []).length)))
+      .map((b) => ({ value: bufferAnswersTo(b, current) ? current : b.lot, label: `${b.lot}${bufferAnswersTo(b, current) && current !== b.lot ? ` (${current})` : ''} · ${b.name}` }));
+    const cat = ref.buffersCatalog.filter((b) => !role || normaliseRoles(b.roles).includes(role)).map((b) => ({ value: b.name + (b.code ? ` (${b.code})` : ''), label: `${b.name} (common buffer)` }));
     return [{ value: '', label: '—' }, ...made, ...cat];
   };
   // The parts of the record the screen works on, with what an older record lacks filled in. Again whenever the
@@ -280,6 +294,7 @@ export async function render(el, ctx) {
   // opens the next one below it without folding away the step still being written in.
   const stepOpen = new Map(), reached = new Set();
   let editOpen = false; // the process designer's fold, as the user left it
+  let conditionsOpen = false; // the process conditions card, folded until opened, and kept as left through redraws
   // Stored as it is filled in (usability cycle 5, K6). The record used to keep its values until "Save", and a
   // value typed before a click on the sidebar was gone when the record was opened again; the rest of the app
   // stores as you go, and a bench record is filled in over a day, between other screens. What is stored is what
@@ -437,7 +452,7 @@ export async function render(el, ctx) {
         <button type="button" data-mode="full" class="${c.quick ? '' : 'on'}" aria-pressed="${!c.quick}">Full process</button></div>
       <span class="muted">${c.quick ? `Set the volume to make; the ${c.cargoName}, the phases and the pumps follow. No dilution, dialysis, TFF or final formulation.` : 'RNA dilution, mixing, dialysis, TFF, final formulation and fill, with targets and actuals.'}</span></div>`;
     const inputs = `<div class="card" id="inputsCard"><h2>Inputs</h2>${modeSeg}<div class="grid g4">
-      ${field({ id: 'compositionId', label: 'Composition', type: 'select', value: batch.compositionId, options: ref.compositions.map((x) => ({ value: x.id, label: compositionLabel(x, ref) })) })}
+      ${field({ id: 'compositionId', label: 'Composition', type: 'select', value: batch.compositionId, options: ref.pick('compositions', batch.compositionId).map((x) => ({ value: x.id, label: compositionLabel(x, ref) })) })}
       ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: batch.stockId || '', options: stockOpts })}
       ${field({ id: 'rna_lotId', label: `RNA lot · ${c.cargoName}`, type: 'select', value: plan.rna.lotId || '', options: rnaOpts })}
       ${c.quick ? field({ id: 'quick_volume_mL', label: 'Volume to formulate (mL)', value: plan.volume_mL, step: 0.5, min: 0, hint: quickHint })
@@ -520,8 +535,8 @@ export async function render(el, ctx) {
       tr('Measured RNA conc. (mg/mL, IPC5 or dialysis estimate)', inp('ds_final_measured_mg_mL', ds.finalFormulation.measured_mg_mL ?? (c.dia ? c.dia.rna_mg_mL_est.toFixed(3) : '')), ''),
       tr('Final target (mg/mL)', inp('ds_final_final_mg_mL', ds.finalFormulation.final_mg_mL), ''),
       tr('1st final formulation target (1.33 × final)', cp ? fmt(cp.c1, 3) + ' mg/mL' : '–', ''),
-      tr('1st dilution buffer', `<select name="ds_final_buffer1" style="width:260px">${bufferOpts('dialysis').map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer1_mL, 2)} mL</b> → ${fmt(cp.v1, 2)} mL (DF ${fmt(cp.df1, 3)})` : ''),
-      tr('2nd dilution buffer (cryoprotectant)', `<select name="ds_final_buffer2" style="width:260px">${bufferOpts('formulation').map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer2 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer2_mL, 2)} mL</b> → ${fmt(cp.vFinal_mL, 2)} mL (DF ${fmt(cp.df2, 2)})` : ''),
+      tr('1st dilution buffer', `<select name="ds_final_buffer1" style="width:260px">${bufferOpts('dialysis', ds.finalFormulation.buffer1).map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer1_mL, 2)} mL</b> → ${fmt(cp.v1, 2)} mL (DF ${fmt(cp.df1, 3)})` : ''),
+      tr('2nd dilution buffer (cryoprotectant)', `<select name="ds_final_buffer2" style="width:260px">${bufferOpts('final', ds.finalFormulation.buffer2).map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer2 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer2_mL, 2)} mL</b> → ${fmt(cp.vFinal_mL, 2)} mL (DF ${fmt(cp.df2, 2)})` : ''),
       tr('Final volume (mL) / RNA (mg)', cp ? `${fmt(cp.vFinal_mL, 2)} / ${fmt(cp.rna_mg, 2)}` : '–', `<label style="font-weight:400"><input type="checkbox" name="a_compounded" ${a.compounded ? 'checked' : ''} style="width:auto"> done</label>`),
       tr('Pre-filter', `<select name="ds_filtration_prefilter" style="width:220px">${ref.materials.filters.map((x) => `<option ${x === ds.filtration.prefilter ? 'selected' : ''}>${x}</option>`).join('')}</select>`, txt('a_prefilter_lot', a.prefilter_lot, 140)),
       tr('Sterile filter 0.2 µm', `<select name="ds_filtration_sterile" style="width:220px">${ref.materials.filters.map((x) => `<option ${x === ds.filtration.sterile ? 'selected' : ''}>${x}</option>`).join('')}</select>`, `${txt('a_sterile_lot', a.sterile_lot, 140)} <label style="font-weight:400"><input type="checkbox" name="a_filtered" ${a.filtered ? 'checked' : ''} style="width:auto"> filtered</label> <label style="font-weight:400"><input type="checkbox" name="a_ipc6" ${a.ipc6 ? 'checked' : ''} style="width:auto"> IPC6 / pH / osmolality samples</label>`),
@@ -541,9 +556,10 @@ export async function render(el, ctx) {
       `<span class="chip ${batch.status === 'planned' ? '' : 'info'}">${batch.status}</span><span class="chip cargoChip" title="The cargo: what this formulation encapsulates">${esc(c.cargoName)}</span><span class="muted">${esc(batch.id)} · ${esc(batch.label || '')} · ${esc(exp?.name || '')}</span>
        <label class="inline" style="margin:0">Status <select id="statusSel" style="width:auto">${['planned', 'produced', 'measured', 'analyzed'].map((s) => `<option ${s === batch.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
        ${saver.html()}<button id="printBatch">Print worksheet</button>`) +
+      layerTabBar(ctx, 'core', tabHref) +
       compositionNote(comp, registryComp, overridden, ref) +
       benchCard(groups) +
-      `<div id="batchForm">${processCard}${inputs}
+      `<div id="batchForm">${processCard}${inputs}${conditionsCard()}
         ${c.quick ? stepBox(2, 'LNP mixing', step2) : `${stepBox(1, 'RNA dilution', step1)}${stepBox(2, 'LNP mixing', step2)}${stepBox(3, 'Dialysis', step3)}
         ${stepBox(4, 'TFF concentration', step4)}
         ${stepBox(5, 'Final formulation & filtration', step5)}${stepBox(6, 'Fill & finish', step6)}`}
@@ -571,6 +587,7 @@ export async function render(el, ctx) {
     // Only a click on a step's line is the user's choice, recorded as on the other folded screens: it runs
     // before the details toggles, so the state it is about to take is the opposite of now. A value typed just
     // before the click redraws only once the click has landed (redrawSoon), and that redraw reads this choice.
+    form.querySelector('#conditionsCard > summary')?.addEventListener('click', () => { conditionsOpen = !form.querySelector('#conditionsCard').open; });
     form.querySelectorAll('details[data-step] > summary').forEach((s) => s.addEventListener('click', () => {
       stepOpen.set(Number(s.parentElement.dataset.step), !s.parentElement.open);
     }));
@@ -641,6 +658,40 @@ export async function render(el, ctx) {
     });
   }
 
+  /**
+   * The process variables of spec 4.1 that the plan above does not already hold, along the process. A value that
+   * fails the shared check (app/calc/variables.js) is kept and shown with a warning, not refused, as elsewhere on
+   * this screen. What the process designer, the RNA lot and the composition already record is shown with its
+   * source and not asked again (calc/variables.js `from`); the fields are named cond_*, since the process
+   * designer's own are proc_*.
+   */
+  function conditionsCard() {
+    const cond = plan.conditions || {};
+    const SRC = { process: 'from the process above', cargo: 'from the RNA lot', composition: 'from the composition', conditions: 'typed here' };
+    const shown = (v, val) => (val == null ? '<span class="muted">not recorded</span>'
+      : esc(Array.isArray(val) ? val.map((k) => ref.lipidByKey[k]?.name || k).join(', ') : val === true ? 'yes' : val === false ? 'no' : String(val)));
+    const one = (v) => {
+      const id = 'cond_' + v.key, label = v.name + (v.unit ? ` (${v.unit})` : '');
+      // Recorded elsewhere in 0.15 (the process designer, the RNA lot, the composition): shown, with where from.
+      if (v.from) {
+        const val = readVariable(batch, v.key, ref), src = sourceOf(batch, v.key, ref);
+        return `<div><label>${esc(label)}</label><div class="ro" id="${id}">${shown(v, val)}${src ? ` <span class="muted">· ${esc(SRC[src])}</span>` : ''}</div></div>`;
+      }
+      const val = readVariable(batch, v.key, ref);
+      const warn = checkVariable(v.key, cond[v.key]);
+      let input;
+      if (v.kind === 'number') input = `<input type="number" step="any" name="${id}" id="${id}" value="${esc(cond[v.key] ?? '')}" placeholder="${val != null && cond[v.key] == null ? esc(String(val)) : ''}">`;
+      else if (v.kind === 'bool') input = `<select name="${id}" id="${id}" data-kind="bool">${[['', 'not recorded'], ['yes', 'yes'], ['no', 'no']].map(([o, l]) => `<option value="${o}" ${(val === true && o === 'yes') || (val === false && o === 'no') || (val == null && o === '') ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+      else input = `<select name="${id}" id="${id}">${['', ...v.options].map((o) => `<option value="${esc(o)}" ${String(cond[v.key] ?? '') === o ? 'selected' : ''}>${o ? esc(o) : 'not recorded'}</option>`).join('')}</select>`;
+      return `<div><label for="${id}">${esc(label)}</label>${input}${warn.length ? `<div class="muted" style="color:var(--warn-text, var(--warn))">${esc(warn[0])}</div>` : ''}</div>`;
+    };
+    const filled = TYPED_VARIABLES.filter((v) => cond[v.key] != null).length;
+    return `<details class="card" id="conditionsCard" ${conditionsOpen ? 'open' : ''}><summary><h2 style="display:inline">Process conditions</h2> <span class="muted">${filled} of ${TYPED_VARIABLES.length} recorded · ${esc(provenanceLine(batch))}</span></summary>
+      ${VARIABLE_STEPS.map((st) => { const vs = VARIABLES.filter((v) => v.step === st); return vs.length ? `<h3 style="margin:10px 0 4px">${esc(st)}</h3><div class="grid g4">${vs.map(one).join('')}</div>` : ''; }).join('')}
+      <p class="muted" style="margin-top:8px">What the process designer, the RNA lot and the composition already say is shown, not asked again. The rest is typed here. All of it is filterable under Data and chooses which runs a model learns from; loading buffer pH and molarity can be freed as factors in the optimizer.</p></details>`;
+  }
+
+
   /** Put a field's value into the record. False for a control that is not one of its fields. */
   function assign(t) {
     if (!t.name) return false;
@@ -689,6 +740,12 @@ export async function render(el, ctx) {
     else if (n.startsWith('cp_')) {
       const def = customDefs(ctx.store).find((d) => `cp_${d.id}` === n);
       if (!def || !setCustom(batch, def, t.value)) return false;
+    }
+    else if (n.startsWith('cond_')) {
+      const key = n.slice(5);
+      plan.conditions ||= {};
+      if (v === '' || v === null) delete plan.conditions[key];
+      else plan.conditions[key] = t.dataset.kind === 'bool' ? v === 'yes' : v;
     }
     else return false;
     syncQuick(plan); // quick mode: the mRNA follows the volume, the RNA conc., FRR and quench

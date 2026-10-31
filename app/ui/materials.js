@@ -13,6 +13,7 @@
 // deleted to the trash, with Undo on the note and Settings › Recently deleted as for experiments and stocks.
 import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask } from './kit.js';
 import { getRef, getSettings } from '../refdata.js';
+import { archive, unarchive, KINDS } from '../calc/usage.js';
 import { CARGO_TYPES, cargoInfo, cargoLabel, lotMassPerPhosphate } from '../calc/cargo.js';
 import { tracksThaw, ftWords } from '../calc/freezethaw.js';
 import { thawPanel, thawChip, wireThaw } from './thaw.js';
@@ -23,14 +24,29 @@ import { lipidClassChip, lipidClassInfo, lipidNameMarked, compositionBar, lipidC
 const TABS = [['lipids', 'Lipids & lots'], ['compositions', 'Compositions'], ['rna', 'RNA lots'], ['buffers', 'Buffer catalog'],
   ['devices', 'Formulation devices'], ['tff', 'TFF modules'], ['dialysis', 'Dialysis'], ['consumables', 'Consumables']];
 
+const wiredArchive = new WeakSet();
+
 export async function render(el, ctx) {
   // A link or a bookmark can name a tab that no longer exists; fall back rather than throw.
   const PANELS = { lipids, compositions, rna, buffers, devices, tff, dialysis, consumables };
   const tab = PANELS[ctx.params.tab] ? ctx.params.tab : 'lipids';
   el.innerHTML = header('Reference', 'Materials & lots') +
     `<div style="display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;flex-wrap:wrap">${TABS.map(([id, t]) => `<a href="#/materials?tab=${id}" style="padding:8px 12px;text-decoration:none;color:${id === tab ? 'var(--ink)' : 'var(--ink2)'};border-bottom:2px solid ${id === tab ? 'var(--accent)' : 'transparent'};font-weight:${id === tab ? 600 : 400}">${t}</a>`).join('')}</div>
-     <div id="tabBody"></div>`;
+     ${archivedCard(ctx)}<div id="tabBody"></div>`;
+  // Listened on the screen, so a card drawn again after an archive (redrawArchived) is wired too; once per
+  // element, since #main stays from one visit to the next.
+  if (!wiredArchive.has(el)) wiredArchive.add(el), el.addEventListener('click', (e) => {
+    const b = e.target.closest('#archivedCard [data-unarchive]'); if (!b) return;
+    const [kind, id] = b.dataset.unarchive.split('|');
+    unarchive(ctx.store, kind, id); toast('Restored', 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange')); // drawn again from the address as it is now
+  });
   PANELS[tab](el.querySelector('#tabBody'), ctx);
+  // The optimizer's lipid descriptors (spec 7.3.2), only with the descriptor mode switched on in Settings.
+  if (tab === 'lipids' && getSettings(ctx).mlDescriptors) {
+    el.querySelector('#tabBody').insertAdjacentHTML('beforeend', descriptorCard(getRef(ctx)));
+    wireDescriptors(el.querySelector('#tabBody'), ctx, getRef(ctx));
+  }
 }
 
 /* ---------------- shared pieces ---------------- */
@@ -99,6 +115,36 @@ function trashWithUndo(ctx, col, id, kind, label, after) {
     toast(`Restored ${label}`, 'ok'); after();
   } });
   after();
+}
+
+/** Archive instead of delete (spec 9.5), with Undo on the note. `after` redraws. */
+function archiveWithUndo(ctx, kind, id, label, after) {
+  archive(ctx.store, kind, id);
+  toast(`Archived ${label}`, '', { action: 'Undo', onAction: () => { unarchive(ctx.store, kind, id); after(); redrawArchived(ctx); } });
+  after();
+  redrawArchived(ctx);
+}
+
+/** The Archived card above the tabs, drawn again after an archive or a restore (a tab redraws only itself). */
+function redrawArchived(ctx) {
+  const body = document.querySelector('#tabBody');
+  if (!body) return;
+  document.querySelector('#archivedCard')?.remove();
+  body.insertAdjacentHTML('beforebegin', archivedCard(ctx));
+}
+
+/**
+ * What is archived, with Restore (spec 9.5): above every tab, only while something is. Archived components leave
+ * the pickers (refdata.js `pick`), so this is where they are found again.
+ */
+function archivedCard(ctx) {
+  const ref = getRef(ctx), rows = ctx.store.all('archive');
+  if (!rows.length) return '';
+  const name = (a) => a.kind === 'lipid' ? ref.lipidByKey[a.itemId]?.name || a.itemId
+    : a.kind === 'composition' ? `#${a.itemId}${ref.compositionById[a.itemId]?.synonym ? ' ' + ref.compositionById[a.itemId].synonym : ''}`
+      : a.kind === 'lipidLot' ? `lot ${ref.lipidLots.find((l) => String(l.id) === a.itemId)?.lot || a.itemId}` : a.itemId;
+  return `<details class="card" id="archivedCard"><summary><b>Archived</b> <span class="muted">${rows.length}: hidden from lists and pickers, kept for the records that use them</span></summary>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${rows.map((a) => `<div>${esc(KINDS[a.kind]?.label || a.kind)} <b>${esc(name(a))}</b> <button type="button" data-unarchive="${esc(a.kind)}|${esc(a.itemId)}">Restore</button></div>`).join('')}</div></details>`;
 }
 
 const slug = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'item';
@@ -220,7 +266,14 @@ function lipids(body, ctx) {
     const key = open?.lipid, rec = key && ctx.store.all('lipids').find((x) => x.key === key);
     if (!rec) return;
     const u = lipidUse(key);
-    if (u.comps.length || u.stocks.length) { toast(`${rec.name} stays: ${[...u.comps, ...u.stocks].slice(0, 6).join(', ')} ${u.comps.length + u.stocks.length === 1 ? 'uses' : 'use'} it. Delete or change those first.`, 'warn'); return; }
+    if (u.comps.length || u.stocks.length) {
+      // Not deletable while used (their amounts are worked out from its MW), but it can be archived (spec 9.5).
+      const users = [...u.comps, ...u.stocks];
+      if (!(await ask(`${rec.name} is used by ${users.slice(0, 6).join(', ')}${users.length > 6 ? ` and ${users.length - 6} more` : ''}, so it cannot be deleted. Archive it instead? It is hidden from lists and pickers, those records keep it, and it can be restored.`))) return;
+      open = null;
+      archiveWithUndo(ctx, 'lipid', key, rec.name, draw);
+      return;
+    }
     if (u.lots.length && !(await ask(`${rec.name} has ${plural(u.lots.length, 'lot')} on record (${u.lots.map((x) => x.lot).join(', ')}). They are deleted with it. Delete ${rec.name}?`))) return;
     open = null;
     const entry = ctx.store.moveToTrash([['lipids', rec.id], ...u.lots.map((x) => ['lipidLots', x.id])], { kind: 'lipid', label: `lipid ${rec.name}${u.lots.length ? ` and ${plural(u.lots.length, 'lot')}` : ''}` });
@@ -480,7 +533,13 @@ function compositions(body, ctx) {
     // mol% from here, so without it the record could no longer say what went into it, nor work out its N/P,
     // its lipid amounts or its place in a model. A lipid stock keeps the mol% it was weighed with, so a recipe
     // only stocks use can go, after a question.
-    if (u?.batches.length) { toast(`#${c.id} stays: ${plural(u.batches.length, 'formulation')} (${listIds(u.batches)}) read their recipe from it. Delete those, or move them to another composition, first.`, 'warn'); return; }
+    if (u?.batches.length) {
+      // Not deletable while formulations read their recipe from it, but it can be archived (spec 9.5).
+      if (!(await ask(`#${c.id} is the recipe of ${plural(u.batches.length, 'formulation')} (${listIds(u.batches)}), so it cannot be deleted. Archive it instead? It is hidden from lists and pickers, those formulations keep it, and it can be restored.`))) return;
+      open = null; edit = null;
+      archiveWithUndo(ctx, 'composition', c.id, `composition #${c.id}`, draw);
+      return;
+    }
     if (u?.stocks.length && !(await ask(`Composition #${c.id} is the recipe of ${plural(u.stocks.length, 'lipid stock')} (${listIds(u.stocks)}). They keep the mol% and the amounts they were weighed with, and show #${c.id} as deleted. Delete composition #${c.id}?`))) return;
     open = null; edit = null;
     trashWithUndo(ctx, 'compositions', c.id, 'composition', `composition #${c.id}${c.synonym ? ' ' + c.synonym : ''}`, draw);
@@ -976,4 +1035,35 @@ function consumables(body, ctx) {
   const ref = getRef(ctx);
   body.innerHTML = `<div class="card"><h2>Filters</h2><ul>${ref.materials.filters.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
     <p class="muted" style="margin:0">Dialysis devices have their own tab now: <a href="#/materials?tab=dialysis">Dialysis</a>.</p></div>`;
+}
+
+/**
+ * The optimizer's lipid descriptors (spec 7.3.2), one row per ionizable lipid, typed in. Shown only with the
+ * descriptor mode switched on in Settings. Computing them from a SMILES string would need RDKit.js, which this
+ * version does not ship (an open point), so they are entered from the literature or a supplier's data sheet.
+ */
+function descriptorCard(ref) {
+  const ion = ref.lipids.filter((l) => l.class === 'ionizable');
+  const cell = (l, f) => {
+    const v = l.descriptors?.[f.key];
+    return f.kind === 'category'
+      ? raw(`<select data-desc="${esc(l.key)}" name="${esc(f.key)}" style="width:auto"><option value=""></option>${f.options.map((o) => `<option ${v === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`)
+      : raw(`<input type="number" data-desc="${esc(l.key)}" name="${esc(f.key)}" step="${f.step}" value="${v ?? ''}" style="width:78px">`);
+  };
+  return `<div class="card" id="descriptorCard"><h2>Lipid descriptors for the optimizer</h2>
+    <p class="muted">The descriptor mode describes each ionizable lipid by these numbers. It opens from about 20 lipids with descriptors and runs. Computing them from a SMILES string needs RDKit.js, which is not part of this version; enter them from the literature or the supplier.</p>
+    ${table(['Lipid', ...DESCRIPTORS.map((f) => `${f.name}${f.unit ? ` (${f.unit})` : ''}`)], ion.map((l) => ({ cells: [raw(`<b>${esc(l.name)}</b>`), ...DESCRIPTORS.map((f) => cell(l, f))] })))}</div>`;
+}
+
+function wireDescriptors(body, ctx, ref) {
+  body.querySelector('#descriptorCard')?.addEventListener('change', (e) => {
+    const t = e.target.closest('[data-desc]');
+    if (!t) return;
+    const key = t.dataset.desc, l = ref.lipidByKey[key];
+    const stored = ctx.store.get('lipids', key) || ctx.store.all('lipids').find((x) => x.key === key) || { id: key, key };
+    const v = t.type === 'number' ? (t.value === '' ? null : Number(t.value)) : t.value || null;
+    const descriptors = { ...(l?.descriptors || {}), ...(stored.descriptors || {}), [t.name]: v };
+    ctx.store.put('lipids', { ...stored, descriptors });
+    toast(`${l?.name || key}: descriptors saved`, 'ok');
+  });
 }

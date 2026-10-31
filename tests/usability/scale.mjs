@@ -109,11 +109,15 @@ async function seed(m) {
   }, m);
 }
 
-/** Open a screen and time until its heading is there and the main thread is free again. */
+/**
+ * Open a screen and time until its heading is there and the main thread is free again. The placeholder is the
+ * whole text of #main while a screen's file loads; matching the word alone waited out the timeout on a screen
+ * that says "Loading pH" (the data overview).
+ */
 async function time(hash) {
   const t = Date.now();
   await page.goto(base + '#/' + hash);
-  await page.waitForFunction(() => document.querySelector('#main h1, #main .note') && !/Loading/.test(document.querySelector('#main').innerText), null, { timeout: 60000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('#main h1, #main .note') && document.querySelector('#main').innerText.trim() !== 'Loading …', null, { timeout: 60000 }).catch(() => {});
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
   const ms = Date.now() - t;
   // A screen that threw renders its error note quickly; that is a failure, not a fast screen.
@@ -128,7 +132,7 @@ result.seed = await seed(months);
 // not in the list (the same address twice is no hash change, and the first overview would not be drawn).
 await page.reload(); await started();
 await page.goto(base + '#/learn'); await page.waitForTimeout(500);
-const hashes = ['overview', 'experiments', 'formulation', 'measurements', 'insights', 'calendar', `experiments?id=E${result.seed.experiments}`, 'experiments?id=E1', 'ml'];
+const hashes = ['overview', 'experiments', 'formulation', 'measurements', 'insights', 'data', 'data?ionizable=ALC315&bufferSystem=Citrate', 'calendar', `experiments?id=E${result.seed.experiments}`, 'experiments?id=E1', 'ml'];
 // Round robin, so no screen is opened twice in a row.
 const times = Object.fromEntries(hashes.map((h) => [h, []]));
 for (let r = 0; r < runs; r++) for (const h of hashes) times[h].push(await time(h));

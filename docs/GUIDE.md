@@ -23,15 +23,17 @@ look for its name on the screen.
 10. [The bench record](#10-the-bench-record)
 11. [Measurements](#11-measurements)
 12. [Reading the results](#12-reading-the-results)
-13. [The DoE screen (Design & results)](#13-the-doe-screen-design--results)
-14. [The optimizer](#14-the-optimizer)
-15. [Insights](#15-insights)
-16. [The calendar](#16-the-calendar)
-17. [Search](#17-search)
-18. [Deleting, Undo and the trash](#18-deleting-undo-and-the-trash)
-19. [Backups](#19-backups)
-20. [Where your data lives](#20-where-your-data-lives)
-21. [When something goes wrong](#21-when-something-goes-wrong)
+13. [Data: every formulation at once](#13-data-every-formulation-at-once)
+14. [The DoE screen (Design & results)](#14-the-doe-screen-design--results)
+15. [The optimizer](#15-the-optimizer)
+16. [Insights](#16-insights)
+17. [Biological studies (optional)](#17-biological-studies-optional)
+18. [The calendar](#18-the-calendar)
+19. [Search](#19-search)
+20. [Deleting, Undo and the trash](#20-deleting-undo-and-the-trash)
+21. [Backups](#21-backups)
+22. [Where your data lives](#22-where-your-data-lives)
+23. [When something goes wrong](#23-when-something-goes-wrong)
 
 ---
 
@@ -48,7 +50,7 @@ look for its name on the screen.
 **From a terminal:** run `npm start` in the LNP Lab folder and open `http://localhost:8787/`.
 
 **The macOS app**, if someone has built it for you, opens like any other program. It keeps its own records,
-separate from the browser's (see [Where your data lives](#20-where-your-data-lives)).
+separate from the browser's (see [Where your data lives](#22-where-your-data-lives)).
 
 Do not open `index.html` by double-clicking it. Browsers block the app when it is opened from the file system.
 
@@ -68,6 +70,10 @@ Do not open `index.html` by double-clicking it. Browsers block the app when it i
 under one line where it sits, such as the DoE wizard's randomisation seed and plate wells.
 
 **Light or dark.** **Auto** follows your computer; **Light** and **Dark** fix it.
+
+**Finding your way back.** Under the title of every screen is a trail, such as *Plan › Plan an experiment ›
+Questions › Work out what went wrong*. Each step is a link. The arrow to its left goes one step back, as do
+Cmd+[ (Ctrl+[ on other systems) and the back button of a mouse; Cmd+] goes forward again.
 
 ## 2. Demo mode
 
@@ -119,6 +125,17 @@ stability sample will reach the limit. A flag is a warning, never a refusal.
 **What to look for:** the notice **Settings saved**. Nothing is kept until you press the button.
 
 **Reset to defaults** puts every setting back as shipped.
+
+**Switches for the optional parts.** Everything below is off until you switch it on under **Settings & export**,
+and with all of it off the app looks and works as before:
+
+- **Enter results as a grid (Measurements)**: results typed into a table of an experiment's formulations (section 11).
+- **Troubleshooting assistant with an experiment plan**: the planner's "Work out what went wrong" asks about the
+  batch, weighs the causes and plans a small experiment (section 7).
+- **Optimizer data budget** and **lipid descriptor mode**: see section 15.
+- **Biological layers**: in vitro, in vivo potency, biodistribution and cell tropism, each on its own (section 17).
+- **Import with Claude** and, in a personal build, **Claude insights**: see [Importing old spreadsheets with Claude](#importing-old-spreadsheets-with-claude-optional) and section 16. Both send
+  your lab data to Anthropic when you use them; the switch says so the first time.
 
 ## 4. Materials and lots
 
@@ -172,6 +189,12 @@ three you can add your own (**+ Add …**), edit a shipped entry (kept as your o
 shipped version**), or hide one you do not have. A module or cassette a formulation record names keeps its name.
 **Consumables** lists the filters.
 
+**Archiving instead of deleting.** A lipid that a recipe or a stock uses, and a composition formulations read their
+recipe from, cannot be deleted: their amounts and their place in a model depend on it. **Delete** then asks
+whether to **archive** it instead. An archived one is hidden from the lists and from every picker, the records
+that use it keep it and show it, and it is listed under **Archived** at the top of Materials & lots, with
+**Restore**. A buffer lot that formulations name is archived the same way from the Buffers screen.
+
 ## 5. Weighing out a lipid stock
 
 1. Open **Lipid stocks** and press **New stock**.
@@ -217,8 +240,8 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
    volume, check the pH. Below are the predicted pH, ionic strength and buffer capacity, and
    the speciation at that pH.
 6. Under **Record**, check the name, date and who prepared it, and tick the roles the buffer will play:
-   **loading**, **quench**, **dialysis**, **formulation**.
-7. Press **Save lot**. It is numbered `Buffer-001`, `Buffer-002` … **Print recipe** gives the sheet for the bench.
+   **Loading**, **Quench**, **Dialysis / TFF**, **Final / Storage**.
+7. Press **Save lot**. It is named by its code, pH and date, e.g. `CIT50-pH4.0-20261031` (a second one that day gets `-2`), and also keeps a number `Buffer-001`, `Buffer-002` … that older records use. The code is suggested from the recipe and can be changed in **Code**. **Print recipe** gives the sheet for the bench.
 
 ![The buffer designer: citrate 25 mM, pH 4.0](guide/buffer.jpg)
 
@@ -229,6 +252,9 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
 - The roles decide where a lot is offered: a **loading** buffer appears as the RNA dilution buffer on the bench
   record, a **quench** buffer for pump 3, and so on.
 - You can add a second buffer component (for example triphosphate with HEPES).
+- **Prepared buffer lots** shows one row per buffer: how many lots, the newest, and its roles. Click a row for a
+  table of all its lots (date, pH, volume, what is left, expiry, and how many batches used it). The tabs above
+  filter by role. A lot that formulations name cannot be deleted; **Delete** then offers to archive it.
 
 ## 7. Planning an experiment
 
@@ -251,6 +277,21 @@ shipped version**), or hide one you do not have. A module or cassette a formulat
    and says where they came from. Everything stays editable.
 
 ![The planner recommending a response surface](guide/planner.jpg)
+
+**The troubleshooting assistant** (with **Troubleshooting assistant with an experiment plan** switched on in
+Settings) turns "Work out what went wrong" into three steps, each with Back:
+
+1. **Context.** Opened from a formulation, it is filled in from its record: lipid, mixer, buffer and pH, FRR, total
+   flow, PEG share, downstream. Correct anything and choose what is wrong: PDI too high, too large, too small, EE
+   too low, or drift.
+2. **Diagnosis.** The causes in order, each with its reason from your context ("FRR 2:1 is below the usual 3:1,
+   which fits a high PDI"). Causes your context rules out are greyed, with why. Where you have similar batches
+   (same lipid and mixer, nearby settings), it shows how they turned out.
+3. **Experiment plan.** For the two or three likeliest causes, a small experiment: one factor at three levels
+   plus your batch's setting as the control, or a 2 × 2 design over two causes with a centre point, each with what
+   it should show. **Create as experiment** opens the experiment wizard with it filled in.
+
+The thresholds the reasons use are general rules of thumb, not your lab's; they are listed in the open points.
 
 **What to look for:** the planner never recommends more batches than you said you have. When the budget is too small
 for what you asked, it says what it substituted and why. Click an answer at the top to change it.
@@ -282,7 +323,7 @@ experiment's own number.
 works at all.
 
 **Reference reproducibility.** The same recipe made **Number of repeats** times (3 by default). The Results card
-reports the batch-to-batch spread, and the batches feed the control chart in [Insights](#15-insights). Run one before
+reports the batch-to-batch spread, and the batches feed the control chart in [Insights](#16-insights). Run one before
 you believe any difference between two batches.
 
 **Compare compositions.** Several compositions through one identical process. Under **Compositions to compare**,
@@ -390,6 +431,17 @@ record: everything the app can work out is shown as a target, beside a field for
   that recipe.
 - At the bottom, the in-process controls (IPC4 to IPC6 and release) list the tests due at each stage.
 
+**Process conditions.** Below the inputs, folded: what the process designer above does not record. Type the
+ethanol share of the lipid phase, the temperature at mixing, the cryoprotectant and its concentration, and the
+final RNA concentration (it shows the final formulation's target until you type one). The rest is shown with
+where it comes from, not asked again: the loading buffer, its pH and strength,
+the mixer and its type, the downstream method and target buffer, sterile filtration (all from the process), the
+cargo (from the RNA lot), and the ionizable lipid and whether the recipe is PEG-free (from the composition). A
+value outside what is sensible (an ethanol share of 150 %) is kept and marked. The heading also says where the
+record came from: typed in, or imported, with the file and row.
+
+![Process conditions on a formulation, unfolded](guide/process-conditions.jpg)
+
 ## 11. Measurements
 
 ### What is due
@@ -478,6 +530,20 @@ For results without an export worth the name (a plate reader's EE, a pH meter):
 
 ![The results grid with one EE value typed in](guide/results-grid.jpg)
 
+**The grid of an experiment** (with **Enter results as a grid** switched on in Settings): an **Enter results** card
+on Measurements takes all of an experiment's results in one table.
+
+1. Choose the experiment and the stage. Each formulation is a row (for a stability study, each formulation and
+   shelf); tick the columns you measured (Z-ave, PDI, EE, zeta, RNA content).
+2. Type as in Excel: Tab goes right, Enter goes down. Up to three replicates go in one cell, separated by `;`
+   (`82; 85; 80`, decimal commas are fine); the mean ± SD shows under the cell. A block copied out of Excel is
+   pasted from the cell you are in.
+3. Orange means worth a look (outside a QC limit, a size under 10 nm) and is stored with a flag. Red means no
+   measurement can have it (PDI over 1, EE over 100 %) and is not stored; the rest of the grid still is.
+4. **Save all** stores the whole grid at once. **Undo** takes it back, with the due measurements opened again.
+
+The import preview shows its values the same way, so an instrument file and a typed grid look alike.
+
 **One result by hand:** under **Type one result**, choose the sample (or **Free entry**), type the values and press
 **Save result**.
 
@@ -537,7 +603,7 @@ The batch-to-batch row, and arms made more than once, give the SD between batche
 - **Stability:** one table with the days as columns and the change from T0; a slope per formulation and shelf, in
   nm per day with its 95 % confidence interval (from three timepoints on); the day the line would reach the QC limit;
   and which sample gets there first. The projection holds only while the drift stays linear, and the card says so.
-- **DoE:** a pointer to [Design & results](#13-the-doe-screen-design--results), where the model is.
+- **DoE:** a pointer to [Design & results](#14-the-doe-screen-design--results), where the model is.
 - **Every type:** the values outside the QC limits, by name.
 
 ![The Results card of the stability study: slopes, projected days, the figures and the table](guide/results-stability.jpg)
@@ -559,7 +625,38 @@ printed in light colours whatever the screen theme.
 **What to look for:** the report opens in a new window. If nothing happens, your browser has blocked the pop-up:
 allow pop-ups for this address.
 
-## 13. The DoE screen (Design & results)
+## 13. Data: every formulation at once
+
+**Data** (under Evaluate) lists every formulation the lab has made, with filters like a shop's, so a question such
+as "everything with ALC-0315", "everything in citrate at pH 4" or "everything PEG-free" is one click.
+
+- **On the left, the filters.** Composition (ionizable, helper, sterol and PEG lipid, with **PEG-free**), process
+  (buffer system, loading pH, mixer type, downstream), context (cargo, experiment, period, operator), origin
+  (typed in, instrument file, imported, and the import itself), and what was measured (DLS, RiboGreen, stability,
+  biological data, size and PDI ranges). The number in brackets is how many formulations you would have with that
+  value ticked, the other filters as they are. Ticking two values of one filter means either; ticking two kinds
+  of measurement means both. The search box at the top takes anything the app's search knows: an experiment,
+  a formulation, a sample name, a lot, a stock.
+- **Above, the numbers** of the selection: formulations, experiments, the period, and the median size, PDI and EE.
+- **In the middle, the table.** Click a heading to sort, a row to open the formulation. **Columns** chooses what
+  is shown; the choice is remembered.
+- **On the right, the distributions:** runs per ionizable lipid, size, PDI and runs per month. A click on a bar
+  filters to it. Under them, **Completeness**: for each field, the share of the selection that has it (green over
+  90 %, amber 50 to 90 %, red under 50 %). A click lists the formulations that lack it, to fill them in.
+
+Every filter is in the address of the page: **Back** undoes the last click, and a bookmark keeps the selection.
+
+![Data: the facets, the table, the distributions and completeness, here on the demo lab](guide/data-overview.jpg)
+
+**With the selection:**
+
+- **Use in optimizer** opens the optimizer with exactly these formulations as its data, said in words at the top
+  ("ALC-0315, Citrate, 412 formulations").
+- **CSV** and **XLSX** save the selection with every column, the source columns included.
+- **Save view** names the selection. Saved views are in the sidebar under **Data**; with two or more, **Compare
+  two views** puts their numbers and distributions side by side.
+
+## 14. The DoE screen (Design & results)
 
 Open **Design & results** in the sidebar, or the button on a DoE or OFAT experiment, and choose the experiment.
 
@@ -598,7 +695,7 @@ elsewhere** (the design and the measured data as CSV), for R, Python or any stat
 
 For an OFAT experiment, the screen shows the dose response: the response against the level of the factor.
 
-## 14. The optimizer
+## 15. The optimizer
 
 The optimizer reads every measured formulation in the lab, fits a model of each response, says how far the model
 can be trusted, and proposes the next runs. It needs data:
@@ -643,6 +740,37 @@ The overview tells you where you stand ("39 measured runs. Enough for a response
   try any setting), **What drives what**, **Is this worth the batches?** (how the optimizer's runs compare with the
   ones before them) and **The runs behind all of this**.
 
+### Data and model: what the optimizer rests on
+
+The **Data and model** panel at the top says what the model is built on. It is open until the first fit; after
+that its line reads, for example, "Filter mode · 412 of 9,800 formulations · fingerprint 3f9a0c…", and a click
+opens the rest.
+
+- **Lipid and mixer:** the optimizer works on one ionizable lipid and one mixer type at a time, because both change
+  the physics. The combination with most measured runs is preselected; formulations without a mixer type count as
+  "mixer not recorded". A selection handed over from **Data** (Use in optimizer) replaces this choice.
+- **Lipid mode:** **Filter** (one model per lipid, the default), **Categorical lipid kernel** (every lipid's runs,
+  with how alike the lipids behave learned from the results; from two lipids with at least 8 runs each, and only
+  for a lipid with runs of its own) or **Auto**, which compares the available modes by cross-validated Q² and
+  says which it chose against what. **Lipid descriptors** is experimental: switch it on under Settings, enter the
+  descriptors under Materials > Lipids; it opens from about 20 lipids.
+- **Data:** how many formulations reach the model, and under **Where the rest went** why the others do not. Above
+  the data budget (Settings, 400 by default, 100–800) the optimizer chooses a subset in four steps: runs outside
+  the search range, runs whose measurement is not to be believed (an impossible value, a count rate too low),
+  replicates merged into one point at their mean (their scatter still sets the noise), and a space-filling choice
+  that prefers good and recent runs. **Why these data?** lists every formulation with its reason.
+- **Free factors**, with "about 5 × k runs are needed" for k free factors, and a map of the runs on the two
+  factors that matter most: used in colour, left out in grey, suggestions as stars.
+- **Fingerprint:** every fit and every round made from it records the data used (ids and a hash of the values),
+  the setup, the seed, the versions and the fitted model. **Reproduce** fits again from it and says whether the
+  suggestions come out the same. The fingerprint is printed in the experiment report of an ML round.
+
+![The Data and model panel, opened, on the demo lab](guide/optimizer-panel.jpg)
+
+**Prediction against measurement** (a fold further down, once a suggested formulation is measured) holds every
+result against the 95 % interval the optimizer gave for it: about 95 % should fall inside. It shows the share per
+response, a scatter of predicted against measured, and the course over the rounds.
+
 ### Making the suggestions
 
 1. Press **Create an experiment from these runs**. The app creates a new experiment with one planned formulation per
@@ -669,7 +797,7 @@ app's own code (`npm run campaign`):
 - The single best measurement is often a lucky one. Before you take a setting forward, make the best one or two
   candidates two or three times and compare their means.
 
-## 15. Insights
+## 16. Insights
 
 **Insights** looks across experiments at one response at a time.
 
@@ -694,7 +822,61 @@ app's own code (`npm run campaign`):
 bench record, or with **Lipid stock for all** on the experiment page), and when both lots were made at the same
 settings: repeats of one recipe on each lot, as a reference experiment makes them.
 
-## 16. The calendar
+**A report from Claude** (personal build only, with **Settings › Claude insights** switched on): the newest report
+Claude saved through the LNP Lab MCP server sits at the top, with when it was written and from how many
+formulations. Each finding names the app's analysis it came from and links to its formulations. Once more than 20
+formulations have been added since, it says **Report out of date, regenerate it in Claude**; a new one is made in
+Claude, never by the app. Claude then reads your lab data, which is sent to Anthropic.
+
+## 17. Biological studies (optional)
+
+For transfection in cells and for animal studies. Nothing of it shows until a layer is switched on under
+**Settings & export › Biological layers**:
+
+- **1 In vitro:** transfection in cells (cell line, dose per well, time point; luciferase, positive cells, MFI,
+  viability).
+- **2 In vivo potency:** the overall effect in the animal (strain, route, dose in mg/kg, time point; total
+  bioluminescence, serum protein).
+- **3 Biodistribution:** the signal per organ. Liver is on by default; spleen, lung, kidney, heart, lymph nodes and
+  the injection site are added in the study.
+- **4 Cell tropism:** cell populations in an organ (method, marker panel; share of positive cells and MFI).
+
+With a layer on, **Studies** appears in the sidebar, and every formulation and experiment gets a tab per layer
+with its results.
+
+**A study** holds one in-vitro or in-vivo experiment: its groups (each a formulation), the **reference**
+formulation that ran alongside (your lab standard), optional negative controls (PBS, empty LNP) and the animal
+licence number. Then:
+
+1. **Enter values** in a grid, one line per well or animal (a column pasted out of Excel fills down), or
+   **Plate reader**: a plate grid or a long table as exported, with the plate layout saying which group is in which
+   well. For in-vivo layers, **IVIS images** reads a Living Image export folder (below).
+2. **Results** shows each group against the reference: every well or animal as a point, the geometric mean with
+   its 95 % interval, and the reference as a line at 1-fold. The raw values are always kept; what is compared is
+   log10(value / reference mean), after subtracting the negative control when there is one. Each group is tested
+   against the reference on the log values (Welch's test, corrected for the number of groups); the fold change and
+   its interval are always shown, and a star only when the interval excludes 1-fold. Organs come as small charts
+   side by side with their ratios (liver : spleen per animal), tropism as stacked shares.
+3. **Across studies** puts physicochemistry against the normalised signal (size against liver signal, say), using
+   only normalised values, so studies with different absolute levels can be compared.
+
+A study without a reference is stored with a warning: its values cannot be normalised or compared.
+
+**IVIS images.** Choose an exported folder (the one with `AnalyzedClickInfo.txt`, `ClickInfo.txt`,
+`luminescent.TIF` and `photograph.TIF`). The app finds the mice on the photograph, numbers them from left to right,
+and measures each mouse's total flux (photons per second, independent of exposure and binning, with the
+instrument's own calibration), a liver region and the background. It warns about saturated pixels; exposure and
+binning are for you to set right at the instrument. Each mouse is suggested an animal of the study (from the
+Living Image comment or the study plan) for you to confirm. Every number can be checked in the overlay and
+corrected (move the liver region, override a flux, leave a mouse out); corrections are logged. The original
+image files stay where they are; the app records their path and checksum. How well the automatic values agree
+with hand-drawn regions is in [docs/BLI-BENCHMARK.md](BLI-BENCHMARK.md).
+
+**Animal study** in the design catalogue (with an in-vivo layer on) shows how a small animal study would be
+planned from the optimizer, but it is locked: it cannot be created. Its notice on animal welfare (3R, the licence
+obligation, the user's responsibility) is a placeholder for the lab's own text.
+
+## 18. The calendar
 
 **Calendar** is filled from your experiments: production days (green), preparation the day before (buffers and the
 RNA dilution), measurement days and stability timepoints (blue), and stock expiry (orange). Done items are struck
@@ -709,7 +891,7 @@ through. Each item opens what it refers to.
 - **Enable reminders** asks your browser for permission to notify you. You then get one notification on a day with
   events, when the app's overview opens.
 
-## 17. Search
+## 19. Search
 
 The **Search** box at the top of the sidebar finds experiments, formulations, sample names, lipid stocks, buffers,
 RNA lots and compositions as you type. **Ctrl K** (on a Mac **⌘K**) jumps to it from anywhere. Use ↑ and ↓ to move,
@@ -717,7 +899,7 @@ Enter to open and Esc to close.
 
 ![Searching for a formulation](guide/search.jpg)
 
-## 18. Deleting, Undo and the trash
+## 20. Deleting, Undo and the trash
 
 **Deleting an experiment** (with its formulations), **a lipid stock** or **a buffer lot** happens at once, without a
 question. The notice that follows has an **Undo** button; it goes when you open another screen.
@@ -740,7 +922,7 @@ Noticed too late? Everything deleted in the last 30 days is under **Settings & e
   (it asks first), an inbox row (**Drop**) and a manual calendar entry.
 - The trash is part of the backup.
 
-## 19. Backups
+## 21. Backups
 
 Everything lives in one browser on one computer. A new computer, a cleared browser or a broken profile takes all of
 it with it. Export a backup at least once a week, and keep the file somewhere other than this computer.
@@ -786,7 +968,7 @@ Numbers never go backwards: after restoring an older backup in the same browser,
 number no earlier experiment has had. On a new computer, numbering carries on from the backup, so restore the most
 recent one.
 
-## 20. Where your data lives
+## 22. Where your data lives
 
 - Your records are kept in your **browser's own database** (IndexedDB) on this computer, under the address you
   open the app at, `http://localhost:8787`. Opening the app at another address or port (for example
@@ -815,7 +997,26 @@ either it was undone, so nothing is half-saved, or it exists only in this window
 3. Press **Try again** on the note. If the change was undone, do it again instead: on the screen that made it, the
    note names the button to press (**Create experiment**, **Import selected**).
 
-## 21. When something goes wrong
+### Importing old spreadsheets with Claude (optional)
+
+Without Claude, the same tables can be prepared by hand or in any spreadsheet and checked with one command;
+[docs/HISTORICAL-DATA.md](HISTORICAL-DATA.md) describes the format, with a worked example.
+
+**Settings › Claude › Import with Claude** is for bringing old Excel sheets in through Claude Desktop or Claude
+Code and the LNP Lab MCP server (set up as `mcp/README.md` says). Claude reads and maps the sheets; the server
+checks every row with the app's own rules and shows a quality report; nothing is written until you approve it, and
+in the macOS app only while LNP Lab is closed (quit it first). Switched on the first time, it says what it means:
+Claude reads your lab data, and it is sent to Anthropic; the server itself sends nothing over the network.
+
+- Rows that fail a check go to **Quarantine**, which appears in the sidebar while any wait there. Open one, fill in
+  or correct what is missing, and press **Check again**: it runs the same check, and a row that passes joins its
+  import.
+- **Settings › Imports** lists every import of tables, with what of it is in the lab. **Undo import** moves all of
+  it into **Recently deleted**, from where **Restore** puts it back.
+- If the macOS app was open while the server wrote anyway, its next save is refused with a note to reload: reload,
+  and make your last change again. Nothing of the import is lost.
+
+## 23. When something goes wrong
 
 - **The page stays blank.** After about three seconds it says **LNP Lab did not start** and lists the file or the
   error behind it, with what to do. Usually a reload fixes it; after an update, a hard reload (**Cmd+Shift+R**).

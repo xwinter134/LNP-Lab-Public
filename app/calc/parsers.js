@@ -622,3 +622,95 @@ export function matchSample(sampleName, { experiments, batches }, test = 'dls') 
   }
   return null;
 }
+
+/* ------------------------------------------------------------------ plate readers (spec 8.3, layer 1) */
+
+/*
+ * Plate-reader exports for the in-vitro layer. No real export of the lab's reader was available when this was
+ * written (an open point for Gholan), so two generic shapes are read, which between them cover what readers and
+ * spreadsheets write:
+ *  - the plate grid: a header row 1 … 12 (or 1 … 24), then one row per plate row A … H (or A … P), possibly
+ *    several blocks one under the other, each with a label line above it ("Luminescence", "Read 2: 560 nm");
+ *  - the long table: one row per well, a Well column (A1, A01, B12) and a value column, optionally a sample name.
+ * The same grid read with text in it is the plate layout (which group sits in which well), so a layout pasted
+ * from the lab's Excel template maps wells to groups (plateToMeasurements in app/calc/bio.js).
+ * Delimiters, decimal commas, encodings and metadata lines are handled as for the instrument files above.
+ */
+
+/** "A1", "a01", "H 12" → "A1"; anything else → null. */
+export function wellId(s) {
+  const m = /^\s*([A-Pa-p])\s*0?(\d{1,2})\s*$/.exec(String(s ?? ''));
+  return m && Number(m[2]) >= 1 && Number(m[2]) <= 24 ? `${m[1].toUpperCase()}${Number(m[2])}` : null;
+}
+
+/**
+ * Read a plate-reader export or a pasted plate layout.
+ * @param {string|ArrayBuffer|ArrayBufferView} text
+ * @returns {{layout: 'grid'|'long'|null, blocks: {label: string, wells: Object<string, {raw: string, value: number|null}>}[],
+ *   samples: Object<string, string>, decimalComma: boolean, wells: number}}
+ *   `samples` is the long table's sample name per well, when it has one
+ */
+export function parsePlate(text) {
+  const src = decodeText(text);
+  const delim = sniffDelimiter(src);
+  const rows = splitRows(src, delim).map((r) => r.map((c) => c.trim()));
+  const cells = rows.flat();
+  const decimalComma = cells.filter((c) => /^[-+]?\d+,\d+$/.test(c)).length > cells.filter((c) => /^[-+]?\d+\.\d+$/.test(c)).length;
+  const blocks = [];
+  // A grid header: 1, 2, 3 … in a row; returns the column of the 1.
+  const isHeader = (r) => {
+    const at = r.indexOf('1');
+    if (at < 0) return null;
+    let k = 0;
+    while (r[at + k] === String(k + 1)) k++;
+    return k >= 6 ? at : null;
+  };
+  for (let i = 0; i < rows.length; i++) {
+    const col1 = isHeader(rows[i]);
+    if (col1 == null) continue;
+    const prev = i > 0 ? rows[i - 1].filter(Boolean) : [];
+    const label = (prev.length && !/^[A-Pa-p]$/.test(prev[0]) ? prev.join(' ') : '') || `Block ${blocks.length + 1}`;
+    const wells = {};
+    let j = i + 1;
+    for (; j < rows.length; j++) {
+      const r = rows[j];
+      const letter = col1 > 0 ? r[col1 - 1] : '';
+      if (!/^[A-Pa-p]$/.test(letter || '')) break;
+      for (let k = 0; k < 24; k++) {
+        const raw = r[col1 + k];
+        if (raw == null || raw === '') continue;
+        wells[`${letter.toUpperCase()}${k + 1}`] = { raw, value: num(raw, decimalComma) };
+      }
+    }
+    if (Object.keys(wells).length) blocks.push({ label, wells });
+    i = j - 1;
+  }
+  if (blocks.length) return { layout: 'grid', blocks, samples: {}, decimalComma, wells: Object.keys(blocks[0].wells).length };
+  // The long table: a header row with a Well column.
+  const isWellHead = (c) => /^well(\s*(id|position|pos\.?|name))?$/i.test(c);
+  const h = rows.findIndex((r) => r.some(isWellHead));
+  if (h >= 0) {
+    const head = rows[h];
+    const wi = head.findIndex(isWellHead);
+    const si = head.findIndex((c, k) => k !== wi && /sample|name|probe|content|group/i.test(c));
+    const body = rows.slice(h + 1).filter((r) => wellId(r[wi]));
+    let vi = head.findIndex((c, k) => k !== wi && k !== si && /value|rlu|lum|signal|count|od\b|abs|fluor|result|mean|raw|%|mfi/i.test(c));
+    if (vi < 0) vi = head.findIndex((c, k) => k !== wi && k !== si && body.some((r) => num(r[k], decimalComma) != null));
+    const wells = {}, samples = {};
+    for (const r of body) {
+      const id = wellId(r[wi]);
+      wells[id] = { raw: r[vi] ?? '', value: vi >= 0 ? num(r[vi], decimalComma) : null };
+      if (si >= 0 && r[si]) samples[id] = r[si];
+    }
+    return { layout: 'long', blocks: [{ label: vi >= 0 ? head[vi] : 'Value', wells }], samples, decimalComma, wells: Object.keys(wells).length };
+  }
+  return { layout: null, blocks: [], samples: {}, decimalComma, wells: 0 };
+}
+
+/**
+ * An IVIS (Living Image) export folder is read by app/calc/ivis.js (text files, calibration, counts to photons)
+ * and app/calc/tiff.js (the images), and analysed by app/calc/bli.js; re-exported here so that every
+ * instrument import is found in one place.
+ */
+export { parseClickInfo, clickMeta, parseCalibration, parseRois, groupClickFolders } from './ivis.js';
+export { readTiff } from './tiff.js';

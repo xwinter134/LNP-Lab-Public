@@ -398,6 +398,21 @@
   /* The results grid's extra DLS runs: columns that stay out of the way until "+ runs" asks for them. */
   .rgrid:not(.runsOn) .xrun, .rgrid:not(.runsOn) .runNo { display: none; }
   .rgrid.runsOn .run1 { border-left: 1px solid var(--line); }
+  /* Spec 9.3: the results grid (app/ui/entrygrid.js) and the import preview drawn like it. Orange is worth a look, red is refused. */
+  .egBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 4px; }
+  .egBar > select { width: auto; } .egCols { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+  table.egrid { width: auto; } table.egrid td.egTd { padding: 3px 6px; vertical-align: top; text-align: right; }
+  table.egrid input.ecell { width: 116px; min-height: 26px; padding: 3px 7px; text-align: right; font-variant-numeric: tabular-nums; }
+  table.egrid input.ecell[data-stored]::placeholder { color: var(--ink2); opacity: .55; font-style: italic; }
+  table.egrid .ecell.ro { display: inline-block; min-width: 60px; padding: 2px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  table.egrid .ecell.egWarn { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-text); }
+  table.egrid .ecell.egBad { border-color: var(--danger); background: rgba(255, 59, 48, .1); color: var(--danger); }
+  table.egrid .egSum { font-size: 11px; color: var(--ink2); min-height: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.egrid .egRowMsg { font-size: 11.5px; max-width: 280px; text-align: left; }
+  /* Spec 9.4: the troubleshooting assistant (app/ui/trouble.js). A cause the context rules out is greyed. */
+  .tsCause.tsOut { opacity: .55; } .tsCause.tsOut h2 { text-decoration: line-through; text-decoration-thickness: 1px; }
+  label.tsSym { display: flex; align-items: center; gap: 8px; cursor: pointer; } label.tsSym .adv-card-title { margin: 0; }
+  .egGo { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .gridTools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
   .gridTools button { padding: 3px 10px; min-height: 0; font-size: 12.5px; }
   /* Measurements (app/ui/measurements.js): the Due card leads, a line per experiment and stage with its buttons;
@@ -658,6 +673,51 @@
   nav .foot details.feedback[open] { display: flex; flex-direction: column; gap: 4px; }
   nav .foot details.feedback button { text-align: left; padding: 4px 8px; min-height: 0; font-size: 12.5px; }
   nav .foot details.feedback p { margin: 2px 4px 0; font-size: 11px; color: var(--ink3); line-height: 1.35; }
+  /* Data overview (spec 5) */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .kpis .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .kpis .kpi .l { font-size: 12px; color: var(--ink2); } .kpis .kpi .v { font-size: 20px; font-weight: 600; }
+  .dataChips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; min-height: 26px; }
+  .dataChips .chip { text-decoration: none; }
+  .dataGrid { display: grid; grid-template-columns: 230px minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
+  @media (max-width: 1200px) { .dataGrid { grid-template-columns: 210px minmax(0, 1fr); } .dataSide { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; } }
+  @media (max-width: 860px) { .dataGrid { grid-template-columns: 1fr; } }
+  .facets { font-size: 13px; position: sticky; top: 8px; max-height: calc(100vh - 40px); overflow: auto; }
+  .facets .fgroup { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink2); margin: 12px 0 4px; }
+  .facets .fname { font-weight: 600; margin: 6px 0 2px; }
+  .facets .fval { display: flex; gap: 6px; align-items: center; padding: 2px 4px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+  .facets .fval:hover { background: var(--line); } .facets .fval .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .facets .fval .n { color: var(--ink2); font-variant-numeric: tabular-nums; } .facets .fval.zero { opacity: .45; }
+  .facets .fval .box { width: 12px; height: 12px; border: 1.5px solid var(--ink2); border-radius: 3px; flex: none; }
+  .facets .fval.on .box { background: var(--accent); border-color: var(--accent); }
+  .facets .frange { display: flex; gap: 4px; align-items: center; } .facets .frange input { width: 100%; min-width: 0; padding: 3px 5px; }
+  .facets .fslider { width: 100%; }
+  .colPick { margin-bottom: 6px; font-size: 13px; } .colPick > div { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 0; }
+  .colPick label { display: inline-flex; gap: 4px; align-items: center; font-weight: 400; margin: 0; }
+  .vtable { max-height: 70vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .vtable table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .vtable thead th { position: sticky; top: 0; background: var(--card); cursor: pointer; white-space: nowrap; z-index: 1; }
+  .vtable tbody tr[data-open] { cursor: pointer; } .vtable tbody tr[data-open]:hover { background: var(--line); }
+  .vtable td { white-space: nowrap; padding: 4px 8px; } .vtable td.r, .vtable th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .card.mini { padding: 10px 12px; margin-bottom: 10px; } .card.mini h3 { margin: 0 0 6px; font-size: 13px; }
+  .hbars { display: grid; gap: 3px; font-size: 12px; }
+  .hbar { display: grid; grid-template-columns: 92px 1fr 40px; gap: 6px; align-items: center; color: var(--ink); text-decoration: none; }
+  a.hbar:hover .hb i { opacity: 1; } .hbar .hl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .hbar .hn { text-align: right; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .hbar .hb { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; display: block; position: relative; }
+  .hbar .hb i { display: block; height: 100%; background: var(--accent); opacity: .8; border-radius: 5px; }
+  .hbar .hb.two i { height: 50%; } .hbar .hb.two i.b, .swatch.b { background: var(--s2, #c96); }
+  .hbar.comp.ok .hb i { background: var(--ok, #3a8); } .hbar.comp.warn .hb i { background: var(--warn); } .hbar.comp.bad .hb i { background: var(--bad, #c44); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); vertical-align: middle; margin: 0 4px 0 10px; }
+  /* Breadcrumbs and Back (spec 9.1) */
+  .crumbs { display: flex; align-items: center; gap: 8px; margin: -10px 0 12px; font-size: 12.5px; min-height: 24px; }
+  .crumbs ol { display: flex; flex-wrap: wrap; gap: 2px 0; list-style: none; margin: 0; padding: 0; }
+  .crumbs li + li::before { content: '›'; margin: 0 6px; color: var(--muted, #888); }
+  .crumbs a { color: inherit; text-decoration: none; opacity: .75; } .crumbs a:hover { opacity: 1; text-decoration: underline; }
+  .crumbs [aria-current] { font-weight: 600; }
+  .crumbBack { min-height: 0; padding: 0 8px; line-height: 22px; font-size: 16px; border-radius: 6px; }
+  .crumbBack[disabled] { opacity: .35; }
+  details.lotgroup { border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); padding: 6px 0; }
+  details.lotgroup > summary { cursor: pointer; } details.lotgroup[open] > summary { margin-bottom: 6px; }
 </style>
 </head>
 <body>

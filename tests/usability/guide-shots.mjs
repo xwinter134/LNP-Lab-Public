@@ -253,6 +253,12 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   await shot(page, 'bench-record', '#main .crumb', '#main .card:has(h2:text-is("Inputs")), #main .card:has(:text-is("Inputs"))');
   await step('bench steps', async () => { await page.evaluate(() => window.scrollTo(0, 0)); });
   await shot(page, 'bench-steps', '#main details:has(summary:has-text("Step 1")), #main :text("Step 1 ·")', '#main :text("Step 6 ·")');
+  await step('process details', async () => {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.click('#conditionsCard > summary');
+    await page.waitForTimeout(300);
+  });
+  await shot(page, 'process-conditions', '#main #conditionsCard', '#main #conditionsCard', { maxH: 900 });
 
   // Before E7 is measured below, so its production day and measurement day are still open on the calendar.
   await go(page, 'calendar', 600);
@@ -328,6 +334,15 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
     await page.waitForTimeout(800);
   });
   await shot(page, 'optimizer', '#main .crumb', '#main #makeExp');
+
+  await step('optimizer panel', async () => {
+    const sum = page.locator('#mlRoot details > summary').first();
+    if (await sum.count()) { await sum.click(); await page.waitForTimeout(400); }
+  });
+  await shot(page, 'optimizer-panel', '#main #mlRoot', '#main #mlRoot > :first-child', { maxH: 900 });
+
+  await go(page, 'data', 900);
+  await shot(page, 'data-overview', '#main #crumbs', '#main .dataGrid', { maxH: 1100 });
 
   await go(page, 'insights', 900);
   await shot(page, 'insights', '#main .crumb', '#main .card:has(h2:has-text("Control chart")), #main :text("Limits mean")');

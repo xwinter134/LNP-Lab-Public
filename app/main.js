@@ -7,12 +7,14 @@ import { ICONS } from './ui/icons.js';
 import { experimentProgress, TYPES } from './calc/experiment.js';
 import { demoOn, setDemo, storeNamespace, seedDemo, demoSeeded, wipeDemo, DEMO_NS } from './demo.js';
 import { migrate } from './migrate.js';
-import { keepRetiredTffModules } from './refdata.js';
+import { keepRetiredTffModules, getSettings } from './refdata.js';
 import { mountSearch } from './ui/searchbox.js';
 import { feedbackUrl, feedbackMail, openExternal, FEEDBACK_EMAIL } from './ui/feedback.js';
+import { mountCrumbs, countStep, wireBackKeys, setTrail } from './ui/crumbs.js';
+import { anyLayerOn } from './calc/bio.js';
 
 /** Shown in the sidebar footer so the running copy can be matched against the repository (bump on each push). */
-export const APP_VERSION = '0.15.0';
+export const APP_VERSION = '0.16.0';
 
 // The sidebar is the workflow, in order: plan it, run it, read it, then let the optimizer propose the next
 // round. Every group is a step you actually take, so there is one path through the app rather than a menu to
@@ -30,9 +32,14 @@ const SCREENS = [
   { id: 'stocks', title: 'Lipid stocks', icon: 'stocks', color: 'var(--c-stocks)' },
   { id: 'buffers', title: 'Buffers', icon: 'buffers', color: 'var(--c-buffers)' },
   { group: 'Evaluate' },
+  { id: 'data', title: 'Data', icon: 'data', color: 'var(--c-insights)', children: 'views' },
   { id: 'measurements', title: 'Measurements', icon: 'measurements', color: 'var(--c-measurements)' },
+  // `when`, a function of the store, hides an item until it has something to show (it stays while it is open).
+  // Only while an import's refused rows wait there (spec 6.5); `when` is read on every redraw of the sidebar.
+  { id: 'quarantine', title: 'Quarantine', icon: 'quarantine', color: 'var(--c-measurements)', when: (st) => st.all('quarantine').some((q) => q?.status === 'open') },
   { id: 'doe', title: 'Design & results', icon: 'doe', color: 'var(--c-doe)' },
   { id: 'insights', title: 'Insights', icon: 'insights', color: 'var(--c-insights)' },
+  { id: 'studies', title: 'Studies', icon: 'studies', color: 'var(--c-measurements)', when: () => bioOn() }, // only with a biological layer on (spec 8.5)
   { group: 'Optimize' },
   { id: 'ml', title: 'Optimizer', icon: 'ml', color: 'var(--c-ml)' },
   { group: 'Reference' },
@@ -75,6 +82,9 @@ function ring(done, total, color) {
   return `<svg class="ring" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="${r}" fill="none" stroke="${color}" stroke-opacity=".3" stroke-width="2"/><circle cx="7" cy="7" r="${r}" fill="none" stroke="${color}" stroke-width="2" stroke-dasharray="${(c * f).toFixed(2)} ${c.toFixed(2)}" stroke-linecap="round" transform="rotate(-90 7 7)"/></svg>`;
 }
 
+/** Whether a biological layer is switched on: the Studies screen is in the sidebar only then (spec 8.5). */
+const bioOn = () => { try { return anyLayerOn(getSettings(ctx)); } catch { return false; } };
+
 let navArgs = [];
 function renderNav(active, activeId, activeDraft) {
   navArgs = [active, activeId, activeDraft];
@@ -98,7 +108,13 @@ function renderNav(active, activeId, activeDraft) {
   nav.innerHTML = `<div class="brand"><span class="logo">${ICONS.logo}</span>LNP Lab${demoOn() ? '<span class="demo-chip">DEMO</span>' : ''}</div>` +
     SCREENS.map((s) => {
       if (s.group) return `<div class="group">${s.group}</div>`;
+      if (s.when && s.id !== active && !s.when(store)) return '';
       let h = item(s);
+      if (s.children === 'views') {
+        // Saved views of the data overview (spec 5.3), each a link to its filter.
+        const views = store.all('views').sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        if (views.length) h += `<div class="subList">${views.map((v) => `<a class="item sub ${s.id === active && location.hash === '#/data?' + v.query ? 'active' : ''}" href="#/data?${esc(v.query)}" title="${esc(v.name)}"><span class="lbl">${esc(v.name)}</span></a>`).join('')}${views.length > 1 ? `<a class="item sub" href="#/data?compare=${esc(views[0].id)},${esc(views[1].id)}"><span class="lbl muted">Compare two views</span></a>` : ''}</div>`;
+      }
       if (s.children === 'experiments' && nKids) {
         h += `<div id="expList" class="subList${expOpen ? '' : ' closed'}">` +
           drafts.map((d) => {
@@ -200,6 +216,8 @@ async function route() {
   const [id, query] = hash.split('?');
   const params = Object.fromEntries(new URLSearchParams(query || ''));
   const main = document.getElementById('main');
+  countStep();
+  wireBackKeys();
   try { renderNav(id, params.id, params.draft); } catch (err) {
     // A broken stored record must not leave the page blank: say what failed and where to look.
     main.innerHTML = `<div class="note warn"><b>The sidebar could not be built:</b> ${esc(err.message)}<br><span class="muted">${esc((err.stack || '').split('\n').slice(0, 3).join(' · '))}</span><br>Usually a damaged experiment or batch record; export the data under Settings (if reachable) and send the error.</div>`;
@@ -223,6 +241,8 @@ async function route() {
     const place = [id, ...PLACE_PARAMS.map((k) => params[k] ?? '')].join('|');
     if (place !== lastPlace) window.scrollTo(0, 0);
     lastPlace = place;
+    // The trail and the Back arrow (spec 9.1), drawn after the screen so no screen has to know about it.
+    if (seq === routeSeq && main.isConnected) setTrail(mountCrumbs(main, id, params, SCREENS));
   } catch (err) {
     if (seq !== routeSeq) return;
     main.innerHTML = `<div class="note warn"><b>Screen "${id}" failed:</b> ${err.message}<br><span class="muted">${(err.stack || '').split('\n').slice(0, 3).join(' · ')}</span></div>`;
@@ -397,8 +417,9 @@ window.addEventListener('lnp:drafts', () => { if (booted) { try { renderNav(...n
   // Records written by an earlier version are renamed before any screen reads them, so no screen ever has
   // to understand two naming schemes at once. By the window that writes; another one reads them back.
   if (!store.readOnly) try {
-    const renamed = migrate(store);
-    const n = renamed && Object.keys(renamed.batches).length;
+    // {renamed, added}: what was renumbered (stores from before 0.6) and what got provenance (schema 3).
+    const done = migrate(store);
+    const n = done?.renamed?.batches ? Object.keys(done.renamed.batches).length : 0;
     if (n) toast(`Renumbered ${n} formulation${n === 1 ? '' : 's'} to the experiment they belong to`, 'ok');
   } catch (err) { console.error(err); toast('Existing records could not be renumbered: ' + err.message, 'warn'); }
   // A TFF module the shipped list no longer has stays with the records that name it (refdata.js).

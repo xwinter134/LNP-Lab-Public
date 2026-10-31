@@ -1,0 +1,62 @@
+{
+  "manifest_version": "0.3",
+  "name": "lnp-lab",
+  "display_name": "LNP Lab",
+  "version": "0.1.0",
+  "description": "Bring old LNP spreadsheets into LNP Lab: Claude reads and maps them, the server checks every row with the app's own rules and writes only after you approve the report. Claude reads your lab data, which is sent to Anthropic; this server itself sends nothing over the network.",
+  "long_description": "An optional, local bridge between Claude and the LNP Lab app (macOS). Claude reads your Excel or CSV files, maps their columns to LNP Lab's fields and calls a dry run; the server checks every row with the same rules the app uses and returns a quality report: what is importable, what goes to quarantine and why, what is a duplicate. Nothing is written until you have read the report and approved it. Every import can be undone whole from LNP Lab's Settings.\n\n**Privacy (draft wording, to be replaced by the lab's own text).** With this extension, Claude reads your lab data: the files you give it and what the LNP Lab tools return. That data is sent to Anthropic, which runs Claude, as part of your conversation, under the terms of your Claude account. The LNP Lab server itself sends nothing over the network: it only reads and writes the LNP Lab database on this Mac and the files you name. Many labs treat formulation data as confidential, and some do not allow AI tools: check before you install it. LNP Lab works fully without it.\n\nThe server writes to the database only while LNP Lab is closed.",
+  "author": { "name": "LNP Lab" },
+  "repository": { "type": "git", "url": "https://github.com/xwinter134/LNP-LAB" },
+  "keywords": ["lab", "LNP", "lipid nanoparticles", "import", "spreadsheet"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["--no-warnings", "${__dirname}/server/server.js"],
+      "env": {
+        "LNP_LAB_DB": "${user_config.db_path}",
+        "LNP_LAB_OUT": "${user_config.out_dir}",
+        "LNP_LAB_PERSONAL": "${user_config.personal}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "get_schema", "description": "The fields, types, units and rules of an import" },
+    { "name": "list_catalog", "description": "The lab's lipids, buffers, compositions, experiments and mixers" },
+    { "name": "read_file", "description": "Read an .xlsx or .csv file: every sheet, raw rows" },
+    { "name": "dry_run_import", "description": "Check mapped rows and return the quality report, writing nothing" },
+    { "name": "commit_import", "description": "Write an approved import (needs the dry run's token)" },
+    { "name": "quality_report", "description": "Quality of one import or the whole lab" },
+    { "name": "rollback_import", "description": "Move an import whole into the lab's trash" },
+    { "name": "list_imports", "description": "The import history with counts" }
+  ],
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": { "node": ">=22.13.0" }
+  },
+  "user_config": {
+    "db_path": {
+      "type": "file",
+      "title": "LNP Lab database",
+      "description": "The app's database file. Leave as it is unless you moved it.",
+      "default": "${HOME}/Library/Application Support/org.lnplab.app/lnp-lab.db",
+      "required": false
+    },
+    "out_dir": {
+      "type": "directory",
+      "title": "Folder for import files",
+      "description": "Where import files for the browser version of LNP Lab are written.",
+      "default": "${DOWNLOADS}",
+      "required": false
+    },
+    "personal": {
+      "type": "boolean",
+      "title": "Insights tools (personal build)",
+      "description": "Adds the read tools for Claude insights and save_insight_report. Also on when Claude insights is switched on in the app.",
+      "default": false,
+      "required": false
+    }
+  }
+}

@@ -29,9 +29,11 @@ export function cholesky(A, { jitters = [0, 1e-10, 1e-8, 1e-7, 1e-6, 1e-4], abso
     const L = zeros(n, n);
     let ok = true;
     for (let i = 0; i < n && ok; i++) {
+      const Li = L[i];
       for (let k = 0; k <= i; k++) {
+        const Lk = L[k];
         let s = A[i][k] + (i === k ? j * scale : 0);
-        for (let m = 0; m < k; m++) s -= L[i][m] * L[k][m];
+        for (let m = 0; m < k; m++) s -= Li[m] * Lk[m];
         if (i === k) {
           if (!(s > 0) || !Number.isFinite(s)) { ok = false; break; }
           L[i][i] = Math.sqrt(s);
@@ -74,6 +76,41 @@ export function cholInverse(L) {
     const e = new Float64Array(n); e[j] = 1;
     const col = cholSolve(L, e);
     for (let i = 0; i < n; i++) inv[i][j] = col[i];
+  }
+  return inv;
+}
+
+/**
+ * A⁻¹ from its Cholesky factor by way of L⁻¹: invert the triangle once (n³/6 multiply-adds, each column a
+ * forward substitution that starts at its own diagonal), then A⁻¹ = L⁻ᵀ L⁻¹, of which only one half is formed
+ * (another n³/6). cholInverse above does n full solves against a fresh unit vector each, about 2n³ and n
+ * allocations, which is what the marginal-likelihood gradient paid on every optimiser step (spec 7.8). Same
+ * numbers to rounding; tests/mlphase4.test.mjs holds the two against each other.
+ */
+export function cholInverseFast(L) {
+  const n = L.length;
+  // C[j] is column j of L⁻¹, stored as a row so every inner loop below runs along contiguous memory.
+  const C = zeros(n, n);
+  for (let j = 0; j < n; j++) {
+    const c = C[j];
+    c[j] = 1 / L[j][j];
+    for (let i = j + 1; i < n; i++) {
+      const Lrow = L[i];
+      let s = 0;
+      for (let k = j; k < i; k++) s -= Lrow[k] * c[k];
+      c[i] = s / Lrow[i];
+    }
+  }
+  // (L⁻ᵀ L⁻¹)_ij = Σ_k L⁻¹_ki L⁻¹_kj = C[i]·C[j], over k ≥ max(i, j) where both are non-zero.
+  const inv = zeros(n, n);
+  for (let i = 0; i < n; i++) {
+    const ci = C[i];
+    for (let j = 0; j <= i; j++) {
+      const cj = C[j];
+      let s = 0;
+      for (let k = i; k < n; k++) s += ci[k] * cj[k];
+      inv[i][j] = s; inv[j][i] = s;
+    }
   }
   return inv;
 }

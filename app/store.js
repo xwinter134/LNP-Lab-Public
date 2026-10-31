@@ -22,6 +22,9 @@
 // Promise (all or nothing; null deletes), clear(ns) → Promise}. A synchronous one (localStorage) also has
 // `sync: true`, loadSync, writeSync and clearSync, and is written straight away, as before.
 
+const STAMPS = new WeakMap(); // rows array → its stamp (Store.stamp)
+let stampSeq = 0;
+
 export class Store {
   // col → {rows: array|null, text: its JSON or null until asked for, ver: changes made, saved: changes stored}
   // `rows` is never handed out and never changed in place: every write puts a new array (and new records) in
@@ -178,6 +181,18 @@ export class Store {
 
   all(col) { const c = this.#cols.get(col); return c?.rows ? JSON.parse(this.#text(c)) : []; }
   count(col) { return this.#cols.get(col)?.rows?.length || 0; }
+  /**
+   * A number that changes whenever a collection does, for a screen that keeps something worked out from it (the
+   * data overview's rows). Every change puts a new array in place and an undo puts the old one back, so the
+   * number follows the array itself: an undone change gives back the stamp from before it, never a stale one.
+   */
+  stamp(col) {
+    const rows = this.#cols.get(col)?.rows;
+    if (!rows) return 0;
+    let n = STAMPS.get(rows);
+    if (n == null) { n = ++stampSeq; STAMPS.set(rows, n); }
+    return n;
+  }
   get(col, id) { const r = this.#cols.get(col)?.rows?.find((x) => x?.id === id); return r === undefined ? null : copy(r); }
 
   /* ---------------- writing ---------------- */
@@ -561,6 +576,9 @@ export class Store {
   exportAll() {
     const out = { exportedAt: new Date().toISOString(), ns: this.ns, collections: {} };
     for (const [col, c] of this.#cols) {
+      // The copy a migration keeps of the records before it (app/migrate.js) stays in this lab; a backup file of
+      // its own would only carry the same records twice.
+      if (col === 'preMigration') continue;
       if (c.rows && COLLECTION.test(col) && this.holdsCollection(col)) out.collections[col] = JSON.parse(this.#text(c));
     }
     return out;
@@ -701,6 +719,7 @@ export function failureKind(err) {
   const name = String(err?.name || ''), msg = String(err?.message || err || '');
   if (/QuotaExceeded|QUOTA_REACHED/i.test(name) || err?.code === 22 || err?.code === 1014 || /quota|storage is full|disk is full/i.test(msg)) return 'quota';
   if (/StorageUnavailable|SecurityError/.test(name)) return 'unavailable';
+  if (name === 'ChangedOutside') return 'outside'; // the import tool wrote the file under this window (sqliteBackend)
   return 'other';
 }
 
@@ -718,6 +737,11 @@ export function storageProblem(err) {
 export function describeFailure({ kind = 'other', undone = false, kept = false, again = '', what = [], reason = '' } = {}) {
   if (kind === 'unopened') {
     return 'Your records could not be opened: this browser\'s database did not answer. Nothing is lost. Reload the page; until the records open, nothing new can be saved.';
+  }
+  if (kind === 'outside') {
+    // Reloading reads the imported records and this window's stored ones; exporting first would only save the
+    // window's older copy.
+    return 'Not saved: the lab\'s database file was changed by the import tool (MCP) while this window was open. Reload the window to see the imported records, then make your last change again.';
   }
   const head = kind === 'quota' ? 'Not saved: this browser\'s storage is full.'
     : kind === 'unavailable' ? 'Not saved: this browser is not letting LNP Lab store anything (a private window, or site data blocked for this page).'
@@ -1042,9 +1066,27 @@ export function idbBackend(name = 'lnp-lab', { timeoutMs = 10000 } = {}) {
  * collections of one save are stored together or not at all; a collection to delete is written as NULL in the same
  * statement and left out when reading, for the same reason. `invoke` is Tauri's (the plugin's own JS wrapper calls
  * the same commands); tests pass a stand-in.
+ *
+ * The import tool (mcp/, spec 6.2) writes the same file, but only while the app is closed: the window holds every
+ * collection in memory and writes them whole, so a record imported under an open window would be written over by
+ * its next save. The tool checks that the app is not running (mcp/lab.js) and, in the same SQLite transaction as
+ * its records, stamps the row `_app.changed` (outside every namespace, so no lab ever loads it). This backend reads
+ * that stamp once, when it first loads, and every write and clear is made on condition that the stamp is still the
+ * same, in the statement itself. Should the tool ever write under an open window after all (an app version that
+ * did not leave its lock file, a check that missed), the window's next save stores nothing and says why
+ * (failureKind 'outside'), instead of quietly undoing the import; a reload reads both.
  */
+export const CHANGED_KEY = '_app.changed';
 export function sqliteBackend(invoke = (...a) => globalThis.__TAURI__.core.invoke(...a), file = 'sqlite:lnp-lab.db') {
   let ready = null;
+  let seen; // the import tool's stamp as the first load found it (null: none), undefined until then
+  const outside = () => Object.assign(new Error('the lab\'s database file was changed by the import tool while this window was open'), { name: 'ChangedOutside' });
+  const stamp = async (name) => {
+    const rows = await invoke('plugin:sql|select', { db: name, query: 'SELECT json FROM collections WHERE key = $1', values: [CHANGED_KEY] });
+    return rows?.[0]?.json ?? null;
+  };
+  // tauri-plugin-sql answers an execute with [rowsAffected, lastInsertId]; an answer without the count is taken as done.
+  const affected = (r) => (Array.isArray(r) ? r[0] : r?.rowsAffected);
   const db = () => (ready ||= (async () => {
     const name = await invoke('plugin:sql|load', { db: file });
     await invoke('plugin:sql|execute', { db: name, query: 'CREATE TABLE IF NOT EXISTS collections (key TEXT PRIMARY KEY, json TEXT)', values: [] });
@@ -1058,6 +1100,7 @@ export function sqliteBackend(invoke = (...a) => globalThis.__TAURI__.core.invok
       const rows = await invoke('plugin:sql|select', { db: name, query: 'SELECT key, json FROM collections WHERE key >= $1 AND key < $2 AND json IS NOT NULL', values: range(ns) });
       const out = {};
       for (const r of rows || []) out[String(r.key).slice(ns.length + 1)] = r.json;
+      if (seen === undefined) seen = await stamp(name);
       return out;
     },
     async write(ns, entries) {
@@ -1065,10 +1108,15 @@ export function sqliteBackend(invoke = (...a) => globalThis.__TAURI__.core.invok
       const name = await db();
       const values = [], rows = [];
       entries.forEach(([col, text], i) => { rows.push(`($${2 * i + 1}, $${2 * i + 2})`); values.push(`${ns}.${col}`, text == null ? null : text); });
-      await invoke('plugin:sql|execute', { db: name, query: `INSERT INTO collections (key, json) VALUES ${rows.join(', ')} ON CONFLICT(key) DO UPDATE SET json = excluded.json`, values });
+      const n = values.length;
+      values.push(CHANGED_KEY, seen ?? null);
+      // One statement, so the condition and the write cannot be told apart by another connection.
+      const r = await invoke('plugin:sql|execute', { db: name, query: `INSERT INTO collections (key, json) SELECT column1, column2 FROM (VALUES ${rows.join(', ')}) WHERE (SELECT json FROM collections WHERE key = $${n + 1}) IS $${n + 2} ON CONFLICT(key) DO UPDATE SET json = excluded.json`, values });
+      if (affected(r) === 0) throw outside();
     },
     async clear(ns) {
       const name = await db();
+      if ((await stamp(name)) !== (seen ?? null)) throw outside();
       await invoke('plugin:sql|execute', { db: name, query: 'DELETE FROM collections WHERE key >= $1 AND key < $2', values: range(ns) });
     },
   };

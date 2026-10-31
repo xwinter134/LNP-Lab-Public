@@ -15,7 +15,9 @@ export const SNOOZE_MS = 864e5;
 // nothing a backup lacks) and not the counters (they only move when a record does). A collection added later and
 // left off this list is still exported; only its changes alone would not bring the reminder up.
 const DATA = ['experiments', 'batches', 'measurements', 'stocks', 'buffers', 'events', 'inbox', 'imports',
-  'rnaLots', 'lipidLots', 'lipids', 'compositions', 'devices', 'mixers', 'tffModules', 'dialysis', 'settings'];
+  'rnaLots', 'lipidLots', 'lipids', 'compositions', 'devices', 'mixers', 'tffModules', 'dialysis', 'settings', 'archive', 'views',
+  'quarantine', 'insightReports',
+  'studies', 'bioMeasurements', 'bioCatalog', 'bliImages']; // the biological layers (spec 8)
 
 // Preferences of this browser, beside the data under the namespace. `lastExport` is the text Settings shows;
 // `lastExportAt` is the same moment as an ISO time, for arithmetic. The snooze is bookkeeping (a dotted key),

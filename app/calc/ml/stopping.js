@@ -22,6 +22,16 @@ import { toUnit } from './space.js';
  * The thresholds of the verdict. `stopBelow` and `goFrom` are chances that the best suggestion beats the best
  * run so far; `realGain` is a rise in the model's pick worth a round of batches, the same 0.01 of score the
  * benchmark counts as a real gain.
+ *
+ * Calibrated on the simulated lab only (tests/usability/lab.mjs), not on a real campaign. The screen says so
+ * in the evidence line. They are to be set again once the historical benchmark on real data has run (spec 7.7),
+ * and before the GP's noise prior is strengthened further, since a less confident model gives lower odds
+ * (gp.js, NOISE_PRIOR).
+ *
+ * AWAITING RECALIBRATION: the harness for that is tests/usability/history.mjs (npm run history -- --db <file>
+ * --campaign <experiment ids>), which replays a finished campaign with only the runs that were really made. It
+ * has run on the simulated lab only (docs/history-benchmark.md); a finished historical campaign with its run
+ * order is an open point for Gholan, and until it has run these numbers stay as the simulated lab set them.
  */
 export const STOP_RULE = { stopBelow: 0.10, goFrom: 0.35, realGain: 0.01 };
 

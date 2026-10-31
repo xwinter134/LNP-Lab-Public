@@ -15,7 +15,7 @@ const { serve } = await import('../scripts/serve.mjs');
 const srv = await serve(root, 0, '127.0.0.1'); // the app's own dev server (no-cache headers), random free port
 const port = srv.address().port;
 
-const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'stocks', 'buffers', 'measurements', 'calendar', 'doe', 'ml', 'insights', 'materials', 'learn', 'settings'];
+const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'stocks', 'buffers', 'measurements', 'data', 'calendar', 'doe', 'ml', 'insights', 'materials', 'learn', 'settings', 'quarantine', 'studies'];
 const errors = [];
 const browser = await chromium.launch();
 // Berlin time on a Saturday: the date helpers must not depend on the timezone (local midnight is the previous day in UTC)
@@ -42,8 +42,13 @@ for (const s of ['experiments?new=1', 'experiments?new=1&type=doe', 'experiments
   'learn?q=flow+rate', 'learn?topic=frr']) await open(s);
 
 // scenarios: exercised only when the screen has real controls (ids below); skipped silently otherwise
-const scenarios = (await import('./scenarios.mjs').catch(() => ({ scenarios: [] }))).scenarios || [];
-for (const sc of scenarios) {
+// A scenarios file that does not load is a failure, not "no scenarios": a broken merge once left the smoke run
+// reporting "ok" with 0 scenarios.
+const scenarios = (await import('./scenarios.mjs').catch((e) => { errors.push(`tests/scenarios.mjs does not load: ${e.message}`); return { scenarios: [] }; })).scenarios || [];
+// SMOKE_ONLY=name1,name2 runs only those scenarios (after the screen sweep), for working on one: a scenario that
+// builds on an earlier one's records needs that one named too.
+const only = (process.env.SMOKE_ONLY || '').split(',').map((x) => x.trim()).filter(Boolean);
+for (const sc of only.length ? scenarios.filter((x) => only.includes(x.name)) : scenarios) {
   try { await sc({ page, open, base, errors }); console.log('scenario ok:', sc.name); }
   catch (e) { errors.push(`scenario ${sc.name}: ${e.message}`); }
 }

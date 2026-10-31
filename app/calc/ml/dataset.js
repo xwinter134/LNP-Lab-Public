@@ -4,6 +4,8 @@ import { getRef, getSettings } from '../../refdata.js';
 import { readFactors } from './space.js';
 import { RESPONSES, responsesForBatch } from '../doe.js';
 import { measurementIndex } from '../indexes.js';
+import { readVariable } from '../variables.js';
+import { checkValues } from '../qc.js';
 
 /** Response definitions shared with the DoE pipeline, so a run means the same thing in both places. */
 export const RESPONSE_DEFS = RESPONSES;
@@ -24,6 +26,7 @@ export function buildRows(ctx) {
     // One reader for measured and derived responses alike, shared with the DoE screen.
     const { values, sources } = responsesForBatch(measurements.forBatch(b.id), b.id, { driftBasis });
     const comp = ref.compositionById[b.compositionId];
+    const own = measurements.forBatch(b.id);
     rows.push({
       batchId: b.id, experimentId: b.experimentId || null, experimentName: exps[b.experimentId]?.name || '',
       experimentType: exps[b.experimentId]?.type || '', label: b.label || '', compositionId: b.compositionId ?? null,
@@ -32,9 +35,34 @@ export function buildRows(ctx) {
       factors: readFactors(b, ref), values, sources,
       suggestedByMl: !!b.ml, mlPredicted: b.ml?.predicted || null, mlPurpose: b.ml?.purpose || null,
       nResponses: Object.keys(values).length,
+      // What the optimizer filters on by default (spec 7.1): the ionizable lipid, read from the composition as
+      // made (two of them are one system, "A+B"), and the mixer type the formulation recorded. Missing is null,
+      // which the selection calls "not recorded" rather than guessing.
+      lipid: (readVariable(b, 'ionizableLipid', ref) || []).join('+') || null,
+      mixerType: readVariable(b, 'mixerType', ref) || null,
+      quality: qualityIssues(own, sources),
     });
   }
   return rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+/**
+ * Why a measurement behind a run should not be believed, for the data budget's quality step (spec 7.2): a value
+ * no measurement can have (qc.js checkValues, stored before that check existed or imported around it), a count
+ * rate the QC rules flag as too low to trust the size, and a result an import marked as an outlier against the
+ * rest of its plate or run. Deliberately NOT the QC limits on the result itself (PDI above the limit, EE below
+ * it): those are what the formulation did, and a model trained without its failures would learn that the whole
+ * space works. Only the measurements a response was actually read from (`sources`) count.
+ */
+export function qualityIssues(measurements, sources) {
+  const ids = new Set(Object.values(sources || {}).map((s) => s?.id).filter(Boolean));
+  const out = [];
+  for (const m of measurements || []) {
+    if (!ids.has(m.id)) continue;
+    for (const e of checkValues(m.test, m.values).errors) out.push(`${m.id}: ${e.text}`);
+    for (const f of m.flags || []) if (f.kind === 'outlier' || /count rate .* low/.test(f.text || '')) out.push(`${m.id}: ${f.text}`);
+  }
+  return out;
 }
 
 /** Rows usable for a given set of factors and responses: every factor known, at least one response measured. */
@@ -143,4 +171,33 @@ export function dataAccount(rows, { space = [], goals = [], excluded = [], limit
   out.experiments = [...byExp.values()].sort((a, b) => num(a.id) - num(b.id) || a.id.localeCompare(b.id));
   out.usedExperiments = out.experiments.filter((e) => e.used > 0).length;
   return out;
+}
+
+/** The word for a lipid or mixer a formulation did not record (spec 7.1). */
+export const NOT_RECORDED = 'not recorded';
+
+/**
+ * Why each formulation is or is not in a model, one line per formulation (spec 7.4, "Why these data?"). Built
+ * from what the selection (select.js) recorded on the way, so the list and the counts above it cannot disagree.
+ *
+ * Reasons, in the order a formulation meets them:
+ *   filtered        another ionizable lipid or another mixer type than the one chosen ("other lipid",
+ *                   "other mixer"); with the categorical lipid kernel the other lipids are used, not filtered
+ *   handed          not in the selection handed over from the Data overview
+ *   no response     nothing measured for any goal switched on
+ *   missing factor  a factor being searched was never recorded for it
+ *   outside range   the data budget's relevance step: a factor outside the search range plus its margin
+ *   quality         the budget's quality step: a measurement it was read from is not to be believed
+ *   merged          the budget merged it with its replicates into one point at their mean
+ *   subselected     the budget's space-filling subselection left it out
+ *   used            in the model
+ *
+ * @param {object} sel  what selectData() returned
+ * @returns {{rows: {batchId, label, lipid, mixer, status:'used'|'merged'|'excluded', reason, detail}[], counts: object}}
+ */
+export function selectionAccount(sel) {
+  const rows = (sel.account || []).map((a) => ({ ...a }));
+  const counts = {};
+  for (const r of rows) counts[r.reason] = (counts[r.reason] || 0) + 1;
+  return { rows, counts, total: rows.length, used: rows.filter((r) => r.status !== 'excluded').length };
 }

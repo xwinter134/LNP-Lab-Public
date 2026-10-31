@@ -1,0 +1,7 @@
+exp_key,form_key,label,date,ionizable_lipid,ionizable_pct,helper_lipid,helper_pct,sterol,sterol_pct,peg_lipid,peg_pct,frr,tfr_ml_min,np,quench_factor,lipid_mM,rna_mg_mL,rna_lot,bufferSystem,loadingPH,bufferMolarity_mM,mixerType,mixer,postMethod,targetBuffer,targetPH,cryoprotectant,cryo_pct,sterileFiltered,rnaType,notes
+GH-2024-03,F1,FRR 2,2024-03-12,ALC-0315,46.3,DSPC,9.4,Cholesterol,42.7,ALC-0159,1.6,2,12,6,2,47.4,0.4,RNA-FLuc-01,Citrate,4.0,50,T-mixer,PEEK tee 0.5 mm,Dialysis,PBS,7.4,None,,yes,mRNA,
+GH-2024-03,F2,FRR 3,2024-03-12,ALC-0315,46.3,DSPC,9.4,Cholesterol,42.7,ALC-0159,1.6,3,12,6,2,47.4,0.4,RNA-FLuc-01,Citrate,4.0,50,T-mixer,PEEK tee 0.5 mm,Dialysis,PBS,7.4,None,,yes,mRNA,
+GH-2024-03,F3,FRR 4,2024-03-13,ALC-0315,46.3,DSPC,9.4,Cholesterol,42.7,ALC-0159,1.6,4,12,6,2,47.4,0.4,RNA-FLuc-01,Citrate,4.0,50,T-mixer,PEEK tee 0.5 mm,Dialysis,PBS,7.4,None,,yes,mRNA,"from sheet 'FRR', row 8"
+GH-2024-05,A,acetate,2024-05-02,MC3,50,DSPC,10,Chol,38.5,DMG-PEG2000,1.5,3,12,6,2,47.4,0.4,RNA-FLuc-01,Acetate,5.0,25,T-mixer,PEEK tee 0.5 mm,Dialysis,PBS,7.4,Sucrose,10,yes,mRNA,
+GH-2024-05,B,citrate,2024-05-02,MC3,50,DSPC,10,Chol,38.5,DMG-PEG2000,1.5,3,12,6,2,47.4,0.4,RNA-FLuc-01,Citrate,4,25,T-mixer,PEEK tee 0.5 mm,Dialysis,PBS,7.4,Sucrose,10,yes,mRNA,
+GH-2024-05,C,unknown lipid,2024-05-02,Lipid-X,50,DSPC,10,Chol,38.5,DMG-PEG2000,1.5,3,12,6,2,47.4,0.4,,Citrate,4,25,T-mixer,,Dialysis,PBS,7.4,,,,mRNA,typo case for the quarantine

@@ -307,3 +307,72 @@ export function nextBufferLot(existing = [], prefix = 'Buffer') {
   const used = existing.map((x) => re.exec(String(x?.lot ?? x ?? ''))).filter(Boolean).map((m) => Number(m[1]));
   return bufferLot(used.length ? Math.max(...used) + 1 : 1, prefix);
 }
+
+/*
+ * Roles and lot names (spec 9.2).
+ *
+ * The fourth role was called "formulation", which read as "the buffer the LNPs are made in" when it meant the
+ * buffer they end up and are stored in, often with a cryoprotectant. It is now `final`, shown as
+ * "Final / Storage". Records keep whatever they were saved with; `normaliseRoles` reads the old word as the new
+ * one, and a lot is written back with the new word the next time it is stored.
+ */
+export const BUFFER_ROLES = [
+  { id: 'loading', label: 'Loading', what: 'the aqueous phase the RNA is in at mixing, acidic so the ionizable lipid is charged' },
+  { id: 'quench', label: 'Quench', what: 'mixed in right after the mixer to raise the pH and dilute the ethanol' },
+  { id: 'dialysis', label: 'Dialysis / TFF', what: 'what the particles are exchanged into' },
+  { id: 'final', label: 'Final / Storage', what: 'the final buffer the particles are stored in, often with a cryoprotectant' },
+];
+const OLD_ROLES = { formulation: 'final' };
+export const roleLabel = (id) => BUFFER_ROLES.find((r) => r.id === (OLD_ROLES[id] || id))?.label || id;
+
+/** Roles as stored, read in today's words: "formulation" is "final"; each role once, in the order above. */
+export function normaliseRoles(roles) {
+  const set = new Set((roles || []).map((r) => OLD_ROLES[r] || r));
+  return [...BUFFER_ROLES.map((r) => r.id).filter((id) => set.has(id)), ...[...set].filter((id) => !BUFFER_ROLES.some((r) => r.id === id))];
+}
+
+// The short names of the buffer systems in a lot code. Unlisted systems use their first four letters.
+const SYSTEM_CODE = {
+  'Acetic acid': 'ACE', 'Citric acid': 'CIT', 'Phosphoric acid': 'PHO', 'Malic acid': 'MAL', 'Succinic acid': 'SUC',
+  HEPES: 'HEP', Histidine: 'HIS', 'Tris(hydroxymethyl)- aminomethane (tris)': 'TRIS', '2-(N-morpholino)ethanesulfonic acid - MES': 'MES',
+  MOPS: 'MOPS', PIPES: 'PIPES', TES: 'TES', Bicine: 'BIC', Tricine: 'TRIC', 'Triphosphate (3P)': '3P',
+};
+
+/**
+ * The code a lot name starts with: the buffer system and its strength, plus a cryoprotectant when there is one.
+ * CIT50 is citrate 50 mM, ACE25 acetate 25 mM, PBS1X phosphate with physiological saline, TRIS20-SUC10 Tris
+ * 20 mM with 10 % w/v sucrose. Only a suggestion: the code is stored on the lot, and on a catalog entry, and
+ * whatever the user types there is what is used.
+ */
+export function bufferCode({ system, conc_mM, nacl_mM, sucrose_mM } = {}) {
+  const sys = SYSTEM_CODE[system] || String(system || 'BUF').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'BUF';
+  // Phosphate at about 10 mM with about 137 mM NaCl is what everyone calls PBS.
+  const pbs = sys === 'PHO' && Math.abs((conc_mM || 0) - 10) <= 2 && Math.abs((nacl_mM || 0) - 137) <= 15;
+  let code = pbs ? 'PBS1X' : `${sys}${fmtNum(conc_mM)}`;
+  // 292 mM sucrose is 10 % w/v (342.3 g/mol); the code says % w/v because that is how the bottle is labelled.
+  if (sucrose_mM > 0) code += `-SUC${fmtNum((sucrose_mM * 342.3) / 10000)}`;
+  return code;
+}
+const fmtNum = (v) => { const n = Number(v) || 0; return Number.isInteger(Math.round(n * 10) / 10) ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString(); };
+
+/**
+ * A lot name: <code>-pH<pH>-<YYYYMMDD>, with -2, -3 … when the same buffer was made more than once that day,
+ * e.g. CIT50-pH4.0-20261031 and CIT50-pH4.0-20261031-2.
+ *
+ * Lots saved before 0.14 are called Buffer-001 and so on and keep that name, and every new lot is still given
+ * its Buffer-NNN number as well (its record id), so a formulation that names either finds it.
+ *
+ * @param {{code: string, targetPH: number, date: string}} lot
+ * @param {string[]} taken   lot names already in use (live and deleted lots alike)
+ */
+export function bufferLotName({ code, targetPH, date } = {}, taken = []) {
+  const ph = Number.isFinite(Number(targetPH)) ? Number(targetPH).toFixed(1) : 'NA';
+  const day = String(date || '').slice(0, 10).replace(/-/g, '') || 'NODATE';
+  const base = `${String(code || 'BUF').trim().toUpperCase().replace(/\s+/g, '')}-pH${ph}-${day}`;
+  const used = new Set(taken.map(String));
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) if (!used.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
+/** Whether a lot string names this buffer: its lot name, its record id or a former name it still answers to. */
+export const bufferAnswersTo = (b, s) => !!b && !!s && (b.lot === s || b.id === s || (b.aliases || []).includes(s));

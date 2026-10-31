@@ -7,9 +7,10 @@
 // on every screen.
 import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, swapHtml, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
 import { getRef, getSettings } from '../refdata.js';
-import { designBuffer, bufferMethods, speciesAt, nextBufferLot } from '../calc/buffer.js';
+import { designBuffer, bufferMethods, speciesAt, nextBufferLot, BUFFER_ROLES, normaliseRoles, roleLabel, bufferCode, bufferLotName } from '../calc/buffer.js';
 import { ionicStrength_mM, bufferFacts } from '../calc/process.js';
 import { usedIds, raiseCounter } from '../schema.js';
+import { whereUsed, usageSentence, archive, unarchive, archivedSet } from '../calc/usage.js';
 
 // The systems a lab buffer is usually made of, offered first; the whole pKa database follows in the same menu.
 const COMMON = ['Acetic acid', 'Citric acid', 'Phosphoric acid', 'Triphosphate (3P)', 'HEPES', 'Histidine', 'Tris(hydroxymethyl)- aminomethane (tris)', '2-(N-morpholino)ethanesulfonic acid - MES', 'MOPS', 'PIPES', 'TES', 'Bicine', 'Tricine', 'Succinic acid'];
@@ -22,13 +23,6 @@ const SYSTEM_LABEL = { 'Acetic acid': 'Acetate (acetic acid)', 'Citric acid': 'C
   'Succinic acid': 'Succinate (succinic acid)', 'Triphosphate (3P)': 'Triphosphate (3P)', 'Tris(hydroxymethyl)- aminomethane (tris)': 'Tris', '2-(N-morpholino)ethanesulfonic acid - MES': 'MES' };
 const systemLabel = (n) => SYSTEM_LABEL[n] || n;
 
-/** What each role means in the process, for the group headings of the common buffers and the role boxes. */
-export const BUFFER_ROLES = [
-  ['loading', 'Loading', 'the aqueous phase the RNA is in at mixing, acidic so the ionizable lipid is charged'],
-  ['quench', 'Quench', 'mixed in right after the mixer to raise the pH and dilute the ethanol'],
-  ['dialysis', 'Dialysis / TFF', 'what the particles are exchanged into'],
-  ['formulation', 'Formulation', 'the final buffer, often with a cryoprotectant'],
-];
 
 // The fields a buffer's name describes: changing one makes a common buffer's name wrong for the lot.
 const RECIPE_FIELDS = ['system', 'method', 'targetPH', 'conc_mM', 'nacl_mM', 'sucrose_mM', 'system2', 'conc2_mM', 'reagent2'];
@@ -72,18 +66,13 @@ export async function render(el, ctx) {
 
   function renderLists() {
     if (!listBox.isConnected) return; // a buffer on record is stored as it is edited, also after the screen is left
-    const made = ctx.store.all('buffers').sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    const now = getRef(ctx);
-    // The ionic strength as every screen works it out (calc/process.js asks calc/buffer.js), not as stored.
-    const I = (b) => { const v = ionicStrength_mM(bufferFacts(b.lot || b.id, now), now); return v == null ? '–' : fmt(v, 0); };
-    listBox.innerHTML = table(['Lot', 'Name', { label: 'pH', right: true }, { label: 'mM', right: true }, { label: 'I (mM)', right: true }, { label: 'mL', right: true }, 'For', 'Prepared'],
-      made.map((b) => ({ cells: [raw(`<a href="#/buffers?id=${esc(b.id)}"><b>${esc(b.lot)}</b></a>`), raw(`<a href="#/buffers?id=${esc(b.id)}">${esc(b.name)}</a>`), fmt(b.targetPH, 2), fmt(b.conc_mM, 1), I(b), fmt(b.volume_mL, 0), (b.roles || []).join(', '), fmtDate(b.date)] })),
-      { empty: 'No prepared buffers yet. Click a common buffer below to make one, or press "New buffer".' });
+    listBox.innerHTML = lotOverview(ctx, ctx.params.role || '');
     // The common buffers by role: a buffer used for two roles is listed under both, which is where someone
     // looking for a quench buffer or a dialysis buffer looks.
-    const lotsOf = (b) => made.filter((x) => x.name === b.name);
-    el.querySelector('#catalogList').innerHTML = `<div class="bufGroups">${BUFFER_ROLES.map(([role, title, what]) => {
-      const items = ref.buffersCatalog.map((b, i) => [b, i]).filter(([b]) => (b.roles || []).includes(role));
+    const made = ctx.store.all('buffers');
+    const lotsOf = (b) => made.filter((x) => x.name === b.name || (x.code && x.code === b.code));
+    el.querySelector('#catalogList').innerHTML = `<div class="bufGroups">${BUFFER_ROLES.map(({ id: role, label: title, what }) => {
+      const items = ref.buffersCatalog.map((b, i) => [b, i]).filter(([b]) => normaliseRoles(b.roles).includes(role));
       return `<div class="bufGroup" data-role="${role}"><h3>${esc(title)}</h3><div class="muted small">${esc(what)}</div>
         <ul>${items.map(([b, i]) => { const lots = lotsOf(b); return `<li><a class="bufPrep" data-from="${i}" href="#/buffers?new=1&from=${i}" title="Open the recipe of ${esc(b.name)}">${esc(b.name)}</a>${lots.length ? ` <span class="chip ok" title="Prepared lots of this buffer">${esc(lots.map((x) => x.lot).join(', '))}</span>` : ''}</li>`; }).join('')}</ul></div>`;
     }).join('')}</div>`;
@@ -107,7 +96,7 @@ export async function render(el, ctx) {
   function renderEditor(buffer, pre) {
     const state = buffer ? JSON.parse(JSON.stringify(buffer)) : {
       system: 'Acetic acid', method: 'auto', targetPH: 5.5, conc_mM: 50, volume_mL: 1000, nacl_mM: 0, sucrose_mM: 0, activity: true, system2: '', conc2_mM: 0, reagent2: '',
-      name: '', roles: pre?.roles || [], date: todayISO(), operator: settings.operator, notes: pre?.notes || '',
+      name: '', roles: normaliseRoles(pre?.roles), code: pre?.code || '', date: todayISO(), operator: settings.operator, notes: pre?.notes || '',
     };
     // A common buffer opens with its own recipe: its system, pH, concentration and additives, as its name says
     // (usability cycle 6, I7). Before, only the name was taken, so "Citrate 25 mM, pH 4.0" opened as acetate.
@@ -115,6 +104,7 @@ export async function render(el, ctx) {
     // Its name is kept only while the recipe is the one it names: changed to 25 mM, "Citrate 50 mM, pH 4.0" would
     // be saved on a lot that is not (the name used to stay whatever was changed). `givenName` is that name.
     if (!buffer && pre) state.givenName = pre.name;
+    state.roles = normaliseRoles(state.roles); // "formulation" is "final" now; stored so on the next save
     const box = el.querySelector('#bufferEditor');
     // What was typed into a new buffer and not saved as a lot is offered back (usability cycle 5, K6): the note
     // above the form leads here with draft=1, and the form then starts from it.
@@ -238,15 +228,18 @@ export async function render(el, ctx) {
           ${raw(field({ id: 'operator', label: 'Prepared by', type: 'text', value: state.operator }))}
         </div>
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
-          <span class="muted" style="align-self:center">Used for</span>${raw(BUFFER_ROLES.map(([r, title, what]) => `<span title="${esc(what)}">${field({ id: 'role_' + r, label: title, type: 'checkbox', value: (state.roles || []).includes(r) })}</span>`).join(''))}
+          <span class="muted" style="align-self:center">Used for</span>${raw(BUFFER_ROLES.map(({ id: r, label: title, what }) => `<span title="${esc(what)}">${field({ id: 'role_' + r, label: title, type: 'checkbox', value: (state.roles || []).includes(r) })}</span>`).join(''))}
         </div>
         ${buffer ? raw(usedNote()) : ''}
-        <div class="muted" style="margin-top:6px">Lot: <b>${esc(state.lot || nextBufferLot(usedIds(ctx.store, 'buffer')))}</b> — numbered in sequence; the recipe, the date and who made it are in the record above.</div>
+        <div class="grid g4" style="margin-top:8px">
+          ${raw(field({ id: 'code', label: 'Code (lot name prefix)', type: 'text', value: state.code || '', placeholder: bufferCode(state) }))}
+        </div>
+        <div class="muted" style="margin-top:6px">${buffer ? raw(`Lot: <b>${esc(buffer.lot)}</b>${buffer.id !== buffer.lot ? ` · also ${esc(buffer.id)}` : ''}`) : raw(`Lot: <b>${esc(lotNameFor())}</b> · also ${esc(nextBufferLot(usedIds(ctx.store, 'buffer')))}`)}. The name is code, pH and date; the Buffer number stays with it so older records keep finding it.</div>
         ${raw(field({ id: 'notes', label: 'Notes (measured pH, osmolality, adjustments)', type: 'textarea', value: state.notes, rows: 2 }))}
         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
           ${buffer ? raw(saver.html()) : raw(`<button class="primary" id="saveBuffer" ${creating ? 'disabled' : ''}>${creating ? 'Saving …' : 'Save lot'}</button>`)}
           <button id="printBuffer">Print recipe</button>
-          ${buffer ? raw('<button id="deleteBuffer" style="margin-left:auto;color:var(--warn)">Delete</button>') : ''}
+          ${buffer ? raw(archivedSet(ctx.store, 'buffer').has(String(buffer.id)) ? '<span class="chip" style="margin-left:auto">archived</span><button id="restoreBuffer">Restore</button>' : '<button id="deleteBuffer" style="margin-left:auto;color:var(--warn)">Delete</button>') : ''}
         </div>
       </div>`)) return;
       const form = box.querySelector('#bufferForm');
@@ -256,14 +249,21 @@ export async function render(el, ctx) {
       form.querySelector('#bufferDraftFresh')?.addEventListener('click', () => { dropDraft(ctx, 'buffer'); ctx.navigate('buffers', { new: 1 }); });
       form.querySelector('#printBuffer').addEventListener('click', () => { const d = derive(); print(d.res, d.autoName, d.naclG, d.sucroseG); });
       form.querySelector('.bufSecond > summary')?.addEventListener('click', (e) => { secondOpen = !e.currentTarget.parentElement.open; });
-      // Deleting goes to the trash, with an Undo on the note (see Settings › Recently deleted). A lot that
-      // formulations name is asked about first: they keep its lot number, pH, mM and ionic strength as written on
-      // their process, so nothing is worked out differently, and the lot shows as deleted there.
+      // Deleting goes to the trash, with an Undo on the note instead of a confirmation first (see Settings ›
+      // Recently deleted).
+      form.querySelector('#restoreBuffer')?.addEventListener('click', () => { unarchive(ctx.store, 'buffer', buffer.id); toast(`${buffer.lot || buffer.id} restored`, 'ok'); ctx.navigate('buffers', { id: buffer.id }); });
       form.querySelector('#deleteBuffer')?.addEventListener('click', async () => {
         const lot = buffer.lot || buffer.id;
-        const users = formulationsNamingBuffer(ctx.store, buffer);
-        if (users.length && !(await ask(`${lot} is named in the process of ${users.length} formulation${users.length === 1 ? '' : 's'} (${listIds(users)}).\n\nThey keep "${lot}" and its pH, concentration and ionic strength as written, and show it as a deleted lot. Delete ${lot}?`))) return;
-        const entry = ctx.store.moveToTrash([['buffers', buffer.id]], { kind: 'buffer', label: `${lot}${buffer.name ? ' · ' + buffer.name : ''}` });
+        // A lot that formulations name is archived instead (spec 9.5): hidden from the pickers, kept for them.
+        const used = whereUsed(ctx.store, 'buffer', buffer.id);
+        if (used.length) {
+          if (!(await ask(usageSentence('buffer', lot, used)))) return;
+          archive(ctx.store, 'buffer', buffer.id);
+          toast(`${lot} archived`, '', { action: 'Undo', onAction: () => { unarchive(ctx.store, 'buffer', buffer.id); renderLists(); } });
+          ctx.navigate('buffers');
+          return;
+        }
+        const entry = ctx.store.moveToTrash([['buffers', buffer.id]], { kind: 'buffer', label: `${lot}${buffer.id !== lot ? ` (${buffer.id})` : ''}${buffer.name ? ' · ' + buffer.name : ''}` });
         if (entry) toast(`Deleted ${lot}`, '', { action: 'Undo', onAction: () => {
           const r = ctx.store.restoreFromTrash(entry.id);
           if (!r.ok) { toast(`Not restored: ${r.reason}`, 'warn'); return; }
@@ -290,6 +290,7 @@ export async function render(el, ctx) {
       // The common buffer's name goes with the first change to the recipe it names.
       if (state.givenName && RECIPE_FIELDS.includes(t.name)) delete state.givenName;
       if (t.name === 'name' || t.name === 'notes') return;
+      if (t.name === 'code') state.code = String(v || '').trim().toUpperCase();
       // A change arrives as the user leaves a field, on the way to the next one: redraw once they are there.
       if (e.type === 'change') redrawSoon(box, draw);
     }
@@ -300,10 +301,13 @@ export async function render(el, ctx) {
      * is drawn again.
      */
     function record(res, autoName) {
-      // Past every lot still named anywhere, a deleted one's included: the formulations made with it keep its lot.
-      const lot = state.lot || nextBufferLot(usedIds(ctx.store, 'buffer'));
+      // The id is still the Buffer-NNN series, numbered past every lot still named anywhere, a deleted one's
+      // included: the formulations made with it keep its number. A lot on record keeps the name it was saved
+      // with, even when its pH or date is edited later, because that name is what is written on the bottle.
+      const id = state.id || nextBufferLot(usedIds(ctx.store, 'buffer'));
+      const lot = state.lot || lotNameFor();
       const { givenName, ...kept } = state;
-      return { ...kept, id: state.id || lot, name: state.name || autoName,
+      return { ...kept, roles: normaliseRoles(state.roles), id, name: state.name || autoName,
         lot, recipe: { method: res.method, reagents: res.reagents, nacl_mM: state.nacl_mM, sucrose_mM: state.sucrose_mM, predictedPH: res.pH, ionicStrength: res.I, bufferCapacity: res.bc } };
     }
 
@@ -338,9 +342,9 @@ export async function render(el, ctx) {
       storing.add(draftId);
       ctx.store.transaction(() => {
         ctx.store.put('buffers', rec);
-        raiseCounter(ctx.store, 'buffer', rec.lot);
+        raiseCounter(ctx.store, 'buffer', rec.id);
       }, {
-        what: `the new lot ${rec.lot}`, again: 'Save lot',
+        what: `the new lot ${rec.lot} (${rec.id})`, again: 'Save lot',
         onSaved: () => {
           storing.delete(draftId);
           dropDraft(ctx, 'buffer', draftId);
@@ -357,10 +361,16 @@ export async function render(el, ctx) {
       if (b) { b.disabled = on; b.textContent = on ? 'Saving …' : 'Save lot'; }
     }
 
+    /** The name a new lot would be saved under: code, pH and date, numbered on past the lots of that day. */
+    function lotNameFor() {
+      const taken = ctx.store.all('buffers').map((b) => b.lot);
+      return bufferLotName({ code: state.code || bufferCode(state), targetPH: state.targetPH, date: state.date }, taken);
+    }
+
     function print(res, autoName, naclG, sucroseG) {
       if (res.err) return;
       const f = readForm(box);
-      const body = `<h1>Buffer preparation · ${f.name || autoName}</h1><div class="muted">${esc(state.lot || nextBufferLot(usedIds(ctx.store, 'buffer')))} · ${fmt(state.volume_mL, 0)} mL · target pH ${fmt(state.targetPH, 2)} · ${f.date} · ${f.operator}</div>
+      const body = `<h1>Buffer preparation · ${f.name || autoName}</h1><div class="muted">${esc(state.lot || lotNameFor())} · ${fmt(state.volume_mL, 0)} mL · target pH ${fmt(state.targetPH, 2)} · ${f.date} · ${f.operator}</div>
         <h2>Reagents</h2><table><tr><th>Reagent</th><th class="r">Amount</th><th>Lot</th><th>Weighed</th></tr>
         ${res.reagents.map((r) => `<tr><td>${r.name}</td><td class="r">${r.grams != null ? fmt(r.grams, 3) + ' g' : fmt(r.mL, 2) + ' mL'}</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>`).join('')}
         ${naclG ? `<tr><td>Sodium chloride</td><td class="r">${fmt(naclG, 3)} g</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>` : ''}
@@ -376,4 +386,43 @@ export async function render(el, ctx) {
     box.scrollIntoView({ block: 'start' });
     return !!draft?.state;
   }
+}
+
+/**
+ * The prepared lots, one row per kind of buffer (spec 9.2): how many lots, the newest, and a small table of all
+ * of them on opening the row. A chip per lot behind every buffer stopped being readable after a few lots. The tabs
+ * above it filter by role; `role` is in the hash, so Back returns to the tab.
+ */
+export function lotOverview(ctx, role) {
+  const gone = archivedSet(ctx.store, 'buffer'), showArchived = ctx.params?.archived === '1';
+  const lots = ctx.store.all('buffers').map((b) => ({ ...b, roles: normaliseRoles(b.roles), archived: gone.has(String(b.id)) }))
+    .filter((b) => (!role || b.roles.includes(role)) && (showArchived || !b.archived))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || String(b.id).localeCompare(String(a.id)));
+  const used = usage(ctx);
+  const tabs = [{ id: '', label: 'All' }, ...BUFFER_ROLES].map((r) => `<a class="chip${r.id === role ? ' on' : ''}" href="#/buffers${r.id ? '?role=' + r.id : ''}">${esc(r.label)}</a>`).join(' ');
+  const groups = new Map();
+  for (const b of lots) {
+    const key = b.code || bufferCode(b) || b.name;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(b);
+  }
+  const rows = [...groups.entries()].map(([key, list]) => {
+    const newest = list[0];
+    const detail = table(['Lot', 'Date', { label: 'pH', right: true }, { label: 'mL', right: true }, { label: 'Left mL', right: true }, 'Expires', { label: 'Used in', right: true }, ''],
+      list.map((b) => ({ cells: [raw(`<a href="#/buffers?id=${encodeURIComponent(b.id)}"><b>${esc(b.lot)}</b></a>${b.lot !== b.id ? ` <span class="muted">${esc(b.id)}</span>` : ''}${b.archived ? ' <span class="chip">archived</span>' : ''}`),
+        fmtDate(b.date), fmt(b.measuredPH ?? b.targetPH, 2), fmt(b.volume_mL, 0), b.remaining_mL != null ? fmt(b.remaining_mL, 0) : '–', b.expiry ? fmtDate(b.expiry) : '–',
+        `${used(b)} batch${used(b) === 1 ? '' : 'es'}`, raw(`<a href="#/buffers?id=${encodeURIComponent(b.id)}">Open</a>`)] })));
+    return `<details class="lotgroup"><summary><b>${esc(key)}</b> · ${esc(newest.name || '')} · ${list.length} lot${list.length === 1 ? '' : 's'} · newest <a href="#/buffers?id=${encodeURIComponent(newest.id)}">${esc(newest.lot)}</a> (${esc(fmtDate(newest.date))}) <span class="muted">${esc(newest.roles.map(roleLabel).join(', '))}</span></summary>${detail}</details>`;
+  });
+  const toggle = gone.size ? ` <a style="margin-left:12px" href="#/buffers?${new URLSearchParams({ ...(role ? { role } : {}), ...(showArchived ? {} : { archived: '1' }) })}">${showArchived ? 'Hide archived' : `Show archived (${gone.size})`}</a>` : '';
+  return `<div class="tabs" style="margin-bottom:8px">${tabs}${toggle}</div>${rows.join('') || '<p class="muted">No prepared buffers yet.</p>'}`;
+}
+
+/** How many batches name a lot, by any name it answers to. Counted once per screen draw. */
+function usage(ctx) {
+  const counts = new Map();
+  const seen = (s) => counts.set(s, (counts.get(s) || 0) + 1);
+  const visit = (v, out) => { if (typeof v === 'string') out.add(v); else if (v && typeof v === 'object') for (const k in v) visit(v[k], out); };
+  for (const batch of ctx.store.all('batches')) { const strs = new Set(); visit(batch.plan, strs); visit(batch.actual, strs); strs.forEach(seen); }
+  return (b) => { const names = new Set([b.lot, b.id, ...(b.aliases || [])]); let n = 0; for (const x of names) n += counts.get(x) || 0; return n; };
 }

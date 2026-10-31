@@ -11,6 +11,7 @@
 // The form is plain fields named pr_…; the screen that shows it hands every change to applyProcessField() and
 // redraws. Nothing here stores anything: the screen owns its record and saves it the way it saves the rest.
 import { esc, fmt } from './kit.js';
+import { normaliseRoles } from '../calc/buffer.js';
 import {
   PROCESS_STEPS, LAB_PROCESS, stepName, deviceOf, mixerOf, entryName, mixersFor, quenchMode, driveOf, chooseDevice, withBuffer, refreshIonic, bufferLine,
 } from '../calc/process.js';
@@ -163,8 +164,8 @@ export function processSvg(proc, ref, o = {}) {
  * datalist rather than a select, so a buffer the app does not list can be typed in as it is written on the bottle.
  */
 function bufferList(id, role, ref) {
-  const made = (ref.buffers || []).filter((b) => !role || !(b.roles || []).length || (b.roles || []).includes(role)).map((b) => [b.lot, `${b.name} · prepared lot${b.date ? ` of ${b.date}` : ''}`]);
-  const cat = (ref.buffersCatalog || []).filter((b) => !role || (b.roles || []).includes(role)).map((b) => [b.name, 'catalogue']);
+  const made = (ref.buffers || []).filter((b) => !role || !(b.roles || []).length || normaliseRoles(b.roles).includes(role)).map((b) => [b.lot, `${b.name} · prepared lot${b.date ? ` of ${b.date}` : ''}`]);
+  const cat = (ref.buffersCatalog || []).filter((b) => !role || normaliseRoles(b.roles).includes(role)).map((b) => [b.name, 'catalogue']);
   return `<datalist id="${id}">${[...made, ...cat].map(([v, l]) => `<option value="${esc(v)}">${esc(l || '')}</option>`).join('')}</datalist>`;
 }
 
@@ -214,7 +215,7 @@ export function processEditor(proc, ref, { quick = false, uid = 'pr' } = {}) {
         <datalist id="${list}">${choices.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
         <span class="prStepBtns"><button type="button" class="ghost" data-pr-up="${i}" ${i ? '' : 'disabled'} title="Earlier" aria-label="Move ${esc(stepName(s.step))} earlier">↑</button><button type="button" class="ghost" data-pr-down="${i}" ${i < ds.length - 1 ? '' : 'disabled'} title="Later" aria-label="Move ${esc(stepName(s.step))} later">↓</button><button type="button" class="ghost" data-pr-rm="${i}" title="Remove this step" aria-label="Remove ${esc(stepName(s.step))}">✕</button></span>
       </div>
-      ${info?.exchange === false ? '' : `<div class="prSub">${s.step === 'dilution' ? 'Diluted with' : 'Exchanged into'}</div>${bufferFields(`ds_${i}`, s, s.step === 'dilution' ? 'formulation' : 'dialysis', ref, uid)}`}
+      ${info?.exchange === false ? '' : `<div class="prSub">${s.step === 'dilution' ? 'Diluted with' : 'Exchanged into'}</div>${bufferFields(`ds_${i}`, s, s.step === 'dilution' ? 'final' : 'dialysis', ref, uid)}`}
     </div>`;
   };
   return `<div class="prEditor">

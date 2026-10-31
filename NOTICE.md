@@ -23,3 +23,25 @@ repository. If you reuse them, credit CurTiPot and its author, and check the ter
 - Buffer recipes: standard formulations from the literature.
 
 None of the shipped data comes from a particular laboratory.
+
+## Published methods the code implements
+
+No code was taken from them; the methods were implemented from the papers. Where each is used, with the
+licence and patent check, is in `docs/LICENSE-CHECK.md`.
+
+- Hvarfner C, Hellsten E O, Nardi L. Vanilla Bayesian optimization performs great in high dimensions. ICML 2024.
+- Binois M, Gramacy R B, Ludkovski M. Practical heteroskedastic Gaussian process modeling for large simulation experiments. J Comput Graph Stat 2018;27(4):808-821.
+- Rasmussen C E, Williams C K I. Gaussian Processes for Machine Learning. MIT Press, 2006.
+- Ginsbourger D, Le Riche R, Carraro L. Kriging is well-suited to parallelize optimization. In: Computational Intelligence in Expensive Optimization Problems, Springer 2010.
+- Snoek J, Larochelle H, Adams R P. Practical Bayesian optimization of machine learning algorithms. NeurIPS 2012.
+- Letham B, Karrer B, Ottoni G, Bakshy E. Constrained Bayesian optimization with noisy experiments. Bayesian Anal 2019;14(2):495-519.
+- Eriksson D, Jankowiak M. High-dimensional Bayesian optimization with sparse axis-aligned subspaces. UAI 2021.
+- Derringer G, Suich R. Simultaneous optimization of several response variables. J Qual Technol 1980;12(4):214-219.
+- Plackett R L, Burman J P. The design of optimum multifactorial experiments. Biometrika 1946;33(4):305-325.
+- Ryan T A, Joiner B L. Normal probability plots and tests for normality. Penn State, 1976.
+- Maharjan R, et al. Machine learning-driven optimization of mRNA-lipid nanoparticle vaccine quality. J Pharm Anal 2024;14(11):100996.
+- Sato S, et al. Understanding the manufacturing process of lipid nanoparticles for mRNA delivery using machine learning. Chem Pharm Bull 2024;72(6):529-539.
+
+## Data
+
+- Test fixtures from BioImage Archive S-BIAD3647 are CC0 (see tests/fixtures/ivis/ when present).

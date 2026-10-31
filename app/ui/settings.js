@@ -8,6 +8,8 @@ import { feedbackUrl, feedbackMail, openExternal, FEEDBACK_EMAIL } from './feedb
 let appVersion = '';
 if (typeof document !== 'undefined') import('../main.js').then((m) => { appVersion = m.APP_VERSION || ''; }, () => {});
 import { exportNow } from './backup.js';
+import { claudeCards, wireClaudeCards } from './imports.js';
+import { LAYERS } from '../calc/bio.js';
 
 // The QC limits: [key in settings.qc, label, step].
 const QC_FIELDS = [['pdiMax', 'PDI max', 0.01], ['zaveMin', 'Z-ave min (nm)', 1], ['zaveMax', 'Z-ave max (nm)', 1], ['eeMin', 'EE min (%)', 1], ['countRateMin', 'Count rate min (kcps)', 10]];
@@ -38,7 +40,10 @@ export async function render(el, ctx) {
     const typed = (vals, old) => Object.fromEntries(Object.entries(vals).map(([k, v]) => [k, v === null || Number.isNaN(v) ? old[k] : v]));
     const qc = typed(readForm(forms[1]), was.qc);
     for (const box of forms[1].querySelectorAll('[data-qcon]')) if (!box.checked) qc[box.dataset.qcon] = null;
-    ctx.store.put('settings', { id: 'default', ...typed(readForm(forms[0]), was), qc });
+    // What the form does not hold (the module switches of ./imports.js) is kept as stored; the biological layers
+    // (spec 8.5) are their own boxes, and the feature flags are kept as they are.
+    const bio = forms[2] ? Object.fromEntries(LAYERS.map((l) => [l.id, !!forms[2].querySelector(`[name="bio_${l.id}"]`)?.checked])) : was.bio;
+    ctx.store.put('settings', { ...(ctx.store.get('settings', 'default') || {}), id: 'default', ...typed(readForm(forms[0]), was), qc, bio, flags: was.flags });
   });
   const counts = ['experiments', 'batches', 'stocks', 'buffers', 'measurements', 'rnaLots', 'lipidLots', 'compositions', 'events', 'inbox', 'imports', 'trash'].map((c) => ({ cells: [c, ctx.store.count(c)] }));
   el.innerHTML = header('Reference', 'Settings & export') +
@@ -55,10 +60,16 @@ export async function render(el, ctx) {
       ${field({ id: 'driftBasis', label: 'Size drift expressed as', type: 'select', value: s.driftBasis || 'auto', options: DRIFT_BASES.map((b) => ({ value: b.id, label: b.label })) })}
       ${field({ id: 'reminderTime', label: 'Reminder time', type: 'text', value: s.reminderTime })}
       <div>${field({ id: 'weekendShift', label: 'Move weekend timepoints to Monday', type: 'checkbox', value: s.weekendShift })}</div>
+      <div>${field({ id: 'entryGrid', label: 'Enter results as a grid (Measurements)', type: 'checkbox', value: s.entryGrid })}</div>
+      <div>${field({ id: 'troubleAssistant', label: 'Troubleshooting assistant with an experiment plan', type: 'checkbox', value: s.troubleAssistant })}</div>
+      ${field({ id: 'mlBudget', label: 'Optimizer data budget (runs)', value: s.mlBudget, step: 50, min: 100, max: 800, hint: '100–800. Above it the optimizer chooses a subset.', advanced: true })}
+      <div class="advanced">${field({ id: 'mlDescriptors', label: 'Optimizer: lipid descriptor mode (experimental)', type: 'checkbox', value: s.mlDescriptors })}</div>
     </div>
     <h2 style="margin-top:14px">QC thresholds</h2><div class="grid g4" id="qcForm">
       ${QC_FIELDS.map((q) => limitField(q, s.qc[q[0]])).join('')}
     </div>
+    <h2 style="margin-top:14px">Biological layers</h2><p class="muted" style="margin-top:0">Each layer adds its own tab to formulations and experiments, and the Studies screen. Off, nothing of it is shown; data already entered is kept.</p>
+    <div class="grid g4" id="bioForm">${LAYERS.map((l) => `<label class="inline" style="font-weight:400"><input type="checkbox" name="bio_${l.id}" style="width:auto"${s.bio?.[l.id] ? ' checked' : ''}> ${l.no} · ${esc(l.name)} <span class="muted">(${esc(l.what.toLowerCase())})</span></label>`).join('')}</div>
     <div style="margin-top:12px;display:flex;gap:8px;align-items:center">${saver.html()}<button id="resetSettings">Reset to defaults</button></div></div>
     <div class="grid g2">
       <div class="card"><h2>Data</h2>${storageMeter(ctx)}${table(['Collection', { label: 'Records', right: true }], counts)}</div>
@@ -68,7 +79,8 @@ export async function render(el, ctx) {
         <p class="advanced"><button id="clearAll" style="color:var(--warn)">Delete all data in this browser</button></p>
         <p class="muted">Last export: ${esc(lastExport(ctx)?.text || 'never')}</p></div>
     </div>
-    ${trashCard(ctx)}`;
+    ${trashCard(ctx)}
+    ${claudeCards(ctx)}`;
   // Feedback here as well as in the sidebar's foot, which a narrow window hides.
   el.insertAdjacentHTML('beforeend', `<div class="card" id="feedbackCard"><h2>Feedback</h2>
     <p class="muted" style="margin-top:0">A problem or an idea goes to the project as a GitHub issue${FEEDBACK_EMAIL ? ', or by e-mail if you have no GitHub account' : ''}. The screen and the version are filled in; nothing from your lab goes with it.</p>
@@ -77,7 +89,7 @@ export async function render(el, ctx) {
     const where = { screen: 'settings', title: 'Settings & export', version: appVersion, app: !!globalThis.__TAURI__ };
     openExternal(b.dataset.mail ? feedbackMail(b.dataset.fb, where) : feedbackUrl(b.dataset.fb, where));
   }));
-  forms = [el.querySelector('#setForm'), el.querySelector('#qcForm')];
+  forms = [el.querySelector('#setForm'), el.querySelector('#qcForm'), el.querySelector('#bioForm')];
   // A limit's box, on its own field before the form stores the change: off empties the number, and on gives back
   // the one it had, or the shipped limit, to start from.
   forms[1].querySelectorAll('[data-qcon]').forEach((box) => box.addEventListener('change', () => {
@@ -89,6 +101,8 @@ export async function render(el, ctx) {
     form.addEventListener('input', saver.soon);
     form.addEventListener('change', saver.now);
   }
+  // A layer switched on or off changes the sidebar (Studies) and the tabs elsewhere: the screen is routed again.
+  forms[2].addEventListener('change', () => setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange'))));
   // Each question is awaited (ask() in ./kit.js): in the macOS app the answer comes back as a promise.
   el.querySelector('#resetSettings').addEventListener('click', async () => { if (await ask('Reset all settings to defaults?')) { ctx.store.put('settings', { ...DEFAULT_SETTINGS }); render(el, ctx); } });
   // The one export routine (./backup.js), which notes the export under the open lab's namespace: written here as
@@ -127,6 +141,7 @@ export async function render(el, ctx) {
     // the namespace on screen, which in demo mode is the demo one: this button must never reach past it
     ctx.store.clear().then((r) => { toast(r.ok ? 'All data deleted' : 'Not everything could be deleted: ' + (r.error?.message || 'unknown'), r.ok ? '' : 'warn'); render(el, ctx); });
   });
+  wireClaudeCards(el, ctx, () => render(el, ctx));
   fillStorageMeter(el, ctx);
 }
 

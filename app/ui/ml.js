@@ -10,6 +10,7 @@
 // evidence they doubt.
 import { raw, fmt, field, table, chip, toast, header, kpi, download, todayISO, esc } from './kit.js';
 import { getRef, getSettings, compositionLabel } from '../refdata.js';
+import { selectionFor } from './data.js';
 import { buildRows, responseCounts, RESPONSE_DEFS, dataAccount } from '../calc/ml/dataset.js';
 import { ALL_FACTORS, PROCESS_FACTORS, COMPOSITION_FACTORS, suggestSpace, mixtureInfo, pointToPlan, toUnit, compositionFromClasses, sameComposition,
   classPercents, mixtureLimits, mixtureAt, canWeighOut, fromUnit } from '../calc/ml/space.js';
@@ -24,6 +25,19 @@ import { checkSuggestions } from '../calc/ml/feasible.js';
 import { makeFormulationAllocator, nextExperimentId, usedIds, describeId, raiseCounter } from '../schema.js';
 import { info, wireLearn } from './learn.js';
 import { sigfig } from '../calc/diagnostics.js';
+import { prepare, fitPrepared, defaultSelection, reproduce } from '../calc/ml/pipeline.js';
+import { makeFingerprint, setupOf } from '../calc/ml/fingerprint.js';
+import { clampBudget, lipidMixerCombos } from '../calc/ml/select.js';
+import { predictionCheck } from '../calc/ml/predcheck.js';
+import { biologicalTargets, applyTargets, targetGoals } from '../calc/ml/targets.js';
+import { runsNeeded } from '../calc/variables.js';
+import { transparencyCard, predictionFold, accountCsv, whyTable } from './mlpanel.js';
+
+// The running version, for the model fingerprint (spec 7.5). As in report.js: main.js starts the app as it
+// loads, so it is only imported where the app is already running, and the calculations take the version as an
+// argument rather than reaching for it.
+let appVersion = '';
+if (typeof document !== 'undefined') import('../main.js').then((m) => { appVersion = m.APP_VERSION || ''; }, () => {});
 const RESPONSE_TOPIC = { particle_size_nm: 'size', PDI: 'pdi', encapsulation_efficiency: 'ee', zeta_potential_mV: 'zeta', rna_content_mg_mL: 'ee' };
 
 const SETUP_KEY = 'mlSetup';
@@ -69,7 +83,14 @@ const baseComposition = (ref, state) => ref.compositionById[Number(state.baseCom
 
 export async function render(el, ctx) {
   const ref = getRef(ctx), settings = getSettings(ctx);
-  const rows = buildRows(ctx);
+  // A selection handed over from the data overview (spec 5.3) is the data basis: only its formulations.
+  const handed = ctx.params.data ? selectionFor(ctx, ctx.params.data) : null;
+  // Biological targets join only while a biology layer is switched on (spec 7.9, calc/ml/targets.js): with none,
+  // there are none, and every row is as buildRows made it.
+  const bio = biologicalTargets(ctx, settings);
+  const allRows = bio.length ? applyTargets(buildRows(ctx), bio, ctx) : buildRows(ctx);
+  const rows = handed ? allRows.filter((r) => handed.ids.has(r.batchId)) : allRows;
+
   const saved = loadSetup(ctx);
   // Experiments switched off on the Data used card stay off (they are part of the saved setup); the measured
   // formulations the ranges and the factor table are read from leave them out too, so a switched-off
@@ -87,8 +108,20 @@ export async function render(el, ctx) {
     const hi = obs.length ? Math.min(f.hi, Math.max(...obs)) : f.hi;
     return { key, name: f.name, unit: f.unit, step: f.step, lo: lo === hi ? f.lo : lo, hi: lo === hi ? f.hi : hi };
   });
+  // Which lipid and mixer (spec 7.1): the one saved, while the data still has it, else the combination with most
+  // measured runs. A selection handed over from Data is the data basis instead, so it filters nothing further.
+  const combos = lipidMixerCombos(rows);
+  // Only a combination the user chose is kept: one saved because it happened to be the largest when the setup was
+  // last stored would otherwise stay selected after the data grew elsewhere (a combination of 1 run of 162).
+  const chosen = saved?.comboChosen === true;
+  const savedCombo = chosen && combos.some((c) => c.lipid === saved.lipid && c.mixer === saved.mixer) ? { lipid: saved.lipid, mixer: saved.mixer }
+    : chosen && saved.lipid === null && saved.mixer === null ? { lipid: null, mixer: null } : null;
+  const pick = handed ? { lipid: null, mixer: null } : savedCombo || defaultSelection(rows);
+  const goals0 = saved?.goals || DEFAULT_GOALS.map((g) => ({ ...g }));
+  for (const g of targetGoals(bio)) if (!goals0.some((x) => x.name === g.name)) goals0.push(g);
   const state = {
-    goals: saved?.goals || DEFAULT_GOALS.map((g) => ({ ...g })),
+    lipid: pick.lipid, mixer: pick.mixer, comboChosen: !handed && !!savedCombo, lipidMode: saved?.lipidMode || 'filter',
+    goals: goals0,
     space: handedOver.length ? spaceFrom(handedOver) : saved?.space?.length ? saved.space : auto,
     constraints: saved?.constraints || [{ name: 'PDI', op: '<', value: 0.3, on: false }],
     excluded: saved?.excluded || [],
@@ -102,34 +135,53 @@ export async function render(el, ctx) {
     // or undone, through every redraw an edit causes meanwhile: a second press used to make a second round.
     creating: false,
   };
-  const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded });
+  const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded,
+    ...(handed || !state.comboChosen ? {} : { lipid: state.lipid, mixer: state.mixer, comboChosen: true }), lipidMode: state.lipidMode });
   /** What the model would be fitted on now: every formulation, accounted for (calc/ml/dataset.js). */
   const account = () => dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, limits: ALL_FACTORS });
 
   let report = null, fit = null, running = false, drawn = null;
   const activeConstraints = () => state.constraints.filter((c) => c.on && Number.isFinite(c.value));
+  const budget = clampBudget(settings.mlBudget);
+  // The selection and the modes the data allows (pipeline.js prepare), worked out again only when what it reads
+  // changes: the panel shows it before a fit, and choosing it can take a moment on ten thousand formulations.
+  let prepCache = null;
+  const prepNow = () => {
+    const key = JSON.stringify([state.excluded, state.lipid, state.mixer, state.lipidMode, state.space, state.goals.filter((g) => g.on !== false).map((g) => [g.name, g.goal, g.target, g.lo, g.hi, g.best, g.worst, g.weight]), budget, state.seed]);
+    const off = new Set(state.excluded);
+    if (prepCache?.key !== key) prepCache = { key, prep: prepare(rows.filter((r) => !off.has(r.experimentId || '')), { space: state.space, goals: state.goals, lipid: state.lipid, mixer: state.mixer, lipidMode: state.lipidMode,
+      budget, seed: state.seed, descriptorsOn: !!settings.mlDescriptors, lipidByKey: ref.lipidByKey }) };
+    return prepCache.prep;
+  };
 
-  /** Refit every surface: needed only when the data, the factors or the split strategy change. */
+  /** Refit every surface: needed only when the data, the factors, the selection or the split strategy change. */
   function compute() {
-    // Fitted on exactly the formulations the Data used card lists as used, so the card and the model agree.
-    fit = fitModels({ rows: account().used, space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed });
+    fit = fitPrepared(prepNow(), { space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed, lipidByKey: ref.lipidByKey });
     rescore();
   }
   /** Re-score the existing surfaces: goals, limits, mode, batch size and seed all land here, in milliseconds. */
   function rescore() {
     if (!fit) return;
-    report = score(fit, { goals: state.goals, constraints: activeConstraints(), q: state.q, mode: state.mode, seed: state.seed,
-      baseClasses: classPercents(baseComposition(ref, state), ref) });
+    const baseClasses = classPercents(baseComposition(ref, state), ref);
+    report = score(fit, { goals: state.goals, constraints: activeConstraints(), q: state.q, mode: state.mode, seed: state.seed, baseClasses });
+    // Every analysis carries its fingerprint (spec 7.5), and a round made from it stores it (createExperiment).
+    report.fingerprint = makeFingerprint({ report, appVersion,
+      setup: setupOf({ ...state, constraints: activeConstraints(), budget, baseClasses }) });
   }
 
   function draw() {
-    const counts = responseCounts(measured, state.space);
-    const acc = account();
-    // After a fit the numbers are the fit's own (a goal or a range changed since only re-scores); before one,
-    // what a fit would use now.
-    const usable = report?.n ?? acc.used.length;
-    const fromExps = report ? new Set(report.rows.map((r) => r.experimentId || '')).size : acc.usedExperiments;
+    const prep = prepNow();
+    const sel = prep.sels[prep.tries[0]];
+    const counts = responseCounts(sel.target, state.space);
+    const usable = report?.n ?? sel.target.length;
     const ready = readinessFor(usable);
+    const panel = transparencyCard({ state, prep, report, ref, settings, handed, rows, descriptorsOn: !!settings.mlDescriptors });
+    const mlRounds = ctx.store.all('experiments').filter((e) => e.design?.ml?.fingerprint?.hash)
+      .sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || ''))).map((e) => ({ id: e.id, name: e.name, fp: e.design.ml.fingerprint }));
+    const predFold = predictionFold(state, predictionCheck(allRows), mlRounds);
+    // The Data used card (0.15) counts experiments; the panel above it counts what the selection kept of them.
+    const acc = account();
+    const fromExps = report ? new Set(report.rows.map((r) => r.experimentId || '')).size : acc.usedExperiments;
     const source = `${usable} formulation${usable === 1 ? '' : 's'} from ${fromExps} experiment${fromExps === 1 ? '' : 's'}`;
 
     // Everything below the header lives inside #mlRoot, and the delegated change listener is attached to that
@@ -139,7 +191,9 @@ export async function render(el, ctx) {
       `<button type="button" class="chip linkchip ${ready.stage === 'none' || ready.stage === 'seed' ? 'warn' : 'info'}" id="mlSourceChip" title="Which formulations and experiments, and which were left out: the Data used card">${report ? 'fitted on ' : ''}${source}</button>
        <button class="primary" id="runBtn" ${running ? 'disabled' : ''}>${report ? 'Recalculate' : 'Fit model and suggest runs'}</button>`) +
       `<div id="mlRoot">` +
+      (handed ? `<div class="note" id="mlSelection">Data: <b>${esc(handed.sentence)}</b>, chosen in <a href="#/data?${esc(ctx.params.data)}">Data</a>. <a href="#/ml">Use all formulations instead</a>.</div>` : '') +
       (handedOver.length ? `<div class="note">The factors below came from <a href="#/advisor">the planner</a>: ${handedOver.map((k) => esc(ALL_FACTORS.find((f) => f.key === k).name)).join(', ')}. Change anything that does not match your rig.</div>` : '') +
+      panel +
       dataCard(acc, state, report) +
       (report
         // The verdict and the runs lead (usability cycle 6, L1); the setup's one line follows them, unless the
@@ -152,18 +206,20 @@ export async function render(el, ctx) {
           mapFold(report, state) +
           driversFold(report, state) +
           progressFold(report, state) +
+          predFold +
           dataFold(report, state) +
           fold(state, 'method', { title: 'Method', cls: 'advanced', body: methodText(),
             say: `a Gaussian process per response; runs chosen by expected improvement in the overall score; seed ${esc(report.seed)}` })
         : lede(report, ready, usable, state, source) +
           goalsCard(state) +
-          spaceCard(state, auto, measured, counts) +
+          spaceCard(state, auto, measured, counts, usable) +
+          predFold +
           `<div class="card advanced"><h2>Method</h2>${methodText()}</div>`) +
       `</div>`;
 
     wireLearn(el.querySelector('#mlRoot'));
     drawn = el.querySelector('#mlRoot');
-    wire(el, ctx, ref, settings, state, report, { draw, compute, rescore, persist, measured,
+    wire(el, ctx, ref, settings, state, report, { draw, compute, rescore, persist, measured, prepNow, allRows, bio: bio.length > 0, usable,
       // an experiment switched on or off: the measured rows change, and so does everything fitted on them
       setExcluded: (ids) => {
         state.excluded = [...new Set(ids)];
@@ -171,6 +227,7 @@ export async function render(el, ctx) {
         measured = rows.filter((r) => r.nResponses > 0 && !off.has(r.experimentId || ''));
         report = null; fit = null;
       },
+
       setRunning: (v) => { running = v; },
       // A write that ends after the user has gone elsewhere must not draw this screen over the one now showing.
       // A visit back draws a #mlRoot of its own, so the one this visit drew last is how to tell.
@@ -333,7 +390,7 @@ function setupFold(state, auto, measured, counts, report) {
     · over ${state.space.map((f) => `${esc(shortName(f))} ${atStep(f.lo, f)}–${atStep(f.hi, f)}${f.unit ? ` ${esc(f.unit)}` : ''}`).join(', ') || 'no factor'}
     ${problems.length ? `· <b>${problems.length} goal${problems.length === 1 ? ' needs' : 's need'} fixing</b>` : '· open to change'}`;
   return fold(state, 'setup', { title: 'Goals and factors', say, dflt: setupLeads(state, report),
-    body: goalsCard(state) + spaceCard(state, auto, measured, counts) });
+    body: goalsCard(state) + spaceCard(state, auto, measured, counts, report?.n) });
 }
 /** Whether the setup is the next thing to change: a goal that needs fixing, or a run that produced no suggestions. */
 const setupLeads = (state, report) => goalProblems(state.goals).length > 0 || !report.suggestions?.picks?.length;
@@ -379,7 +436,8 @@ function goalsCard(state) {
         : `<input type="number" step="any" name="g_best_${i}" value="${g.best ?? ''}" style="width:78px" title="as good as it needs to get"> <span class="muted">ideal or above</span>
            <input type="number" step="any" name="g_worst_${i}" value="${g.worst ?? ''}" style="width:78px" title="unacceptable at or below"> <span class="muted">unacceptable</span>`;
     return { cells: [
-      raw(`<input type="checkbox" name="g_on_${i}" ${on ? 'checked' : ''} style="width:auto">`),
+      // An in-vivo target is listed but cannot be switched on in this stage (spec 8.6, calc/ml/targets.js).
+      raw(`<input type="checkbox" name="g_on_${i}" ${on && !g.locked ? 'checked' : ''} ${g.locked ? `disabled title="${esc(g.locked)}"` : ''} style="width:auto">`),
       raw(`<b>${esc(g.label || g.name)}</b>${g.unit ? ` <span class="muted">${esc(g.unit)}</span>` : ''} ${RESPONSE_TOPIC[g.name] ? info(RESPONSE_TOPIC[g.name]) : ''}`),
       raw(`<select name="g_goal_${i}" style="width:110px">${['target', 'range', 'minimize', 'maximize'].map((x) => `<option value="${x}" ${g.goal === x ? 'selected' : ''}>${x === 'target' ? 'hit a target' : x === 'range' ? 'stay in a band' : x === 'minimize' ? 'as low as possible' : 'as high as possible'}</option>`).join('')}</select>`),
       raw(`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${fields}</div>`),
@@ -415,7 +473,7 @@ function curveSvg(g) {
 }
 
 /* ---------------- design space ---------------- */
-function spaceCard(state, auto, rows, counts) {
+function spaceCard(state, auto, rows, counts, usable = null) {
   const inSpace = (k) => state.space.find((s) => s.key === k);
   const cov = {};
   for (const f of ALL_FACTORS) {
@@ -438,6 +496,7 @@ function spaceCard(state, auto, rows, counts) {
   };
   return `<div class="card"><h2>What you are willing to change ${info('doe')}</h2>
     <p class="muted">Only factors that actually varied across your batches can be judged. A factor held constant is listed so you can see it was excluded for that reason, not because it does not matter.</p>
+    <p id="spaceNeed" class="note">${esc(runsNeeded(state.space.length, usable ?? rows.length).sentence)}</p>
     <h2 style="font-size:13px;margin-top:10px">Process</h2>${table(['Use', 'Factor', 'In your data', 'Observed', 'Search from', 'to'], PROCESS_FACTORS.map(row))}
     <h2 style="font-size:13px;margin-top:10px">Composition</h2>${table(['Use', 'Factor', 'In your data', 'Observed', 'Search from', 'to'], COMPOSITION_FACTORS.map(row))}
     ${mix ? `<div class="note">${info('mixture')} Varying lipid mol% is a different kind of change from varying the process: it moves you away from a composition with clinical precedent, and immune response and safety do not follow from particle size and encapsulation. Recent work on thermostable formulations deliberately froze the lipid ratios for that reason and optimised excipients instead. One case deserves naming: the reviews put organ targeting down to PEG content, PEG molecular weight and PEG tail length, so raising PEG to tidy up a dispersity figure can move where the particle ends up, and nothing on this screen would show it. Worth a thought before you let the optimiser roam here.<br><br>Lipid mol% has to total 100, so <b>${esc(mix.balance || 'no class')}</b> is left free to take up the slack while the others are varied. ${mix.balance ? '' : 'With every class varied there is nothing left to balance, so switch one off.'}</div>` : ''}
@@ -482,7 +541,7 @@ function modelCard(report, state) {
   }).join('');
   return `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Does the model know anything ${info('q2')}</h2>
       <label for="strategy" style="margin:0">Held out</label>
-      <select id="strategy" name="strategy" style="width:auto">${Object.entries(SPLITS).map(([k, v]) => `<option value="${k}" ${state.strategy === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></div>
+      <select id="strategy" name="strategy" style="width:auto">${Object.entries(SPLITS).filter(([k, v]) => !v.biology || k === state.strategy || report.goals.some((g) => g.biology)).map(([k, v]) => `<option value="${k}" ${state.strategy === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select></div>
     <p class="muted">${esc(SPLITS[report.strategy].note)} ${info('splits')} Q² is R² measured on runs the model never saw; the in-sample R² of a flexible model is close to 1 by construction and would tell you nothing.</p>
     ${blocks}`;
 }
@@ -842,7 +901,7 @@ function wire(el, ctx, ref, settings, state, report, h) {
   });
   root.querySelector('#reseed')?.addEventListener('click', () => { state.seed = (state.seed * 7 + 13) % 100000; h.rescore(); h.persist(); h.draw(); });
   root.querySelector('#makeExp')?.addEventListener('click', () => {
-    createExperiment(ctx, ref, settings, state, report.suggestions.picks, `ML round ${roundNumber(ctx)}`, `Proposed by the ML optimizer (${MODES[state.mode].label.toLowerCase()}, seed ${state.seed}).`, busy);
+    createExperiment(ctx, ref, settings, state, report.suggestions.picks, `ML round ${roundNumber(ctx)}`, `Proposed by the ML optimizer (${MODES[state.mode].label.toLowerCase()}, seed ${state.seed}).`, busy, report.fingerprint);
   });
   root.querySelector('#addConfirm')?.addEventListener('click', () => {
     const c = report.suggestions.confirm;
@@ -853,7 +912,7 @@ function wire(el, ctx, ref, settings, state, report, h) {
         : `repeat of ${r.batchId}${r.kind === 'pick' ? ", the model's pick," : ''} to confirm it was not a lucky measurement` })));
     const pickRun = c.runs.find((r) => r.kind !== 'optimum');
     const name = pickRun && c.runs.length === 1 ? `Confirm ${pickRun.batchId}` : pickRun ? `Confirm ${pickRun.batchId} and the optimum` : 'Confirm the predicted optimum';
-    createExperiment(ctx, ref, settings, state, picks, name, c.reason, busy);
+    createExperiment(ctx, ref, settings, state, picks, name, c.reason, busy, report.fingerprint);
   });
   root.querySelector('#exportCsv')?.addEventListener('click', () => {
     const head = ['run', ...report.space.map((f) => f.key), ...report.goals.flatMap((g) => [`${g.name}_predicted`, `${g.name}_sd`]), 'p_beats_best', 'expected_desirability'];
@@ -864,6 +923,30 @@ function wire(el, ctx, ref, settings, state, report, h) {
     // null when the dialog is cancelled; the toast waits for it, so a cancelled export does not say "exported".
     Promise.resolve(download(`ml-suggestions-${todayISO()}.csv`, lines.join('\n') + '\n', 'text/csv'))
       .then((path) => path && toast('Suggestions exported', 'ok'));
+  });
+  // Reproduce (spec 7.5): the run on screen, or a stored round, made again from its fingerprint on today's records.
+  root.querySelectorAll('[data-repro]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.repro;
+    const fp = id === 'current' ? report?.fingerprint : ctx.store.get('experiments', id)?.design?.ml?.fingerprint;
+    const out = id === 'current' ? root.querySelector('#reproduceOut') : root.querySelector(`[data-repro-out="${CSS.escape(id)}"]`);
+    if (!fp || !out) return;
+    b.disabled = true; out.textContent = 'Fitting again…';
+    setTimeout(() => {
+      let res;
+      try { res = reproduce(fp, h.allRows, { lipidByKey: ref.lipidByKey, appVersion }); } catch (err) { res = { match: false, sentence: `Could not refit: ${err.message}` }; }
+      out.textContent = res.sentence; out.style.color = res.match ? 'var(--ok-text)' : 'var(--warn-text)'; out.dataset.match = res.match ? '1' : '0';
+      b.disabled = false;
+    }, 30);
+  }));
+  const currentSel = () => { const p = h.prepNow(); return report?.selection || p.sels[p.tries[0]]; };
+  const wireCsv = () => root.querySelector('#accountCsv')?.addEventListener('click', () => download(`ml-data-account-${todayISO()}.csv`, accountCsv(currentSel()), 'text/csv'));
+  wireCsv();
+  // The per-formulation list is drawn on first opening (mlpanel.js whyFold).
+  root.querySelector('#whyFold')?.addEventListener('toggle', (e) => {
+    const body = root.querySelector('#whyBody');
+    if (!e.currentTarget.open || !body || body.childElementCount) return;
+    body.innerHTML = whyTable(currentSel(), ref);
+    wireCsv();
   });
   root.querySelector('#addConstraint')?.addEventListener('click', () => { state.constraints.push({ name: 'particle_size_nm', op: '<', value: 150, on: true }); h.persist(); h.draw(); });
   // Only a click on a fold's line is recorded, never its default: the click runs before the details toggles,
@@ -909,6 +992,13 @@ function wire(el, ctx, ref, settings, state, report, h) {
       h.invalidate(); report = null; redraw = true;
     }
     else if ((m = n.match(/^s_(lo|hi)_(.+)$/))) { const s = state.space.find((x) => x.key === m[2]); if (s) s[m[1]] = v; recompute = !!report; refit = true; redraw = true; }
+    else if (n === 'sel_combo') {
+      // Another lipid or mixer is another data basis, so the fit and its fingerprint no longer apply.
+      const [l, mx] = String(v).split('|');
+      state.lipid = l === '*' ? null : l; state.mixer = mx === '*' ? null : mx; state.comboChosen = true;
+      h.invalidate(); report = null; redraw = true;
+    }
+    else if (n === 'lipidMode') { state.lipidMode = v; h.invalidate(); report = null; redraw = true; }
     else if (n === 'strategy') { state.strategy = v; recompute = !!report; refit = true; redraw = true; }
     else if (n === 'mode') { state.mode = v; recompute = !!report; redraw = true; }
     else if (n === 'q') { state.q = Math.max(1, Math.min(12, v || 4)); recompute = !!report; redraw = true; }
@@ -932,7 +1022,7 @@ const roundNumber = (ctx) => ctx.store.all('experiments').filter((e) => /^ML rou
  * them: the operator would make the registry recipe, and the model would later train on a composition that was
  * never produced.
  */
-function createExperiment(ctx, ref, settings, state, picks, name, note, busy) {
+function createExperiment(ctx, ref, settings, state, picks, name, note, busy, fingerprint = null) {
   if (state.creating) return; // one is being written already; a second would be a second round of the same runs
   // The same after leaving the optimizer and coming back while the write is pending: that visit's buttons are
   // drawn enabled, but the round is the same one (usability cycle 6, W6).
@@ -977,13 +1067,15 @@ function createExperiment(ctx, ref, settings, state, picks, name, note, busy) {
     b.plannedDate = productionDate(spec.startDate, batches.length, perDay); // one buildExperiment per pick cannot spread them itself
     b.plan.factors = { ...p.point };
     if (plan.np != null) b.plan.rna.np = plan.np;
+    // The aqueous-phase factors live with the other process details (variables.js), where the form reads them.
+    for (const k of ['loadingPH', 'bufferMolarity_mM']) if (plan[k] != null) b.plan.process = { ...(b.plan.process || {}), [k]: plan[k] };
     if (composition) b.plan.compositionOverride = composition;
     // The prediction kept with the batch is what one batch there should measure, with `noise` the measurement
     // scatter in it (expected(), above), so the result is held against the interval it can be expected to fall in.
     const pred = p.forecast || p.predicted;
     b.ml = { suggestedAt: todayISO(), mode: state.mode, seed: state.seed, rationale: p.rationale || '', purpose: p.purpose || null,
       predicted: pred ? Object.fromEntries(Object.entries(pred).map(([k, q]) => [k, { mean: q.mean, sd: q.sd, ...(Number.isFinite(q.noise) ? { noise: q.noise } : {}) }])) : null,
-      pBeatsBest: p.pBeatsBest ?? null };
+      pBeatsBest: p.pBeatsBest ?? null, ...(fingerprint ? { fingerprint: fingerprint.hash } : {}) };
     batches.push(b);
   });
 
@@ -1002,7 +1094,8 @@ function createExperiment(ctx, ref, settings, state, picks, name, note, busy) {
     for (const t of spec.tests) expected.push({ id: `${b.id}_final_${t}`, batchId: b.id, stage: 'final', test: t, dueDate: due, status: 'open', measurementId: null, sampleName: `${b.id}_final` });
   }
   const experiment = { id, type: 'single', name, startDate: todayISO(), compositionId: batches[0].compositionId, status: 'planned',
-    spec, design: { ml: { space: state.space, goals: state.goals.filter((g) => g.on !== false), mode: state.mode, seed: state.seed, note, newCompositions: newComps.map((c) => c.id) } },
+    spec, design: { ml: { space: state.space, goals: state.goals.filter((g) => g.on !== false), mode: state.mode, seed: state.seed, note, newCompositions: newComps.map((c) => c.id),
+      ...(fingerprint ? { fingerprint } : {}) } },
     batchIds: batches.map((b) => b.id), expected, notes: note };
   // One write: compositions, formulations and the experiment are stored together or not at all. The screen
   // moves on once they are stored; if the browser refuses the write, the change is undone and the optimizer
