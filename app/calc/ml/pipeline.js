@@ -59,9 +59,17 @@ export function fitPrepared(prep, { space, goals, strategy = 'experiment', seed 
   let chosen = compared[0];
   for (const c of compared.slice(1)) if (c.q2 != null && (chosen.q2 == null || c.q2 > chosen.q2)) chosen = c;
   const fit = fits[chosen.mode];
-  fit.lipidChoice = { mode: chosen.mode, chosenBy: prep.choice === 'auto' ? 'auto' : 'user', compared, availability: prep.avail, requested: prep.choice };
+  fit.lipidChoice = { mode: chosen.mode, chosenBy: prep.choice === 'auto' ? 'auto' : 'user', compared, availability: prep.avail, requested: prep.choice, rank: chosen.mode === 'kernel' ? rank : 1 };
   fit.selection = prep.sels[chosen.mode];
+  if (chosen.mode === 'descriptor') fit.lipidDescriptors = descriptorsUsed(fit.selection, prep.lipid, (l) => descriptorVector(lipidByKey[l]));
   return fit;
+}
+
+/** The descriptor vector of every lipid a descriptor-mode fit read, keyed by lipid, for the fingerprint. */
+function descriptorsUsed(sel, target, descOf) {
+  const out = {};
+  for (const l of new Set([target, ...(sel?.others || []).map((r) => r.lipid)])) if (l != null) out[l] = descOf(l) || null;
+  return out;
 }
 
 /** The mode in a sentence, as the panel's first line says it (spec 7.4). */
@@ -118,9 +126,12 @@ export function reproduce(fp, rows, o = {}) {
   const s = fp.setup;
   const target = rebuilt.slice(0, fp.nTarget), others = rebuilt.slice(fp.nTarget);
   const fit = fitModels({ rows: target, space: s.space, goals: s.goals, strategy: s.strategy, seed: s.seed, noise: fp.noise || null,
-    lipidModel: fp.mode === 'filter' ? null : { mode: fp.mode, targetLipid: s.lipid, others, rank: 1, descOf: (l) => descriptorVector(o.lipidByKey?.[l]) } });
-  fit.lipidChoice = { mode: fp.mode, chosenBy: fp.chosenBy, compared: fp.compared, requested: s.lipidMode };
+    lipidModel: fp.mode === 'filter' ? null : { mode: fp.mode, targetLipid: s.lipid, others, rank: fp.rank ?? 1,
+      // the descriptors as recorded; a fingerprint older than that field reads today's
+      descOf: (l) => (fp.descriptors ? fp.descriptors[l] ?? null : descriptorVector(o.lipidByKey?.[l])) } });
+  fit.lipidChoice = { mode: fp.mode, chosenBy: fp.chosenBy, compared: fp.compared, requested: s.lipidMode, rank: fp.rank ?? 1 };
   fit.selection = { others, noise: fp.noise || null };
+  if (fp.descriptors) fit.lipidDescriptors = fp.descriptors;
   const report = score(fit, { goals: s.goals, constraints: s.constraints, q: s.q, mode: s.acquisition, seed: s.seed, baseClasses: s.baseClasses || undefined });
   const now = makeFingerprint({ report, setup: s, appVersion: o.appVersion ?? fp.appVersion });
   return { ...compareFingerprints(fp, now), now, report };

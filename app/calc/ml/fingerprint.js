@@ -18,7 +18,7 @@ import { sha256 } from '../sha256.js';
 import { hyperparameters } from './gp.js';
 
 /** Raised with any change to app/calc/ml that can move a fit or a suggestion. */
-export const ML_CODE_VERSION = '4.0.0';
+export const ML_CODE_VERSION = '4.1.0';
 
 /** Numbers to 12 significant digits, keys sorted: the same object gives the same text on every platform. */
 export function canonical(v) {
@@ -67,6 +67,10 @@ export function makeFingerprint({ report, setup, appVersion = '' }) {
     compared: (report.lipidChoice?.compared || []).map((c) => ({ mode: c.mode, q2: c.q2 })),
     n: recs.length, nTarget: target.length, ids: recs.map((r) => r.id), dataHash: hashOf(recs),
     noise: report.selection?.noise || null,
+    // The lipid kernel's rank and, in descriptor mode, the descriptors as they were read: reproducing uses these,
+    // so a descriptor corrected since does not make an old round irreproducible.
+    rank: report.lipidChoice?.rank ?? 1,
+    ...(report.lipidDescriptors ? { descriptors: report.lipidDescriptors } : {}),
     hyper: Object.fromEntries((report.models || []).map((m) => [m.name, hyperparameters(m.gp)])),
     suggestions: (report.suggestions?.picks || []).map((p) => p.point),
   };

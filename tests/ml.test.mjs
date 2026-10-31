@@ -746,7 +746,9 @@ test('each suggestion carries what one batch there should measure: the surfaces 
     const f = p.forecast.encapsulation_efficiency;
     assert.deepEqual(f, predictAt(out.models, sp, p.point, { run: true }).encapsulation_efficiency, `pick ${i + 1}: from the surfaces as fitted, at the setting to be made`);
     const surface = predictAt(out.models, sp, p.point).encapsulation_efficiency;
-    assert.ok(f.noise > 0 && Math.abs(f.sd ** 2 - surface.sd ** 2 - f.noise ** 2) < 1e-9 * f.sd ** 2, `pick ${i + 1}: the surface's uncertainty and the noise together`);
+    // the surface's uncertainty and the noise together, widened by the cross-validated calibration (spec 7.8)
+    const c = f.calibrated || 1;
+    assert.ok(f.noise > 0 && Math.abs((f.sd / c) ** 2 - surface.sd ** 2 - f.noise ** 2) < 1e-9 * f.sd ** 2, `pick ${i + 1}: the surface's uncertainty and the noise together`);
   });
   assert.ok(out.suggestions.picks.slice(1).some((p) => p.forecast.encapsulation_efficiency.mean !== p.predicted.encapsulation_efficiency.mean),
     'the later picks were chosen on surfaces that pretend, and what they carry forward is not from those');
@@ -793,6 +795,38 @@ test('prediction intervals: the noise prior no longer lets a fit without replica
   assert.ok(now.noise > old.noise * 1.15, `the fitted noise should rise towards the truth (${old.noise.toFixed(2)} → ${now.noise.toFixed(2)} of it)`);
   assert.ok(now.coverage > old.coverage, `coverage should rise (${(old.coverage * 100).toFixed(0)} % → ${(now.coverage * 100).toFixed(0)} %)`);
   assert.ok(now.noise < 1.5, 'and not overshoot it');
+});
+
+test('prediction intervals hold 92 to 97 % of new results without replicates, on four functions (spec 7.8, 12.2)', () => {
+  // The forecast of a run is the Gaussian process's predictive SD widened by the cross-validated calibration
+  // (model.js, intervalScale). Four synthetic surfaces, 24 and 40 runs, no repeated setting among them, 30 new
+  // single measurements per fit: the pooled share inside the 95 % interval has to be honest, neither the 80 %
+  // the uncalibrated fit gives at 24 runs nor a padded 100 %.
+  const fns = [
+    (x) => 10 * Math.sin(2 * x[0]) + 6 * x[1] - 4 * x[2] ** 2,
+    (x) => -15 * ((x[0] - 0.4) ** 2 + (x[1] - 0.6) ** 2) + 3 * x[2],
+    (x) => 8 * Math.exp(-6 * ((x[0] - 0.7) ** 2 + (x[2] - 0.3) ** 2)) + 2 * x[1],
+    (x) => 5 * x[0] * x[1] + 4 * Math.cos(3 * x[2]),
+  ];
+  let hit = 0, raw = 0, tot = 0;
+  for (const n of [24, 40]) for (const f of fns) for (let seed = 1; seed <= 4; seed++) {
+    const rnd = mulberry32(seed * 13 + n), g = () => Math.sqrt(-2 * Math.log(rnd() || 1e-9)) * Math.cos(2 * Math.PI * rnd());
+    const X = Array.from({ length: n }, () => [rnd(), rnd(), rnd()]);
+    const y = X.map((x) => f(x) + 2 * g());
+    const rows = X.map((_, i) => ({ batchId: 'b' + i, experimentId: 'E' + (i % 6) }));
+    const ev = evaluateResponse({ X, y, rows, strategy: 'experiment', learners: ['gp', 'dummy'], nullCheck: false });
+    assert.ok(ev.intervalScale >= 1 && ev.intervalScale <= 3);
+    for (let t = 0; t < 30; t++) {
+      const x = [rnd(), rnd(), rnd()], yo = f(x) + 2 * g();
+      const p = ev.gp.predict(x, { noiseless: false });
+      const d = Math.abs(yo - (p.mean * ev.ySd + ev.yMean)), sd = p.sd * ev.ySd;
+      if (d <= 1.96 * sd) raw++;
+      if (d <= 1.96 * sd * ev.intervalScale) hit++;
+      tot++;
+    }
+  }
+  const cov = hit / tot;
+  assert.ok(cov >= 0.92 && cov <= 0.97, `calibrated coverage ${(cov * 100).toFixed(1)} % (uncalibrated ${(raw / tot * 100).toFixed(1)} %)`);
 });
 
 test('the optimiser stays inside its bounds: a lengthscale is never moved below the floor it is measured at', () => {

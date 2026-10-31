@@ -69,9 +69,10 @@ const unit = (r, space) => space.map((s) => (s.hi > s.lo ? Math.max(0, Math.min(
 /**
  * Greedy weighted maximin: k of the rows, spread through the space, with a preference for good and recent runs.
  * Each step takes the run whose distance to the nearest one already taken, times its weight, is largest. The
- * weight is 1 + 0.5·(score rank) + 0.25·(date rank), both ranks from 0 to 1, so a good run is preferred over
- * an equally isolated poor one but never over a gap in the coverage twice its distance. The first run is the
- * best scored. O(n·k·D), which for 10,000 runs and a budget of 400 is a fraction of a second.
+ * weight is 1 + 0.5·(score rank) + 0.25·(nearness rank) + 0.25·(date rank), all ranks from 0 to 1, so a good
+ * run, or one close to the best results (spec 7.2: where the next suggestions will be looked for), is preferred
+ * over an equally isolated poor one but never over a gap in the coverage twice its distance. Nearness is the
+ * distance to the nearest of the ten best scored runs. The first run is the best scored. O(n·k·D), which for 10,000 runs and a budget of 400 is a fraction of a second.
  */
 export function subselect(rows, k, space, goals, seed = 7) {
   const n = rows.length;
@@ -92,8 +93,10 @@ export function subselect(rows, k, space, goals, seed = 7) {
   const good = rankOf(rows.map((r) => overallDesirability(r.values, act).D));
   const dates = [...new Set(rows.map((r) => String(r.date || '')))].sort();
   const recent = rankOf(rows.map((r) => dates.indexOf(String(r.date || ''))));
-  const w = rows.map((_, i) => 1 + 0.5 * good[i] + 0.25 * recent[i] + tie[i]);
   const U = rows.map((r) => unit(r, space));
+  const top = Array.from(good, (g, i) => [g + tie[i], i]).sort((a, b) => b[0] - a[0]).slice(0, Math.min(10, n)).map(([, i]) => i);
+  const near = rankOf(U.map((u) => -Math.min(...top.map((t) => { let d = 0; for (let j = 0; j < u.length; j++) d += (u[j] - U[t][j]) ** 2; return d; }))));
+  const w = rows.map((_, i) => 1 + 0.5 * good[i] + 0.25 * near[i] + 0.25 * recent[i] + tie[i]);
   const minD = new Float64Array(n).fill(Infinity);
   const taken = new Uint8Array(n);
   let first = 0;

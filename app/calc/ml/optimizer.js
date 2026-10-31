@@ -71,7 +71,7 @@ export function fitModels({ rows, space, goals, strategy = 'experiment', seed = 
     out.responses.push({ name: g.name, label: g.label, unit: g.unit, n: idx.length, ...ev, noise,
       importance: imp, ard: ev.gp ? ardImportance(ev.gp, space) : [], collapse: ev.gp ? collapseCheck(ev.gp, space, { seed: seed + 11 }) : null,
       measured: yr, observed: { lo: Math.min(...yr), hi: Math.max(...yr) } });
-    if (ev.gp) out.models.push({ name: g.name, gp: ev.gp, yMean: ev.yMean, ySd: ev.ySd, kind: 'gp', X: Xr });
+    if (ev.gp) out.models.push({ name: g.name, gp: ev.gp, yMean: ev.yMean, ySd: ev.ySd, kind: 'gp', X: Xr, intervalScale: ev.intervalScale ?? 1 });
   }
   return out;
 }
@@ -127,7 +127,8 @@ export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', 
     // batch were chosen on, which pretend the earlier picks already came back at a random draw, and with the
     // measurement noise in. It is what the screen shows and the batch stores to be checked against its result.
     // On the campaign lab the surface's uncertainty about the mean held 57 % of the single results that came
-    // back, and a correct model read as wrong nearly half the time; this holds 81 % (usability cycle 5).
+    // back, and a correct model read as wrong nearly half the time; this held 81 % (usability cycle 5), 85 % with
+    // the present noise prior, and 97 % once widened by the cross-validated calibration (model.js, intervalScale).
     const forecast = (point) => predictAt(haveGP, space, point, { run: true });
     for (const p of out.suggestions.picks) p.forecast = forecast(p.point);
     for (const r of out.suggestions.confirm?.runs || []) r.forecast = forecast(r.point);
@@ -207,5 +208,10 @@ export function predictAt(models, space, point, { run = false } = {}) {
   if (!models?.length) return null;
   const u = toUnit(point, space);
   if (!u.every(Number.isFinite)) return null;
-  return predictAll(models.filter((m) => m.gp?.kind === 'gp'), u, { noiseless: !run });
+  const gps = models.filter((m) => m.gp?.kind === 'gp');
+  const out = predictAll(gps, u, { noiseless: !run });
+  // A run's forecast is widened by the cross-validated calibration (model.js, intervalScale), so its 95 %
+  // interval holds about 95 % of the results that come back.
+  if (run) for (const m of gps) if (out[m.name] && m.intervalScale > 1) { out[m.name].sd *= m.intervalScale; out[m.name].calibrated = m.intervalScale; }
+  return out;
 }

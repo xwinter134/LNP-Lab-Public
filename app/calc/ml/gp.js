@@ -303,9 +303,11 @@ export function fitGP(X, y, opts = {}) {
   // lengthscale of several cube widths — a near-flat surface that takes many steps to climb down from. The
   // mode, exp(mu - sd²), is where the prior actually puts its weight and is close to where real data lands.
   const mode = (p) => p.mu - p.sd * p.sd;
-  // The lipid matrix starts where LIPID_PRIOR says, with a second rank column (if any) at zero.
+  // The lipid matrix starts where LIPID_PRIOR says. A second rank column starts small and of alternating sign
+  // over the lipids, not at zero: B = W Wᵀ + diag(v) has a zero gradient in a column that is zero throughout, so
+  // a rank-2 fit started there never left it and came out the rank-1 fit.
   const taskStart = () => (multi ? [
-    ...Array.from({ length: T * R }, (_, a) => (a % R === 0 ? LIPID_PRIOR.start.w : 0)),
+    ...Array.from({ length: T * R }, (_, a) => (a % R === 0 ? LIPID_PRIOR.start.w : (Math.floor(a / R) % 2 ? 1 : -1) * 0.2 * LIPID_PRIOR.start.w)),
     ...Array.from({ length: T }, () => Math.log(LIPID_PRIOR.start.v)),
   ] : []);
   const starts = [clampTheta(Float64Array.from([...priors.slice(0, D).map(mode), mode(priors[D]), ...taskStart()]))];

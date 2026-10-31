@@ -71,6 +71,11 @@ export function transparencyCard(o) {
       const ok = k === 'auto' || avail[k]?.ok;
       return `<option value="${k}" ${state.lipidMode === k ? 'selected' : ''} ${ok ? '' : 'disabled'}>${k === 'auto' ? 'Auto' : esc(LIPID_MODES[k].label)}${ok ? '' : ' (not available)'}</option>`;
     }).join('')}</select>`;
+  // The lipid kernel's rank (gp.js): 1 says how alike the lipids are along one direction, 2 lets two lipids agree
+  // on one response and differ on another; the second needs more lipids and runs to be told apart from noise.
+  const rankSel = state.lipidMode === 'kernel' || state.lipidMode === 'auto' ? `<label for="kernelRank" style="margin:0">Kernel rank</label>
+    <select id="kernelRank" name="kernelRank" style="width:auto" title="Rank of the lipid similarity matrix: 1 is one axis of similarity, 2 lets lipids agree on some responses and differ on others">
+      <option value="1" ${state.kernelRank !== 2 ? 'selected' : ''}>1</option><option value="2" ${state.kernelRank === 2 ? 'selected' : ''}>2</option></select>` : '';
   const why = ['kernel', ...(o.descriptorsOn ? ['descriptor'] : [])].filter((k) => !avail[k]?.ok).map((k) => `${LIPID_MODES[k].label}: ${avail[k].why}.`).join(' ');
   const modeLine = report ? modeSentence(report) : `${LIPID_MODES[mode].long}${state.lipidMode === 'auto' && prep.tries.length > 1 ? `; Auto will compare ${prep.tries.map((m) => LIPID_MODES[m].label.toLowerCase()).join(' and ')} by cross-validation` : ''}`;
   const k = state.space.length;
@@ -85,7 +90,7 @@ export function transparencyCard(o) {
   const say = `${esc(LIPID_MODES[mode].label)} mode${report?.lipidChoice?.chosenBy === 'auto' ? ' (auto)' : ''} · ${n0(used)} of ${n0(total)} formulations${fp ? ` · fingerprint ${esc(shortHash(fp))}` : ''}`;
   return `<details class="card fold" id="mlPanel" data-fold="panel" style="border-color:var(--c-ml)" ${(state.open.panel ?? !report) ? 'open' : ''}>
     <summary><h2>Data and model</h2><span class="fold-say">${say}</span></summary>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}${rankSel}</div>
     <div class="grid g2" style="margin-top:10px;align-items:start">
       <div>
         <p style="margin:0 0 6px"><b>Mode</b> <span id="mlModeLine">${esc(modeLine)}</span></p>
@@ -226,9 +231,9 @@ export function predictionFold(state, check, rounds) {
     ${check.responses.length ? `<div class="grid g3">${check.responses.map(scatter).join('')}</div>` : ''}
     ${course(check.rounds)}
     <p class="muted">Each bar is the 95 % interval the optimizer gave for one batch at that setting, its own uncertainty and the measurement scatter together; the dot is what was measured. Purple inside, orange outside.</p>
-    ${rounds.length ? `<h2 style="font-size:14px;margin-top:12px">Rounds with a fingerprint</h2>
-      ${table(['Experiment', 'Fingerprint', 'Records', 'Mode', ''], rounds.map((r) => ({ cells: [
-        raw(`<a href="#/experiments?id=${esc(r.id)}">${esc(r.name || r.id)}</a>`), raw(`<code title="${esc(r.fp.hash)}">${esc(shortHash(r.fp))}</code>`), n0(r.fp.n), r.fp.mode,
+    ${rounds.length ? `<h2 style="font-size:14px;margin-top:12px">Rounds and recent analyses with a fingerprint</h2>
+      ${table(['Round or analysis', 'Fingerprint', 'Records', 'Mode', ''], rounds.map((r) => ({ cells: [
+        r.analysis ? r.name : raw(`<a href="#/experiments?id=${esc(r.id)}">${esc(r.name || r.id)}</a>`), raw(`<code title="${esc(r.fp.hash)}">${esc(shortHash(r.fp))}</code>`), n0(r.fp.n), r.fp.mode,
         raw(`<button data-repro="${esc(r.id)}" style="padding:2px 10px">Reproduce</button> <span class="muted" data-repro-out="${esc(r.id)}"></span>`)] })))}` : ''}`;
   return fold(state, 'predcheck', { title: 'Prediction against measurement', say, body });
 }

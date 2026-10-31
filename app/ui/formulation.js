@@ -17,6 +17,7 @@ import { overriddenComposition, absorbedPhrase } from '../calc/composition.js';
 import { adoptProcess, stepOf, effectiveQuench, modeOf, quickVolumes, quickVolumeFor, syncQuick, processSummary, bufferLine, deviceOf, mixerOf, QUICK_VOLUME_mL } from '../calc/process.js';
 import { processSvg, processEditor, applyProcessField, wireProcessButtons, newStep, processRows } from './processviz.js';
 import { printSvg } from './charts.js';
+import { fingerprintBlock } from './report.js';
 import { customDefs, customCard, setCustom } from './customparams.js';
 import { cargoOf, cargoLabel, cargoInfo, massPerPhosphate } from '../calc/cargo.js';
 import { withThaw, thawedOn, thawsOf, overThaw, ftTag, ftWords } from '../calc/freezethaw.js';
@@ -807,7 +808,13 @@ export async function render(el, ctx) {
       ${benchPrint(benchNumbers(c, batch))}`;
     const inputs = `<h2>Inputs</h2><table><tr><th>Lipid stock</th><th>RNA lot</th>${c.quick ? '<th>Volume</th>' : '<th>RNA stock</th>'}<th>Working conc.</th><th>RNA input</th><th>Aqueous buffer</th><th>Quench buffer</th></tr>
       <tr><td>${esc(batch.stockId) || blank} (${fmt(c.lipid_mM, 1)} mM)</td><td>${esc(plan.rna.lotId) || blank}</td><td>${c.quick ? `${fmt(plan.volume_mL, 2)} mL` : `${fmt(c.stock_mg_mL, 2)} mg/mL`}</td><td>${fmt(c.working, 2)} mg/mL</td><td>${fmt(c.mass, c.quick ? 3 : 2)} mg</td><td>${esc(bufferLine(proc.aqueous)) || blank}</td><td>${c.quench ? esc(bufferLine(proc.quenchBuffer)) || blank : 'no quench'}</td></tr></table>`;
-    const sig = '<div class="sig"><div>Date / signature operator</div><div>Date / signature review</div></div>';
+    // A formulation the optimizer proposed prints the fingerprint it was proposed from (spec 7.5), so the paper
+    // record says which data and which model gave this setting; the predicted values sit beside it.
+    const fpBlock = batch.ml?.fingerprint && exp?.design?.ml?.fingerprint?.hash === batch.ml.fingerprint ? fingerprintBlock(exp)
+      : batch.ml?.fingerprint ? `<h2>Model fingerprint</h2><p><code>${esc(batch.ml.fingerprint)}</code></p>` : '';
+    const predicted = batch.ml?.predicted && Object.keys(batch.ml.predicted).length
+      ? `<table><tr><th>Predicted for this batch</th><th class="r">Mean</th><th class="r">95 % interval</th></tr>${Object.entries(batch.ml.predicted).map(([k, p]) => `<tr><td>${esc(k)}</td><td class="r">${fmt(p.mean, 3)}</td><td class="r">${Number.isFinite(p.sd) ? `${fmt(p.mean - 1.96 * p.sd, 3)} to ${fmt(p.mean + 1.96 * p.sd, 3)}` : ''}</td></tr>`).join('')}</table>` : '';
+    const sig = `${fpBlock}${fpBlock ? predicted : ''}<div class="sig"><div>Date / signature operator</div><div>Date / signature review</div></div>`;
     if (c.quick) {
       printHtml(`${describeId(batch.id)} (${batch.id})`, `${head}${process}${inputs}<h2>LNP mixing${mixer ? ` (${esc(mixer.name)})` : ''}</h2>${mixing}${sig}`);
       return;

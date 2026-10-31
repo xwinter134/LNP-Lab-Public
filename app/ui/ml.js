@@ -8,7 +8,7 @@
 // model know anything, the map, what drives what, whether the suggestions have earned their batches — follows,
 // each folded to the one line that states its conclusion, so a person reads the verdict and opens only the
 // evidence they doubt.
-import { raw, fmt, field, table, chip, toast, header, kpi, download, todayISO, esc } from './kit.js';
+import { raw, fmt, field, table, chip, toast, header, kpi, download, todayISO, esc, fmtDate } from './kit.js';
 import { getRef, getSettings, compositionLabel } from '../refdata.js';
 import { selectionFor } from './data.js';
 import { buildRows, responseCounts, RESPONSE_DEFS, dataAccount } from '../calc/ml/dataset.js';
@@ -121,7 +121,7 @@ export async function render(el, ctx) {
   const goals0 = saved?.goals || DEFAULT_GOALS.map((g) => ({ ...g }));
   for (const g of targetGoals(bio)) if (!goals0.some((x) => x.name === g.name)) goals0.push(g);
   const state = {
-    lipid: pick.lipid, mixer: pick.mixer, comboChosen: !handed && !!savedCombo, lipidMode: saved?.lipidMode || 'filter',
+    lipid: pick.lipid, mixer: pick.mixer, comboChosen: !handed && !!savedCombo, lipidMode: saved?.lipidMode || 'filter', kernelRank: saved?.kernelRank === 2 ? 2 : 1,
     goals: goals0,
     space: handedOver.length ? spaceFrom(handedOver) : saved?.space?.length ? saved.space : auto,
     constraints: saved?.constraints || [{ name: 'PDI', op: '<', value: 0.3, on: false }],
@@ -137,7 +137,7 @@ export async function render(el, ctx) {
     creating: false,
   };
   const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded,
-    ...(handed || !state.comboChosen ? {} : { lipid: state.lipid, mixer: state.mixer, comboChosen: true }), lipidMode: state.lipidMode });
+    ...(handed || !state.comboChosen ? {} : { lipid: state.lipid, mixer: state.mixer, comboChosen: true }), lipidMode: state.lipidMode, kernelRank: state.kernelRank });
   /** What the model would be fitted on now: every formulation, accounted for (calc/ml/dataset.js). */
   const account = () => dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, limits: ALL_FACTORS });
 
@@ -157,7 +157,7 @@ export async function render(el, ctx) {
 
   /** Refit every surface: needed only when the data, the factors, the selection or the split strategy change. */
   function compute() {
-    fit = fitPrepared(prepNow(), { space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed, lipidByKey: ref.lipidByKey });
+    fit = fitPrepared(prepNow(), { space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed, lipidByKey: ref.lipidByKey, rank: state.kernelRank });
     rescore();
   }
   /** Re-score the existing surfaces: goals, limits, mode, batch size and seed all land here, in milliseconds. */
@@ -168,6 +168,7 @@ export async function render(el, ctx) {
     // Every analysis carries its fingerprint (spec 7.5), and a round made from it stores it (createExperiment).
     report.fingerprint = makeFingerprint({ report, appVersion,
       setup: setupOf({ ...state, constraints: activeConstraints(), budget, baseClasses }) });
+    keepAnalysis(ctx, report.fingerprint);
   }
 
   function draw() {
@@ -179,7 +180,9 @@ export async function render(el, ctx) {
     const panel = transparencyCard({ state, prep, report, ref, settings, handed, rows, descriptorsOn: !!settings.mlDescriptors });
     const mlRounds = ctx.store.all('experiments').filter((e) => e.design?.ml?.fingerprint?.hash)
       .sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || ''))).map((e) => ({ id: e.id, name: e.name, fp: e.design.ml.fingerprint }));
-    const predFold = predictionFold(state, predictionCheck(allRows), mlRounds);
+    const analyses = ctx.store.all(ANALYSES).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10)
+      .map((a) => ({ id: `analysis:${a.id}`, name: `Analysis of ${fmtDate(String(a.createdAt).slice(0, 10))}`, fp: a.fingerprint, analysis: true }));
+    const predFold = predictionFold(state, predictionCheck(allRows), [...mlRounds, ...analyses]);
     // The Data used card (0.15) counts experiments; the panel above it counts what the selection kept of them.
     const acc = account();
     const fromExps = report ? new Set(report.rows.map((r) => r.experimentId || '')).size : acc.usedExperiments;
@@ -929,7 +932,9 @@ function wire(el, ctx, ref, settings, state, report, h) {
   // Reproduce (spec 7.5): the run on screen, or a stored round, made again from its fingerprint on today's records.
   root.querySelectorAll('[data-repro]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.repro;
-    const fp = id === 'current' ? report?.fingerprint : ctx.store.get('experiments', id)?.design?.ml?.fingerprint;
+    const fp = id === 'current' ? report?.fingerprint
+      : id.startsWith('analysis:') ? ctx.store.get(ANALYSES, id.slice(9))?.fingerprint
+        : ctx.store.get('experiments', id)?.design?.ml?.fingerprint;
     const out = id === 'current' ? root.querySelector('#reproduceOut') : root.querySelector(`[data-repro-out="${CSS.escape(id)}"]`);
     if (!fp || !out) return;
     b.disabled = true; out.textContent = 'Fitting again…';
@@ -1012,6 +1017,7 @@ function wire(el, ctx, ref, settings, state, report, h) {
       h.invalidate(); report = null; redraw = true;
     }
     else if (n === 'lipidMode') { state.lipidMode = v; h.invalidate(); report = null; redraw = true; }
+    else if (n === 'kernelRank') { state.kernelRank = +v === 2 ? 2 : 1; h.invalidate(); report = null; redraw = true; }
     else if (n === 'strategy') { state.strategy = v; recompute = !!report; refit = true; redraw = true; }
     else if (n === 'mode') { state.mode = v; recompute = !!report; redraw = true; }
     else if (n === 'q') { state.q = Math.max(1, Math.min(12, v || 4)); recompute = !!report; redraw = true; }
@@ -1035,6 +1041,29 @@ const roundNumber = (ctx) => ctx.store.all('experiments').filter((e) => /^ML rou
  * them: the operator would make the registry recipe, and the model would later train on a composition that was
  * never produced.
  */
+/**
+ * Every analysis keeps its fingerprint (spec 7.5), not only a round made from it: what was on screen when a
+ * figure was taken for a paper can be made again. Written two seconds after the screen settles, so dragging a
+ * weight does not write a record per step; the same fingerprint is kept once, and the newest 100 are kept.
+ */
+export const ANALYSES = 'mlAnalyses', KEEP_ANALYSES = 100;
+let keepTimer = null;
+function keepAnalysis(ctx, fp) {
+  if (!fp?.hash) return;
+  clearTimeout(keepTimer);
+  keepTimer = setTimeout(() => {
+    try {
+      const all = ctx.store.all(ANALYSES);
+      if (all.some((a) => a.id === fp.hash)) return;
+      ctx.store.transaction(() => {
+        ctx.store.put(ANALYSES, { id: fp.hash, fingerprint: fp });
+        const old = all.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(KEEP_ANALYSES - 1);
+        for (const a of old) ctx.store.remove(ANALYSES, a.id);
+      });
+    } catch { /* a full or read-only store: the analysis is still on screen, only not kept */ }
+  }, 2000);
+}
+
 function createExperiment(ctx, ref, settings, state, picks, name, note, busy, fingerprint = null) {
   if (state.creating) return; // one is being written already; a second would be a second round of the same runs
   // The same after leaving the optimizer and coming back while the write is pending: that visit's buttons are
@@ -1080,8 +1109,12 @@ function createExperiment(ctx, ref, settings, state, picks, name, note, busy, fi
     b.plannedDate = productionDate(spec.startDate, batches.length, perDay); // one buildExperiment per pick cannot spread them itself
     b.plan.factors = { ...p.point };
     if (plan.np != null) b.plan.rna.np = plan.np;
-    // The aqueous-phase factors live with the other process details (variables.js), where the form reads them.
-    for (const k of ['loadingPH', 'bufferMolarity_mM']) if (plan[k] != null) b.plan.process = { ...(b.plan.process || {}), [k]: plan[k] };
+    // The aqueous-phase factors are the loading buffer's pH and strength in the process designer (plan.process
+    // .aqueous), where the form shows them and variables.js reads them back.
+    if (plan.loadingPH != null || plan.bufferMolarity_mM != null) {
+      const proc = b.plan.process || {};
+      b.plan.process = { ...proc, aqueous: { ...(proc.aqueous || {}), ...(plan.loadingPH != null ? { pH: plan.loadingPH } : {}), ...(plan.bufferMolarity_mM != null ? { mM: plan.bufferMolarity_mM } : {}) } };
+    }
     if (composition) b.plan.compositionOverride = composition;
     // The prediction kept with the batch is what one batch there should measure, with `noise` the measurement
     // scatter in it (expected(), above), so the result is held against the interval it can be expected to fall in.

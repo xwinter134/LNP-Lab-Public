@@ -268,6 +268,21 @@ test('fingerprint: a run is reproduced exactly from its record, and an edited re
   assert.equal(hashOf({ x: 1 }), hashOf({ x: 1.0000000000001 }));
 });
 
+test('fingerprint: the rank of the lipid kernel is recorded and used again, so a rank-2 round reproduces', () => {
+  const others = [...rowsFor(30, { lipid: 'SM102', seed: 21 }), ...rowsFor(30, { lipid: 'MC3', prefix: 'M', seed: 22, shift: 6, exp: (i) => `F${Math.floor(i / 6)}` })];
+  const target = rowsFor(10, { lipid: 'ALC315', prefix: 'L', seed: 23, shift: -4, exp: (i) => `G${Math.floor(i / 5)}` });
+  const goals = GOALS.filter((g) => g.name !== 'encapsulation_efficiency');
+  const o = { space: SPACE, goals, constraints: [], lipid: 'ALC315', mixer: 'T-mixer', lipidMode: 'kernel', rank: 2, seed: 7, q: 2, mode: 'balanced', strategy: 'experiment' };
+  const report = runOptimizer([...others, ...target], o);
+  assert.equal(report.lipidChoice.mode, 'kernel');
+  assert.equal(report.fingerprint.rank, 2);
+  const r = reproduce(JSON.parse(JSON.stringify(report.fingerprint)), [...others, ...target], {});
+  assert.equal(r.match, true, r.sentence);
+  // the same round read as rank 1 is another model
+  const r1 = reproduce({ ...report.fingerprint, rank: 1 }, [...others, ...target], {});
+  assert.equal(r1.model, false);
+});
+
 test('fingerprint: a run over the data budget, with merged replicates, reproduces too', () => {
   const rows = rowsFor(130, { seed: 41 });
   for (let i = 0; i < 10; i++) rows[100 + i].factors = { ...rows[i].factors };
