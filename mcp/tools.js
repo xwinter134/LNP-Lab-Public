@@ -26,7 +26,7 @@
 //      way, said so in README.md. Three wrong codes void the token. The code is random, so Claude cannot make
 //      one up.
 //
-// The app's own switch is honoured too (spec 11.2, Settings › Claude › Import with Claude, `mcpImport`): while
+// The app's own switch is honoured too (spec 11.2, Settings › Claude (optional) › Import with Claude, `mcpImport`): while
 // it is off in the lab, commit_import and rollback_import refuse, unless the server was started explicitly with
 // LNP_LAB_ALLOW_IMPORT=1 (or --allow-import). Reading is not affected.
 //
@@ -143,7 +143,7 @@ export function createTools(config = {}) {
     const st = lab().all('settings').find((x) => x?.id === 'default');
     return st?.mcpImport === true ? { ok: true, why: 'switched on in the app' } : { ok: false };
   };
-  const IMPORT_OFF = 'Import with Claude is switched off in LNP Lab. Switch it on in the app under Settings › Claude › Import with Claude (and quit the app again before the commit), or start this server with LNP_LAB_ALLOW_IMPORT=1 to allow it regardless. Nothing was written.';
+  const IMPORT_OFF = 'Import with Claude is switched off in LNP Lab. Switch it on in the app under Settings › Claude (optional) › Import with Claude (and quit the app again before the commit), or start this server with LNP_LAB_ALLOW_IMPORT=1 to allow it regardless. Nothing was written.';
   const personalOn = () => config.personal ?? (process.env.LNP_LAB_PERSONAL === '1' || lab().all('settings').some((s) => s.id === 'default' && s.personalBuild === true));
 
   /** Read a source file once, for its hash (and, in read_file, its rows). */

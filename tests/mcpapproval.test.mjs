@@ -128,7 +128,7 @@ test('the app\'s mcpImport setting: off, the write tools refuse unless the serve
     assert.match(dr.importModule, /^off: Import with Claude is switched off in LNP Lab/);
     const c = await t.call('commit_import', { ...args, token: dr.approvalToken });
     assert.equal(c.code, 'IMPORT_OFF');
-    assert.match(c.error, /Settings › Claude › Import with Claude[\s\S]*LNP_LAB_ALLOW_IMPORT=1/);
+    assert.match(c.error, /Settings › Claude \(optional\) › Import with Claude[\s\S]*LNP_LAB_ALLOW_IMPORT=1/);
     assert.equal((await t.call('rollback_import', { importId: 'imp-x' })).code, 'IMPORT_OFF');
     assert.equal(nBatches(db), 0);
     const allowed = createTools({ dbPath: db, running: notRunning, allowImport: true, canConfirm: () => true, confirm: async () => ({ action: 'accept', content: { approve: true } }) });
