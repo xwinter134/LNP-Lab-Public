@@ -21,6 +21,7 @@
 // A backend is a plain object: {kind, load(ns) → Promise<{col: json}>, write(ns, [[col, json|null]]) →
 // Promise (all or nothing; null deletes), clear(ns) → Promise}. A synchronous one (localStorage) also has
 // `sync: true`, loadSync, writeSync and clearSync, and is written straight away, as before.
+import { trashEntryUses } from './calc/usage.js';
 
 const STAMPS = new WeakMap(); // rows array → its stamp (Store.stamp)
 let stampSeq = 0;
@@ -631,8 +632,16 @@ export class Store {
    * instead of erasing them (usability cycle 2, F7): one entry per delete, holding every record it took and
    * where each one sat in its collection, so that restoring puts back exactly what went, in the same place.
    * It is an ordinary collection, so a backup carries it and a restore brings it back like any other.
-   * Entries are kept for TRASH_DAYS; older ones are dropped the next time something is deleted.
+   * Entries are kept for TRASH_DAYS; older ones are dropped the next time something is deleted. Except one whose
+   * records something still names (a study naming a deleted formulation, a stock naming a deleted composition):
+   * that one stays, past its days and through "Empty trash", because erasing it would be a hard delete of a
+   * referenced record by another road (spec 1, 12.2). calc/usage.js trashEntryUses() says what names it.
    */
+
+  /** Whether the store still names a record of this trash entry. A check that fails keeps the entry. */
+  trashEntryInUse(entry) {
+    try { return trashEntryUses(this, entry).length > 0; } catch (err) { console.warn(err); return true; }
+  }
 
   /**
    * Move records to the trash as one entry. `refs` is [[collection, id], …]; ids that are not there are
@@ -661,7 +670,7 @@ export class Store {
       if (!records.length) return null;
       const entry = { id: `trash-${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, kind: meta.kind || records[0].col, label: meta.label || records.map((r) => r.rec.id).join(', '), deletedAt: now.toISOString(), records };
       const cutoff = now.getTime() - TRASH_DAYS * 864e5;
-      const kept = this.all('trash').filter((t) => !(Date.parse(t?.deletedAt) < cutoff));
+      const kept = this.all('trash').filter((t) => !(Date.parse(t?.deletedAt) < cutoff) || this.trashEntryInUse(t));
       this.replace('trash', [...kept, entry]);
       for (const [col, rows] of cols) this.replace(col, rows);
       return entry;
@@ -694,16 +703,26 @@ export class Store {
     }, { what: `the restore of ${entry.label}` });
   }
 
-  /** Trash entries from the last `days` days, newest first. */
+  /**
+   * Trash entries from the last `days` days, newest first, and older ones kept because something still names
+   * their records: those can still be restored, so they are listed.
+   */
   recentTrash({ days = TRASH_DAYS, now = new Date() } = {}) {
     const cutoff = now.getTime() - days * 864e5;
     // Reversed before the (stable) sort, so two deletes in the same millisecond still list the later first.
-    return this.all('trash').filter((t) => t && Array.isArray(t.records) && !(Date.parse(t.deletedAt) < cutoff))
+    return this.all('trash').filter((t) => t && Array.isArray(t.records) && (!(Date.parse(t.deletedAt) < cutoff) || this.trashEntryInUse(t)))
       .reverse().sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   }
 
-  /** Erase everything in the trash for good. */
-  emptyTrash() { this.#setRows('trash', null); }
+  /**
+   * Erase the trash for good, all but the entries whose records something still names, which stay restorable.
+   * Returns {erased, kept}: how many entries went and how many stayed.
+   */
+  emptyTrash() {
+    const all = this.all('trash'), keep = all.filter((t) => this.trashEntryInUse(t));
+    if (keep.length) this.replace('trash', keep); else this.#setRows('trash', null);
+    return { erased: all.length - keep.length, kept: keep.length };
+  }
 }
 
 /** How long a deleted record can still be restored. */

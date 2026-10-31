@@ -164,7 +164,9 @@ export function processSvg(proc, ref, o = {}) {
  * datalist rather than a select, so a buffer the app does not list can be typed in as it is written on the bottle.
  */
 function bufferList(id, role, ref) {
-  const made = (ref.buffers || []).filter((b) => !role || !(b.roles || []).length || normaliseRoles(b.roles).includes(role)).map((b) => [b.lot, `${b.name} · prepared lot${b.date ? ` of ${b.date}` : ''}`]);
+  // An archived lot is not offered (spec 9.5); one a record already names is still found by the record itself.
+  const gone = ref.archived?.buffer || new Set();
+  const made = (ref.buffers || []).filter((b) => !gone.has(String(b.id))).filter((b) => !role || !(b.roles || []).length || normaliseRoles(b.roles).includes(role)).map((b) => [b.lot, `${b.name} · prepared lot${b.date ? ` of ${b.date}` : ''}`]);
   const cat = (ref.buffersCatalog || []).filter((b) => !role || normaliseRoles(b.roles).includes(role)).map((b) => [b.name, 'catalogue']);
   return `<datalist id="${id}">${[...made, ...cat].map(([v, l]) => `<option value="${esc(v)}">${esc(l || '')}</option>`).join('')}</datalist>`;
 }
@@ -180,12 +182,16 @@ function bufferFields(key, b, role, ref, uid) {
     </div>`;
 }
 
-/** What a downstream step is done in: the cassettes, the TFF modules, the filters on record. */
+/** What a downstream step is done in: the cassettes, the TFF modules, the filters on record; none archived. */
 function deviceChoices(step, ref) {
+  const gone = ref.archived || {};
   // materials.dialysis_cassettes already holds the earlier cassette names and then every device under Materials.
-  if (step === 'dialysis') return [...new Set(ref.materials?.dialysis_cassettes || [])];
-  if (step === 'tff') return (ref.tffModules || []).map((m) => m.part);
-  if (step === 'filtration') return (ref.materials?.filters || []).filter((f) => f !== 'None');
+  if (step === 'dialysis') {
+    const off = new Set((ref.dialysis || []).filter((x) => gone.dialysis?.has(String(x.id))).map((x) => x.name));
+    return [...new Set(ref.materials?.dialysis_cassettes || [])].filter((n) => !off.has(n));
+  }
+  if (step === 'tff') return (ref.tffModules || []).filter((m) => !gone.tffModule?.has(String(m.id))).map((m) => m.part);
+  if (step === 'filtration') return (ref.materials?.filters || []).filter((f) => f !== 'None' && !gone.filter?.has(f));
   return [];
 }
 
@@ -199,9 +205,11 @@ export function processEditor(proc, ref, { quick = false, uid = 'pr' } = {}) {
   const qm = quenchMode(dev);
   const opt = (v, l, sel) => `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(l)}</option>`;
   // A device or mixer deleted under Materials stays offered on the record that keeps a copy of it, marked so.
-  const devices = [...(ref.devices || []), ...(dev?.deleted ? [dev] : [])].map((d) => opt(d.id, `${entryName(d)}${d.vendor ? ` (${d.vendor})` : ''}`, d.id === proc.deviceId)).join('');
+  // An archived one (spec 9.5) is offered only on the record that already has it.
+  const gone = ref.archived || {};
+  const devices = [...(ref.devices || []).filter((d) => !gone.device?.has(String(d.id)) || d.id === proc.deviceId), ...(dev?.deleted ? [dev] : [])].map((d) => opt(d.id, `${entryName(d)}${d.vendor ? ` (${d.vendor})` : ''}`, d.id === proc.deviceId)).join('');
   const keptMixer = mixerOf(proc, ref);
-  const mixerSel = [...mixers, ...(keptMixer?.deleted ? [keptMixer] : [])].map((m) => opt(m.id, m.name === m.kind ? entryName(m) : `${entryName(m)} · ${m.kind}`, m.id === proc.mixerId)).join('');
+  const mixerSel = [...mixers.filter((m) => !gone.mixer?.has(String(m.id)) || m.id === proc.mixerId), ...(keptMixer?.deleted ? [keptMixer] : [])].map((m) => opt(m.id, m.name === m.kind ? entryName(m) : `${entryName(m)} · ${m.kind}`, m.id === proc.mixerId)).join('');
   const quenchBox = qm === 'none'
     ? `<span class="muted">This device has no quench pump: dilute offline after mixing.</span>`
     : `<label class="inline prCheck"><input type="checkbox" name="pr_quench" ${proc.quench !== false ? 'checked' : ''} style="width:auto"> Inline quench after the mixer${qm === 'inline' ? '' : ' (a third pump or syringe)'}</label>`;

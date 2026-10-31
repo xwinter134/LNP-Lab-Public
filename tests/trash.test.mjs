@@ -93,7 +93,7 @@ test('nothing to move is not an entry', () => {
   assert.equal(s.count('trash'), 0);
 });
 
-test('the restore list covers 30 days; older entries go at the next delete, and Empty trash erases all', () => {
+test('the restore list covers 30 days; older entries go at the next delete, and Empty trash erases all nothing names', () => {
   const s = lab();
   const old = s.moveToTrash([['stocks', 'Stock-001']], {}, new Date('2026-09-25T10:00:00Z')); // 32 days before "now"
   const recent = deleteE2(s, new Date('2026-10-20T10:00:00Z'));
@@ -105,7 +105,11 @@ test('the restore list covers 30 days; older entries go at the next delete, and 
   assert.deepEqual(s.all('trash').map((t) => t.id), [recent.id, newest.id], 'and then dropped');
   assert.deepEqual(s.recentTrash({ now }).map((t) => t.id), [newest.id, recent.id], 'newest first');
   void old;
-  s.emptyTrash();
+  // E2's formulation E2-F1 is still named by measurement m1, so Empty trash keeps that entry (spec 12.2).
+  assert.deepEqual(s.emptyTrash(), { erased: 1, kept: 1 });
+  assert.deepEqual(s.all('trash').map((t) => t.id), [recent.id]);
+  s.remove('measurements', 'm1');
+  assert.deepEqual(s.emptyTrash(), { erased: 1, kept: 0 });
   assert.equal(s.count('trash'), 0);
   assert.equal(s.restoreFromTrash(recent.id).ok, false);
 });

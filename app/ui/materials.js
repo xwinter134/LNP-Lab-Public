@@ -11,14 +11,22 @@
 // "Back to the shipped version" removes the record. A shipped composition is not edited at all — #1 has to mean
 // the same recipe in every lab — but it can be copied and the copy edited. What the user added themselves is
 // deleted to the trash, with Undo on the note and Settings › Recently deleted as for experiments and stocks.
-import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask } from './kit.js';
+//
+// Unless something still names it (spec 9.5, 12.2): then it is never removed from the store, and Delete (or Hide,
+// for a shipped entry) says where it is used and offers to archive it instead. Where a component is used is asked
+// of one helper for every tab, calc/usage.js whereUsed(); the sentences that say it stay here, in each tab's words.
+// Archived components leave these tables and every picker, and are listed in the Archived card with Restore.
+import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask, raw, table, redrawSoon } from './kit.js';
+import { DESCRIPTORS } from '../calc/ml/lipidmode.js';
 import { getRef, getSettings } from '../refdata.js';
-import { archive, unarchive, KINDS } from '../calc/usage.js';
+import { archive, unarchive, archivedSet, whereUsed, usesBy, KINDS } from '../calc/usage.js';
+import { provenance } from '../calc/provenance.js';
+import { provenanceBadge } from './provenance.js';
 import { CARGO_TYPES, cargoInfo, cargoLabel, lotMassPerPhosphate } from '../calc/cargo.js';
 import { tracksThaw, ftWords } from '../calc/freezethaw.js';
 import { thawPanel, thawChip, wireThaw } from './thaw.js';
-import { devicesUsed, adoptProcess } from '../calc/process.js';
 import { lipidClassChip, lipidClassInfo, lipidNameMarked, compositionBar, lipidClassLegend } from './lipidclass.js';
+import { checkBufferCode, normaliseRoles, roleLabel } from '../calc/buffer.js';
 
 // The ids are what links and bookmarks name (?tab=tff), so they stay as they are; only the order and labels move.
 const TABS = [['lipids', 'Lipids & lots'], ['compositions', 'Compositions'], ['rna', 'RNA lots'], ['buffers', 'Buffer catalog'],
@@ -117,6 +125,19 @@ function trashWithUndo(ctx, col, id, kind, label, after) {
   after();
 }
 
+/**
+ * The question that replaces a delete when something names the component: `who` says where it is used, in the
+ * tab's own words ("is the recipe of 2 formulations (E1-F1, E1-F2)").
+ */
+const archiveQuestion = (name, who) => `${name} ${who}, so it cannot be deleted. Archive it instead? It is hidden from lists and pickers, those records keep it, and it can be restored.`;
+
+/** Ask, then archive with Undo. Returns whether it was archived. */
+async function offerArchive(ctx, kind, id, label, question, after) {
+  if (!(await ask(question))) return false;
+  archiveWithUndo(ctx, kind, id, label, after);
+  return true;
+}
+
 /** Archive instead of delete (spec 9.5), with Undo on the note. `after` redraws. */
 function archiveWithUndo(ctx, kind, id, label, after) {
   archive(ctx.store, kind, id);
@@ -140,9 +161,15 @@ function redrawArchived(ctx) {
 function archivedCard(ctx) {
   const ref = getRef(ctx), rows = ctx.store.all('archive');
   if (!rows.length) return '';
+  const byId = (list, id) => list.find((x) => String(x.id) === id);
   const name = (a) => a.kind === 'lipid' ? ref.lipidByKey[a.itemId]?.name || a.itemId
     : a.kind === 'composition' ? `#${a.itemId}${ref.compositionById[a.itemId]?.synonym ? ' ' + ref.compositionById[a.itemId].synonym : ''}`
-      : a.kind === 'lipidLot' ? `lot ${ref.lipidLots.find((l) => String(l.id) === a.itemId)?.lot || a.itemId}` : a.itemId;
+      : a.kind === 'lipidLot' ? `lot ${byId(ref.lipidLots, a.itemId)?.lot || a.itemId}`
+        : a.kind === 'buffer' ? byId(ref.buffers, a.itemId)?.lot || a.itemId
+          : a.kind === 'device' ? byId(ref.devices, a.itemId)?.name || a.itemId
+            : a.kind === 'mixer' ? byId(ref.mixers, a.itemId)?.name || a.itemId
+              : a.kind === 'tffModule' ? byId(ref.tffModules, a.itemId)?.part || a.itemId
+                : a.kind === 'dialysis' ? byId(ref.dialysis, a.itemId)?.name || a.itemId : a.itemId;
   return `<details class="card" id="archivedCard"><summary><b>Archived</b> <span class="muted">${rows.length}: hidden from lists and pickers, kept for the records that use them</span></summary>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">${rows.map((a) => `<div>${esc(KINDS[a.kind]?.label || a.kind)} <b>${esc(name(a))}</b> <button type="button" data-unarchive="${esc(a.kind)}|${esc(a.itemId)}">Restore</button></div>`).join('')}</div></details>`;
 }
@@ -155,15 +182,16 @@ function lipids(body, ctx) {
   // Which lot is open: {lot: id} to edit one, {add: lipidKey} for a new lot on that lipid's row; null for none.
   let open = null;
 
-  /** Stocks weighed from this lot. They point at the lot record by its id (stocks.js), never by its number. */
-  const stocksUsing = (id) => ctx.store.all('stocks').filter((s) => (s.rows || []).some((r) => r.lotId === id) || Object.values(s.lots || {}).includes(id)).map((s) => s.id);
+  /** Stocks weighed from this lot (calc/usage.js; they point at the lot record by its id, never by its number). */
+  const stocksUsing = (id) => whereUsed(ctx.store, 'lipidLot', id).map((u) => u.id);
 
   function draw() {
     const ref = getRef(ctx), today = todayISO(), limit = getSettings(ctx).ftWarnCycles;
     const lotsByKey = {};
-    for (const l of ref.lipidLots) (lotsByKey[l.lipidKey] ||= []).push(l);
+    // Archived lipids and lots leave the table (spec 9.5); the Archived card above the tabs lists them.
+    for (const l of ref.active.lipidLots) (lotsByKey[l.lipidKey] ||= []).push(l);
     const rows = [];
-    for (const l of ref.lipids) {
+    for (const l of ref.active.lipids) {
       // Newest first: the lot most likely to be on the shelf, and the one a stock weigh-in picks by default.
       const lots = (lotsByKey[l.key] || []).sort((a, b) => (b.received || '').localeCompare(a.received || ''));
       const here = open && (open.add === l.key || open.lipid === l.key || lots.some((x) => x.id === open.lot));
@@ -173,18 +201,18 @@ function lipids(body, ctx) {
         return `<button type="button" class="mat-pick${open?.lot === x.id ? ' on' : ''}" data-act="lot" data-id="${esc(x.id)}" title="Edit lot ${esc(x.lot)}">${esc(x.lot)} <span class="muted">${esc(x.purityPct ?? '?')} %${x.expiry ? ` · ${expired ? 'expired' : 'exp'} ${esc(fmtDate(x.expiry))}` : ''}</span>${tracked ? ` ${thawChip(x, limit) || '<span class="muted">0 F/T</span>'}` : ''}</button>`;
       }).join('');
       rows.push({ attrs: `data-key="${esc(l.key)}"${here ? ' class="mat-open"' : ''}`, cells: [
-        m(`<b>${lipidNameMarked(ref, l.key)}</b>${shippedLipid(l.key) ? '' : ` <button type="button" class="mat-add" data-act="lipid" data-key="${esc(l.key)}" title="Edit or delete ${esc(l.name)}, a lipid you added">edit</button>`}`),
+        m(`<b>${lipidNameMarked(ref, l.key)}</b>${shippedLipid(l.key) ? ` <button type="button" class="mat-add" data-act="archlipid" data-key="${esc(l.key)}" title="Archive ${esc(l.name)}: it ships with the app, so it is hidden rather than deleted">archive</button>` : ` <button type="button" class="mat-add" data-act="lipid" data-key="${esc(l.key)}" title="Edit or delete ${esc(l.name)}, a lipid you added">edit</button>`}`),
         m(`<span class="muted">${esc(l.key)}</span>`), m(lipidClassChip(l.class)), fmt(l.mw, 2),
         m(`<label class="mat-track" title="Count the freeze–thaw cycles of this lipid's lots, and offer to log a thaw when a stock is weighed from one"><input type="checkbox" data-act="track" data-key="${esc(l.key)}" ${tracked ? 'checked' : ''} aria-label="Track freeze–thaw of ${esc(l.name)} lots"> track</label>`),
         m(`${lotButtons}<button type="button" class="mat-add" data-act="addlot" data-key="${esc(l.key)}" title="Add a lot of ${esc(l.name)}">+ lot</button>`)] });
       if (here) rows.push({ attrs: 'class="mat-editor"', full: open.lipid ? lipidEditor(ref, l) : lotEditor(ref) });
     }
-    body.innerHTML = `<div class="card"><h2>Lipids (${ref.lipids.length})</h2>
+    body.innerHTML = `<div class="card"><h2>Lipids (${ref.active.lipids.length})</h2>
       <p class="muted small">Click a lot to correct its number, supplier, purity, dates or CoA; <b>+ lot</b> adds one to that lipid. Tick <b>track</b> for a lipid kept frozen in aliquots: its lots then count their freeze–thaw cycles.</p>
       ${lipidClassLegend()}
       ${editTable(['Name', 'Key', 'Class', { label: 'MW g/mol', right: true }, 'Freeze–thaw', 'Lots'], rows)}</div>
     <div class="card"><h2>Add lipid lot</h2><div class="grid g4" id="lotForm">
-      ${field({ id: 'lipidKey', label: 'Lipid', type: 'select', options: ref.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` })) })}
+      ${field({ id: 'lipidKey', label: 'Lipid', type: 'select', options: ref.active.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` })) })}
       ${field({ id: 'lot', label: 'Lot number', type: 'text' })}
       ${field({ id: 'supplier', label: 'Supplier', type: 'text' })}
       ${field({ id: 'purityPct', label: 'Purity %', value: 100, step: 0.01 })}
@@ -210,7 +238,7 @@ function lipids(body, ctx) {
     return `<div class="mat-editor" data-editor><h3>${open.lot ? `Lot ${esc(lot.lot)} of ${esc(name)}` : `New lot of ${esc(name)}`}</h3>
       ${used.length ? `<div class="note">Weighed into ${esc(listIds(used))}. ${used.length === 1 ? 'That stock points' : 'Those stocks point'} at this lot's record, not at its number, so a corrected number, purity or date shows there too. It stays on the same lipid.</div>` : ''}
       <div class="grid g4">
-        ${efield({ id: 'lipidKey', label: 'Lipid', type: 'select', value: lot.lipidKey, disabled: used.length > 0, options: ref.lipids.map((l) => ({ value: l.key, label: l.name })) })}
+        ${efield({ id: 'lipidKey', label: 'Lipid', type: 'select', value: lot.lipidKey, disabled: used.length > 0, options: ref.pick('lipids', lot.lipidKey).map((l) => ({ value: l.key, label: l.name })) })}
         ${efield({ id: 'lot', label: 'Lot number', type: 'text', value: lot.lot || '' })}
         ${efield({ id: 'supplier', label: 'Supplier', type: 'text', value: lot.supplier || '' })}
         ${efield({ id: 'purityPct', label: 'Purity %', value: lot.purityPct ?? '', step: 0.01 })}
@@ -224,19 +252,19 @@ function lipids(body, ctx) {
       ${actionsRow(open.lot ? 'Save' : 'Add lot', open.lot ? '<button class="mat-danger" data-act="delete">Delete lot</button>' : '')}</div>`;
   }
 
-  /** What a lipid is used in: the recipes in the registry, the stocks weighed with it, its lots. */
+  /**
+   * What a lipid is used in (calc/usage.js): the recipes in the registry, shipped ones included, the stocks
+   * weighed with it, the formulations whose own recipe names it, and its lots.
+   */
   function lipidUse(key) {
-    const ref = getRef(ctx);
-    return {
-      comps: ref.compositions.filter((c) => c.mol_pct && key in c.mol_pct).map((c) => `#${c.id}`),
-      stocks: ctx.store.all('stocks').filter((s) => (s.rows || []).some((r) => r.key === key) || (s.molPct && key in s.molPct)).map((s) => s.id),
-      lots: ref.lipidLots.filter((x) => x.lipidKey === key),
-    };
+    const ref = getRef(ctx), by = usesBy(whereUsed(ctx.store, 'lipid', key, { compositions: ref.compositions }));
+    return { comps: by.compositions || [], stocks: by.stocks || [], batches: by.batches || [], lots: ref.lipidLots.filter((x) => x.lipidKey === key) };
   }
+  const lipidUsers = (u) => [...u.comps, ...u.stocks, ...u.batches];
 
   /** A lipid the user added: its name, class and MW, and Delete. A shipped lipid has no editor. */
   function lipidEditor(ref, l) {
-    const u = lipidUse(l.key), used = u.comps.length || u.stocks.length;
+    const u = lipidUse(l.key), used = lipidUsers(u).length;
     return `<div class="mat-editor" data-editor><h3>${esc(l.name)} <span class="muted" style="font-weight:400">· a lipid you added</span></h3>
       ${used ? `<div class="note">In ${[u.comps.length ? `${plural(u.comps.length, 'composition')} (${esc(listIds(u.comps))})` : '', u.stocks.length ? `${plural(u.stocks.length, 'stock')} (${esc(listIds(u.stocks))})` : ''].filter(Boolean).join(' and ')}. Their amounts are worked out from its molecular weight, so the MW and the class stay as they are and it cannot be deleted while they use it.</div>` : ''}
       <div class="grid g4">
@@ -251,7 +279,7 @@ function lipids(body, ctx) {
     const ed = body.querySelector('[data-editor]'), key = open?.lipid;
     const rec = key && ctx.store.all('lipids').find((x) => x.key === key);
     if (!ed || !rec) return;
-    const f = readEditor(ed), u = lipidUse(key), used = u.comps.length || u.stocks.length;
+    const f = readEditor(ed), u = lipidUse(key), used = lipidUsers(u).length;
     if (!used && !(Number(f.mw) > 0)) { toast('MW required', 'warn'); return; }
     ctx.store.put('lipids', { ...rec, name: String(f.name || '').trim() || rec.name, ...(used ? {} : { class: f.class, mw: Number(f.mw) }) });
     toast(`${f.name || rec.name} saved`, 'ok'); open = null; draw();
@@ -265,11 +293,10 @@ function lipids(body, ctx) {
   async function deleteLipid() {
     const key = open?.lipid, rec = key && ctx.store.all('lipids').find((x) => x.key === key);
     if (!rec) return;
-    const u = lipidUse(key);
-    if (u.comps.length || u.stocks.length) {
+    const u = lipidUse(key), users = lipidUsers(u);
+    if (users.length) {
       // Not deletable while used (their amounts are worked out from its MW), but it can be archived (spec 9.5).
-      const users = [...u.comps, ...u.stocks];
-      if (!(await ask(`${rec.name} is used by ${users.slice(0, 6).join(', ')}${users.length > 6 ? ` and ${users.length - 6} more` : ''}, so it cannot be deleted. Archive it instead? It is hidden from lists and pickers, those records keep it, and it can be restored.`))) return;
+      if (!(await ask(archiveQuestion(rec.name, `is used by ${listIds(users)}`)))) return;
       open = null;
       archiveWithUndo(ctx, 'lipid', key, rec.name, draw);
       return;
@@ -283,6 +310,18 @@ function lipids(body, ctx) {
       toast(`Restored ${rec.name}`, 'ok'); draw();
     } });
     draw();
+  }
+
+  /**
+   * Archive a shipped lipid (spec 9.5): it is reference data, so it is never deleted, but a lab that does not use
+   * it can take it out of its lists and pickers. The question says where it is used first.
+   */
+  async function archiveShipped(key) {
+    const l = getRef(ctx).lipidByKey[key];
+    if (!l) return;
+    const users = lipidUsers(lipidUse(key));
+    const q = `${users.length ? `${l.name} is used by ${listIds(users)}. ` : ''}It ships with the app, so it is not deleted. Archive it? It is hidden from lists and pickers${users.length ? ', those records keep it' : ''}, and it can be restored.`;
+    await offerArchive(ctx, 'lipid', key, l.name, q, draw);
   }
 
   /** Track freeze–thaw for a lipid: kept on the user's record of it, laid over a shipped lipid by key. */
@@ -310,24 +349,22 @@ function lipids(body, ctx) {
   }
 
   /**
-   * Delete a lot. One that stocks were weighed from can go too, after a question: each of those stocks keeps a
-   * copy of the lot as it was (stock.lotRecords, read by stocks.js when the lot is no longer on record), so its
-   * purity correction, and with it every planned mass, stays as it was, and the lot shows there as deleted.
+   * Delete a lot. One that stocks were weighed from stays in the store (spec 9.5): their purity correction, and
+   * with it every planned mass, is read from it. It is archived instead, after a question that names them. (0.15
+   * deleted it and left a copy on each stock, stock.lotRecords; stocks.js still reads such a copy.)
    */
   async function deleteLot() {
     const lot = ctx.store.get('lipidLots', open?.lot);
     if (!lot) return;
     const used = stocksUsing(lot.id);
-    if (used.length && !(await ask(`Lot ${lot.lot} was weighed into ${plural(used.length, 'stock')} (${listIds(used)}).\n\nThey keep the lot number and its purity (${lot.purityPct ?? '?'} %) as it is now, so their planned masses do not change, and show it as a deleted lot. Delete lot ${lot.lot}?`))) return;
+    if (used.length) {
+      if (!(await ask(archiveQuestion(`Lot ${lot.lot}`, `was weighed into ${plural(used.length, 'stock')} (${listIds(used)}), which read its purity (${lot.purityPct ?? '?'} %) from it`)))) return;
+      open = null;
+      archiveWithUndo(ctx, 'lipidLot', lot.id, `lot ${lot.lot}`, draw);
+      return;
+    }
     open = null;
-    let entry = null;
-    ctx.store.transaction(() => {
-      for (const id of used) {
-        const s = ctx.store.get('stocks', id);
-        if (s) ctx.store.put('stocks', { ...s, lotRecords: { ...(s.lotRecords || {}), [lot.id]: { ...lot, deleted: true } } });
-      }
-      entry = ctx.store.moveToTrash([['lipidLots', lot.id]], { kind: 'lipid lot', label: `lot ${lot.lot} of ${getRef(ctx).lipidByKey[lot.lipidKey]?.name || lot.lipidKey}` });
-    }, { what: `deleting lot ${lot.lot}` });
+    const entry = ctx.store.moveToTrash([['lipidLots', lot.id]], { kind: 'lipid lot', label: `lot ${lot.lot} of ${getRef(ctx).lipidByKey[lot.lipidKey]?.name || lot.lipidKey}` });
     if (entry) toast(`Deleted lot ${lot.lot}`, '', { action: 'Undo', onAction: () => {
       const r = ctx.store.restoreFromTrash(entry.id);
       if (!r.ok) { toast(`Not restored: ${r.reason}`, 'warn'); return; }
@@ -355,6 +392,7 @@ function lipids(body, ctx) {
     lot: (b) => reopen(open?.lot === b.dataset.id ? null : { lot: b.dataset.id }),
     addlot: (b) => reopen(open?.add === b.dataset.key ? null : { add: b.dataset.key }),
     lipid: (b) => { open = open?.lipid === b.dataset.key ? null : { lipid: b.dataset.key }; draw(); focusEditor(body); },
+    archlipid: (b) => archiveShipped(b.dataset.key),
     track: (b) => toggleTrack(b.dataset.key, !tracksThaw(getRef(ctx).lipidByKey[b.dataset.key])),
     save: () => (open?.lipid ? saveLipid() : saveLot()), delete: deleteLot, dellipid: deleteLipid,
     cancel: () => { open = null; draw(); },
@@ -370,19 +408,23 @@ function lipids(body, ctx) {
 
 /* ---------------- Compositions ---------------- */
 
-/** Who uses each composition: the formulations (and how many of them are past planning) and the lipid stocks. */
-function compositionUse(ctx) {
-  const use = new Map();
-  const of = (id) => { const k = Number(id); if (!use.has(k)) use.set(k, { batches: [], made: 0, exps: new Set(), stocks: [] }); return use.get(k); };
-  for (const b of ctx.store.all('batches')) if (b?.compositionId != null) {
-    const u = of(b.compositionId);
-    u.batches.push(b.id); if (b.status && b.status !== 'planned') u.made++; if (b.experimentId) u.exps.add(b.experimentId);
+/**
+ * Who uses a composition (calc/usage.js): the formulations (and how many of them are past planning), the lipid
+ * stocks, and the experiments planned from it.
+ */
+function compositionUse(ctx, id) {
+  const by = usesBy(whereUsed(ctx.store, 'composition', id));
+  const u = { batches: by.batches || [], made: 0, exps: new Set(), stocks: by.stocks || [], experiments: by.experiments || [] };
+  for (const bid of u.batches) {
+    const b = ctx.store.get('batches', bid);
+    if (b?.status && b.status !== 'planned') u.made++;
+    if (b?.experimentId) u.exps.add(b.experimentId);
   }
-  for (const s of ctx.store.all('stocks')) if (s?.compositionId != null) of(s.compositionId).stocks.push(s.id);
-  return use;
+  return u;
 }
-const useSummary = (u) => (u && (u.batches.length || u.stocks.length)
-  ? [u.batches.length ? plural(u.batches.length, 'formulation') : '', u.stocks.length ? plural(u.stocks.length, 'stock') : ''].filter(Boolean).join(' · ') : '');
+const usedAtAll = (u) => !!(u && (u.batches.length || u.stocks.length || u.experiments.length));
+const useSummary = (u) => (usedAtAll(u)
+  ? [u.batches.length ? plural(u.batches.length, 'formulation') : '', u.stocks.length ? plural(u.stocks.length, 'stock') : '', !u.batches.length && u.experiments.length ? plural(u.experiments.length, 'experiment') : ''].filter(Boolean).join(' · ') : '');
 
 /**
  * What changing a recipe does to the records that use it. Formulations hold only `compositionId`: their recipe
@@ -413,21 +455,23 @@ function compositions(body, ctx) {
     const trashed = ctx.store.all('trash').flatMap((t) => (t.records || []).filter((r) => r.col === 'compositions').map((r) => Number(r.rec?.id) || 0));
     return Math.max(0, ...ref.compositions.map((c) => Number(c.id) || 0), ...trashed) + 1;
   };
-  const lipidOptions = (ref) => [{ value: '', label: '—' }, ...ref.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` }))];
+  // The active lipids, and one already in the recipe even when it has been archived since.
+  const lipidOptions = (ref, chosen) => [{ value: '', label: '—' }, ...ref.pick('lipids', chosen).map((l) => ({ value: l.key, label: `${l.name} · ${lipidClassInfo(l.class).label}` }))];
 
   function draw() {
-    const ref = getRef(ctx), use = compositionUse(ctx), next = nextId(ref);
+    const ref = getRef(ctx), next = nextId(ref);
     const rows = [];
-    for (const c of ref.compositions.slice().reverse()) {
+    // Archived ones leave the registry (spec 9.5); the Archived card above the tabs lists them.
+    for (const c of ref.active.compositions.slice().reverse()) {
       const here = open === c.id || open?.copyOf === c.id, sum = sumOf(c.mol_pct);
       rows.push({ attrs: `class="mat-row${here ? ' mat-open' : ''}" data-open="${esc(c.id)}" tabindex="0" aria-expanded="${here}" title="${shipped(c.id) ? 'Shipped reference: click to copy it' : 'Click to edit'}"`, cells: [
         m(`<b>${esc(c.id)}</b>`), c.synonym || '', m(compositionBar(c.mol_pct, ref)),
         m(`${fmt(sum, 1)}${Math.abs(sum - 100) > 0.05 ? ' ' + chip('not 100', 'warn') : ''}`),
         m(shipped(c.id) ? chip('reference, read-only') : chip(c.history?.length ? 'yours, edited' : 'yours', 'info')),
-        m(useSummary(use.get(Number(c.id))) || '<span class="muted">—</span>')] });
-      if (here) rows.push({ attrs: 'class="mat-editor"', full: shipped(c.id) && open === c.id ? shippedNote(c) : compEditor(ref, c, use.get(Number(c.id)), next) });
+        m(useSummary(compositionUse(ctx, c.id)) || '<span class="muted">—</span>')] });
+      if (here) rows.push({ attrs: 'class="mat-editor"', full: shipped(c.id) && open === c.id ? shippedNote(c) : compEditor(ref, c, compositionUse(ctx, c.id), next) });
     }
-    body.innerHTML = `<div class="card"><h2>Composition registry (${ref.compositions.length})</h2>
+    body.innerHTML = `<div class="card"><h2>Composition registry (${ref.active.compositions.length})</h2>
       <p class="muted small">Click a composition to change its name, lipids or mol%. The shipped reference recipes stay as they are; open one to edit a copy.</p>
       ${lipidClassLegend()}
       ${editTable(['#', 'Synonym', 'Composition (mol%)', 'Sum', 'Source', 'Used by'], rows)}</div>
@@ -454,14 +498,15 @@ function compositions(body, ctx) {
   function compEditor(ref, c, u, next) {
     const copy = open?.copyOf != null;
     const used = !copy && u && (u.batches.length || u.stocks.length);
+    const prov = copy ? '' : ` ${provenanceBadge(c, { id: 'provComposition' })}`;
     const preview = recipeOf(edit);
     const rows = edit.rows.map((r, i) => `<div style="display:flex;gap:6px;align-items:center">
-        <select name="c_k${i}" aria-label="Lipid ${i + 1}" style="flex:1 1 auto;min-width:0">${lipidOptions(ref).map((o) => `<option value="${esc(o.value)}"${o.value === r.k ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
+        <select name="c_k${i}" aria-label="Lipid ${i + 1}" style="flex:1 1 auto;min-width:0">${lipidOptions(ref, r.k).map((o) => `<option value="${esc(o.value)}"${o.value === r.k ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>
         <input type="number" name="c_p${i}" step="0.1" value="${esc(r.p ?? '')}" aria-label="mol% of lipid ${i + 1}" style="width:84px;flex:none">
         <button type="button" data-act="droprow" data-i="${i}" title="Remove this lipid" aria-label="Remove lipid ${i + 1}" style="padding:2px 8px;min-height:0">×</button></div>`).join('');
     const history = !copy && c.history?.length ? `<details style="margin-top:10px"><summary class="muted">Earlier recipes of #${esc(c.id)} (${c.history.length})</summary>
         ${c.history.slice().reverse().map((h) => `<div style="margin:6px 0"><span class="muted">until ${esc(fmtDate(h.changedAt?.slice(0, 10)))}</span>${compositionBar(h.mol_pct, ref)}</div>`).join('')}</details>` : '';
-    return `<div class="mat-editor" data-editor><h3>${copy ? `New composition #${next}, a copy of #${esc(open.copyOf)}` : `Composition #${esc(c.id)}`}</h3>
+    return `<div class="mat-editor" data-editor><h3>${copy ? `New composition #${next}, a copy of #${esc(open.copyOf)}` : `Composition #${esc(c.id)}`}${prov}</h3>
       ${used ? `<div class="note warn">${useConsequence(c.id, u, next).map(esc).join(' ')}</div>` : ''}
       <div class="grid g3"><div><label for="c_synonym">Name / synonym</label><input type="text" id="c_synonym" name="c_synonym" value="${esc(edit.synonym)}"></div></div>
       <div class="mat-comp-rows">${rows}</div>
@@ -508,13 +553,14 @@ function compositions(body, ctx) {
     if (!(await checked(p))) return;
     if (asNew || open?.copyOf != null) {
       const id = nextId(ref), from = open?.copyOf ?? open;
-      ctx.store.put('compositions', { id, synonym, mol_pct: p.mol_pct, sum: p.sum, copiedFrom: from });
+      // Typed in here (spec 4.3): written as such, so the provenance symbol says so without guessing.
+      ctx.store.put('compositions', { id, synonym, mol_pct: p.mol_pct, sum: p.sum, copiedFrom: from, provenance: provenance('manual') });
       toast(`Composition #${id} added`, 'ok');
     } else {
       const old = ctx.store.get('compositions', open);
       if (!old) { toast(`#${open} is no longer on record`, 'warn'); open = null; draw(); return; }
       const changed = !sameRecipe(old.mol_pct, p.mol_pct);
-      const u = compositionUse(ctx).get(Number(old.id));
+      const u = compositionUse(ctx, old.id);
       if (changed && u && (u.batches.length || u.stocks.length)
         && !(await ask(`Change the recipe of composition #${old.id}?\n\n${useConsequence(old.id, u, nextId(ref)).join('\n\n')}`))) return;
       // The recipe it had is kept on the record, so what an older formulation was planned with can still be read.
@@ -528,19 +574,19 @@ function compositions(body, ctx) {
   async function del() {
     const c = ctx.store.get('compositions', open);
     if (!c) return;
-    const u = compositionUse(ctx).get(Number(c.id));
-    // A recipe formulations point at stays: a formulation holds only the composition's number and reads its
-    // mol% from here, so without it the record could no longer say what went into it, nor work out its N/P,
-    // its lipid amounts or its place in a model. A lipid stock keeps the mol% it was weighed with, so a recipe
-    // only stocks use can go, after a question.
-    if (u?.batches.length) {
-      // Not deletable while formulations read their recipe from it, but it can be archived (spec 9.5).
-      if (!(await ask(`#${c.id} is the recipe of ${plural(u.batches.length, 'formulation')} (${listIds(u.batches)}), so it cannot be deleted. Archive it instead? It is hidden from lists and pickers, those formulations keep it, and it can be restored.`))) return;
+    const u = compositionUse(ctx, c.id);
+    // A recipe anything names stays in the store (spec 9.5): a formulation holds only the composition's number and
+    // reads its mol% from here, so without it the record could no longer say what went into it, nor work out its
+    // N/P, its lipid amounts or its place in a model; a lipid stock and an experiment name it as their recipe too.
+    // It can be archived instead. (0.15 let a recipe only stocks used go, since a stock keeps its own mol%.)
+    if (usedAtAll(u)) {
+      const who = [u.batches.length ? `${plural(u.batches.length, 'formulation')} (${listIds(u.batches)})` : '', u.stocks.length ? `${plural(u.stocks.length, 'lipid stock')} (${listIds(u.stocks)})` : '',
+        !u.batches.length && u.experiments.length ? `${plural(u.experiments.length, 'experiment')} (${listIds(u.experiments)})` : ''].filter(Boolean).join(' and ');
+      if (!(await ask(archiveQuestion(`#${c.id}`, `is the recipe of ${who}`)))) return;
       open = null; edit = null;
       archiveWithUndo(ctx, 'composition', c.id, `composition #${c.id}`, draw);
       return;
     }
-    if (u?.stocks.length && !(await ask(`Composition #${c.id} is the recipe of ${plural(u.stocks.length, 'lipid stock')} (${listIds(u.stocks)}). They keep the mol% and the amounts they were weighed with, and show #${c.id} as deleted. Delete composition #${c.id}?`))) return;
     open = null; edit = null;
     trashWithUndo(ctx, 'compositions', c.id, 'composition', `composition #${c.id}${c.synonym ? ' ' + c.synonym : ''}`, draw);
   }
@@ -553,7 +599,7 @@ function compositions(body, ctx) {
     if (!Number.isInteger(f.id) || f.id < 1) { toast('The number must be a whole number above 0', 'warn'); return; }
     if (ref.compositionById[f.id]) { toast(`#${f.id} is taken; the next free number is ${nextId(ref)}`, 'warn'); return; }
     if (!(await checked(p))) return;
-    ctx.store.put('compositions', { id: f.id, synonym: f.synonym || null, mol_pct: p.mol_pct, sum: p.sum });
+    ctx.store.put('compositions', { id: f.id, synonym: f.synonym || null, mol_pct: p.mol_pct, sum: p.sum, provenance: provenance('manual') });
     toast(`Composition #${f.id} added`, 'ok'); draw();
   }
 
@@ -581,26 +627,13 @@ function compositions(body, ctx) {
 
 /* ---------------- RNA lots, buffer catalog ---------------- */
 
-/** The formulations and experiments that name an RNA lot (plan.rna.lotId, the wizard's spec.rnaLotId). */
-export function rnaLotUse(store, id) {
-  return {
-    batches: store.all('batches').filter((b) => b?.plan?.rna?.lotId === id).map((b) => b.id),
-    exps: store.all('experiments').filter((e) => e?.spec?.rnaLotId === id).map((e) => e.id),
-  };
-}
-
 /**
- * What a formulation needs from its RNA lot to calculate, copied onto its plan where the plan does not have it
- * yet: the stock concentration (the dilution), the cargo (the labels) and the lot's own mass per phosphate
- * (the N/P). Done when the lot is deleted, so the record goes on calculating exactly as before and keeps the
- * lot's number as text. Returns the plan.
+ * The formulations and experiments that name an RNA lot (plan.rna.lotId, the wizard's spec.rnaLotId), from
+ * calc/usage.js, in the two lists this tab words its notes with.
  */
-export function keepRnaLotOnPlan(plan, lot) {
-  plan.rna ||= {};
-  if (plan.rna.stock_mg_mL == null && Number(lot.conc_mg_mL) > 0) plan.rna.stock_mg_mL = Number(lot.conc_mg_mL);
-  if (!plan.rna.cargo) plan.rna.cargo = cargoInfo(lot.cargo).id;
-  if (plan.rna.massPerPhosphate == null && Number(lot.massPerPhosphate) > 0) plan.rna.massPerPhosphate = Number(lot.massPerPhosphate);
-  return plan;
+export function rnaLotUse(store, id) {
+  const by = usesBy(whereUsed(store, 'rnaLot', id));
+  return { batches: by.batches || [], exps: by.experiments || [] };
 }
 
 function rna(body, ctx) {
@@ -610,7 +643,8 @@ function rna(body, ctx) {
 
   function draw() {
     const ref = getRef(ctx), rows = [];
-    for (const r of ref.rnaLots) {
+    // Archived lots leave the table (spec 9.5); the Archived card above the tabs lists them.
+    for (const r of ref.active.rnaLots) {
       const here = open === r.id, u = rnaLotUse(ctx.store, r.id);
       rows.push({ attrs: `class="mat-row${here ? ' mat-open' : ''}" data-open="${esc(r.id)}" tabindex="0" aria-expanded="${here}" title="Click to edit"`, cells: [
         m(`<b>${esc(r.id)}</b>`), m(chip(cargoLabel(r.cargo), r.cargo === 'siRNA' ? 'info' : '')), r.construct || '', r.variant || '', fmt(r.conc_mg_mL, 2),
@@ -620,7 +654,7 @@ function rna(body, ctx) {
     }
     if (open === NEW) rows.push({ attrs: 'class="mat-editor"', full: editor(null, ref) });
     body.innerHTML = `<div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-        <h2 style="margin:0;flex:1 1 auto">RNA lots (${ref.rnaLots.length})</h2><button type="button" data-act="new"${open === NEW ? ' disabled' : ''}>+ Add RNA lot</button></div>
+        <h2 style="margin:0;flex:1 1 auto">RNA lots (${ref.active.rnaLots.length})</h2><button type="button" data-act="new"${open === NEW ? ' disabled' : ''}>+ Add RNA lot</button></div>
       <p class="muted small" style="margin:0 0 8px">Each lot says its cargo, mRNA or siRNA: an experiment made from it is labelled with it, and its N/P is worked out with the cargo's mass per phosphate. Click a lot to correct it.</p>
       ${editTable(['Lot', 'Cargo', 'Construct', 'Variant / notes', { label: 'mg/mL', right: true }, { label: 'g/mol per P', right: true }, 'Method', 'Received', 'Used by'], rows, 'No RNA lots yet. Add one with "+ Add RNA lot".')}</div>`;
   }
@@ -674,21 +708,18 @@ function rna(body, ctx) {
     const lot = ctx.store.get('rnaLots', open);
     if (!lot) return;
     const u = rnaLotUse(ctx.store, lot.id);
-    // Deleting is allowed: the formulations keep the lot number as text and get what they calculate with from
-    // it (concentration, cargo, own mass per phosphate) copied onto their plan, so no number changes.
+    // A lot a formulation or an experiment names stays in the store (spec 9.5): they take its concentration
+    // (the dilution), its cargo and its mass per phosphate (the N/P) from it. It is archived instead. (0.15
+    // deleted it and copied those onto each plan; such a record still reads its own copy.)
     if (u.batches.length + u.exps.length) {
       const who = [u.batches.length ? `${plural(u.batches.length, 'formulation')} (${listIds(u.batches)})` : '', u.exps.length ? `${plural(u.exps.length, 'experiment')} (${listIds(u.exps)})` : ''].filter(Boolean).join(' and ');
-      if (!(await ask(`RNA lot ${lot.id} is chosen on ${who}.\n\nThey keep "${lot.id}" as text, marked deleted, and its concentration (${fmt(lot.conc_mg_mL, 2)} mg/mL) and cargo (${cargoLabel(lot.cargo)}) are copied onto the formulations, so nothing they calculate changes. Delete ${lot.id}?`))) return;
+      if (!(await ask(archiveQuestion(`RNA lot ${lot.id}`, `is chosen on ${who}, which take its concentration (${fmt(lot.conc_mg_mL, 2)} mg/mL) and cargo (${cargoLabel(lot.cargo)}) from it`)))) return;
+      open = null;
+      archiveWithUndo(ctx, 'rnaLot', lot.id, `RNA lot ${lot.id}`, draw);
+      return;
     }
     open = null;
-    let entry = null;
-    ctx.store.transaction(() => {
-      for (const id of u.batches) {
-        const b = ctx.store.get('batches', id);
-        if (b?.plan) { keepRnaLotOnPlan(b.plan, lot); ctx.store.put('batches', b); }
-      }
-      entry = ctx.store.moveToTrash([['rnaLots', lot.id]], { kind: 'RNA lot', label: `RNA lot ${lot.id}${lot.construct ? ' · ' + lot.construct : ''}` });
-    }, { what: `deleting RNA lot ${lot.id}` });
+    const entry = ctx.store.moveToTrash([['rnaLots', lot.id]], { kind: 'RNA lot', label: `RNA lot ${lot.id}${lot.construct ? ' · ' + lot.construct : ''}` });
     if (!entry) { draw(); return; }
     toast(`Deleted RNA lot ${lot.id}`, '', { action: 'Undo', onAction: () => {
       const r = ctx.store.restoreFromTrash(entry.id);
@@ -712,12 +743,39 @@ function rna(body, ctx) {
   draw();
 }
 
+/**
+ * The common buffers, with the lot code each one's lots are named with (spec 9.2: the code is kept per buffer in
+ * the catalogue and can be edited). The shipped code stays in the shipped list; the lab's own is a record of its
+ * own (collection `bufferCatalog`, {id: the buffer's name, code}), laid over it by refdata.js as 0.15 lays an
+ * edited device over a shipped one. Emptied, the shipped code is back. A lot already made keeps the name it was
+ * given: that name is on the bottle.
+ */
 function buffers(body, ctx) {
-  const ref = getRef(ctx);
-  // Matched by name: the catalogue has no codes any more, and matching on the missing code listed every lot
-  // under every recipe.
-  body.innerHTML = `<div class="card"><h2>Buffer catalog</h2><p class="muted">Standard recipes to start from. A buffer you actually make is recorded on the <a href="#/buffers">Buffers</a> screen and gets a lot number there.</p>
-    ${editTable(['Name', 'For', 'Prepared lots'], ref.buffersCatalog.map((b, i) => ({ cells: [m(`<a href="#/buffers?new=1&from=${i}">${esc(b.name)}</a>`), (b.roles || []).join(', '), m(ref.buffers.filter((x) => x.name === b.name).map((x) => `<a href="#/buffers?id=${esc(x.id)}">${esc(x.lot)}</a>`).join(', ') || '<span class="muted">—</span>')] })))}</div>`;
+  function draw() {
+    const ref = getRef(ctx), today = todayISO();
+    const lotsOf = (b) => ref.buffers.filter((x) => x.name === b.name || (x.code && x.code === b.code)).sort((a, c) => String(c.date || '').localeCompare(String(a.date || '')));
+    body.innerHTML = `<div class="card"><h2>Buffer catalog</h2><p class="muted">Standard recipes to start from. A buffer you actually make is recorded on the <a href="#/buffers">Buffers</a> screen and gets a lot name there: <b>code-pH-date</b>, with the code below. Change a code to your lab's own; a lot already made keeps its name.</p>
+      ${editTable(['Name', 'Code', 'For', 'Prepared lots'], ref.buffersCatalog.map((b, i) => {
+        const lots = lotsOf(b);
+        return { attrs: `data-buffer="${esc(b.name)}"`, cells: [m(`<a href="#/buffers?new=1&from=${i}">${esc(b.name)}</a>`),
+          m(`<input type="text" data-code="${esc(b.name)}" value="${esc(b.code || '')}" aria-label="Lot code of ${esc(b.name)}" style="width:130px;text-transform:uppercase">${b.shippedCode ? ` <span class="muted small">shipped: ${esc(b.shippedCode)}</span>` : ''}`),
+          normaliseRoles(b.roles).map(roleLabel).join(', '),
+          m(lots.length ? `${plural(lots.length, 'lot')} · newest <a href="#/buffers?id=${encodeURIComponent(lots[0].id)}">${esc(lots[0].lot)}</a>${lots[0].expiry && lots[0].expiry < today ? ' ' + chip('expired', 'warn') : ''}` : '<span class="muted">–</span>')] };
+      }))}</div>`;
+  }
+  // A change arrives as the field is left, on the way to the next one: the table is drawn again once the user is
+  // there (redrawSoon), not under the field being left.
+  body.addEventListener('change', (e) => {
+    const t = e.target.closest('input[data-code]');
+    if (!t) return;
+    const ref = getRef(ctx), name = t.dataset.code, shipped = (ctx.data.buffers_catalog || []).find((b) => b.name === name);
+    const r = checkBufferCode(t.value, name, ref.buffersCatalog);
+    if (r.error) toast(r.error, 'warn');
+    else if (!r.code || r.code === shipped?.code) { ctx.store.remove('bufferCatalog', name); toast(`${name}: code ${shipped?.code || ''} as shipped`, 'ok'); }
+    else { ctx.store.put('bufferCatalog', { id: name, code: r.code }); toast(`${name}: new lots are named ${r.code}-pH…`, 'ok'); }
+    redrawSoon(body, draw);
+  });
+  draw();
 }
 
 /* ---------------- devices, TFF modules, dialysis: lists the user can extend ---------------- */
@@ -733,15 +791,28 @@ function buffers(body, ctx) {
  *   form(x, ref, use)            the editor's fields (efield), x = null for a new one
  *   read(f, x, ref)              the fields to store, or a string saying what is wrong
  *   label(x)                     how the entry is named in notes
- *   usedBy(x, ref)               {text, locked: [field names], keep: reason} when records depend on it, or null
+ *   kind                         its kind in calc/usage.js, which says which records name it
+ *   usedBy(x, ref, ids)          {text, locked: [field names], keep: reason} for the editor and the question,
+ *                                given the formulation records that name it (ids), or null
+ *
+ * An entry records name is never removed from the store (spec 9.5): Delete (one's own) and Hide (a shipped one)
+ * say where it is used and offer to archive it instead. 0.15 deleted or hid it and wrote a copy onto each record
+ * (plan.process.deviceRecord, mixerRecord, a TFF step's moduleRecord); calc/process.js still reads those copies
+ * on the records that have one.
  */
 function catalogue(box, ctx, spec) {
   const NEW = '\u0000new';
   let open = null;
   const shippedIds = new Set(spec.shipped.map((s) => s.id));
+  /** What names an entry: the formulation records (from calc/usage.js), worded by the tab. */
+  const useOf = (x, ref) => {
+    const ids = whereUsed(ctx.store, spec.kind, x.id, { rec: x }).map((u) => u.id);
+    const use = spec.usedBy?.(x, ref, ids) || null;
+    return use || ids.length ? { ...(use || {}), ids } : null;
+  };
 
   function draw() {
-    const ref = getRef(ctx), items = spec.items(ref);
+    const ref = getRef(ctx), gone = archivedSet(ctx.store, spec.kind), items = spec.items(ref).filter((x) => !gone.has(String(x.id)));
     const own = new Map(ctx.store.all(spec.col).map((o) => [o.id, o]));
     const hidden = spec.shipped.filter((s) => own.get(s.id)?.deleted);
     const rows = [];
@@ -761,7 +832,7 @@ function catalogue(box, ctx, spec) {
   }
 
   function editor(x, ref, own) {
-    const use = x && spec.usedBy ? spec.usedBy(x, ref) : null;
+    const use = x ? useOf(x, ref) : null;
     const isShipped = x && shippedIds.has(x.id);
     const extra = !x ? '' : isShipped
       ? `${own.has(x.id) ? '<button type="button" data-act="revert">Back to the shipped version</button>' : ''}<button type="button" data-act="hide">Hide from the lists</button>`
@@ -794,40 +865,35 @@ function catalogue(box, ctx, spec) {
     open = null; draw();
   }
 
-  /** The formulation records `ids` keep a copy of entry `x` (spec.keep writes it onto the plan). */
-  function keepOnRecords(ids, x) {
-    if (!spec.keep) return;
-    for (const id of ids) {
-      const b = ctx.store.get('batches', id);
-      if (b?.plan && spec.keep(b.plan, x)) ctx.store.put('batches', b);
-    }
-  }
-
   /** Put back what the store held for `id` before (nothing, or the earlier record). */
   const putBack = (id, before) => { if (before) ctx.store.put(spec.col, before); else ctx.store.remove(spec.col, id); draw(); };
+
+  /** An entry records name: archived after a question that says which (spec 9.5). True when it was handled so. */
+  async function archiveInstead(x) {
+    const use = useOf(x, getRef(ctx));
+    if (!use?.ids?.length) return false;
+    if (await ask(archiveQuestion(spec.label(x), `is used by ${plural(use.ids.length, 'formulation record')} (${listIds(use.ids)})`))) { open = null; archiveWithUndo(ctx, spec.kind, x.id, spec.label(x), draw); }
+    return true;
+  }
 
   const actions = {
     new: () => { open = NEW; draw(); focusEditor(box); },
     cancel: () => { open = null; draw(); },
     save,
-    // Hiding or deleting an entry records still name is allowed, after a question that names them: each of them
-    // gets a copy of the entry as it is now (spec.keep), so it goes on drawing and calculating exactly as before
-    // and shows the entry as deleted. Undo puts the entry back; the copies stay and agree with it.
+    // Hiding a shipped entry, or deleting one's own, that records still name is not done: it is archived instead,
+    // after a question that names them, and stays in the store for them. One nothing names is hidden or deleted
+    // as before, with Undo.
     hide: async () => {
       const x = current(); if (!x) return;
-      const use = spec.usedBy?.(x, getRef(ctx));
-      if (use?.keep && !(await ask(`${spec.label(x)}: ${use.keep}.\n\n${use.after || 'They keep it as it is now.'} Hide ${spec.label(x)} from the lists?`))) return;
+      if (await archiveInstead(x)) return;
       const before = ctx.store.get(spec.col, x.id);
-      ctx.store.transaction(() => {
-        if (use?.ids?.length) keepOnRecords(use.ids, x);
-        ctx.store.put(spec.col, { ...(before || { id: x.id }), deleted: true });
-      }, { what: `hiding ${spec.label(x)}` });
+      ctx.store.put(spec.col, { ...(before || { id: x.id }), deleted: true });
       open = null; draw();
       toast(`Hidden ${spec.label(x)}`, '', { action: 'Undo', onAction: () => putBack(x.id, before) });
     },
     revert: () => {
       const x = current(); if (!x) return;
-      const use = spec.usedBy?.(x, getRef(ctx));
+      const use = useOf(x, getRef(ctx));
       if (use?.keep && use.locked?.some((k) => x[k] !== spec.shipped.find((s) => s.id === x.id)?.[k])) { toast(`${spec.label(x)} stays as it is: ${use.keep}`, 'warn'); return; }
       const before = ctx.store.get(spec.col, x.id);
       ctx.store.remove(spec.col, x.id);
@@ -836,14 +902,9 @@ function catalogue(box, ctx, spec) {
     },
     delete: async () => {
       const x = current(); if (!x) return;
-      const use = spec.usedBy?.(x, getRef(ctx));
-      if (use?.keep && !(await ask(`${spec.label(x)}: ${use.keep}.\n\n${use.after || 'They keep it as it is now.'} Delete ${spec.label(x)}?`))) return;
+      if (await archiveInstead(x)) return;
       open = null;
-      let entry = null;
-      ctx.store.transaction(() => {
-        if (use?.ids?.length) keepOnRecords(use.ids, x);
-        entry = ctx.store.moveToTrash([[spec.col, x.id]], { kind: spec.noun, label: spec.label(x) });
-      }, { what: `deleting ${spec.label(x)}` });
+      const entry = ctx.store.moveToTrash([[spec.col, x.id]], { kind: spec.noun, label: spec.label(x) });
       if (entry) toast(`Deleted ${spec.label(x)}`, '', { action: 'Undo', onAction: () => {
         const r = ctx.store.restoreFromTrash(entry.id);
         if (!r.ok) { toast(`Not restored: ${r.reason}`, 'warn'); return; }
@@ -864,20 +925,8 @@ function catalogue(box, ctx, spec) {
   draw();
 }
 
-/**
- * A formulation keeps a copy of its instrument or mixer (plan.process.deviceRecord / .mixerRecord) when that is
- * deleted or hidden: deviceOf() and mixerOf() in calc/process.js read the copy when the id is no longer listed,
- * so the drawing, the pump or syringe layout and the quench stay as they were. An older record without
- * plan.process is moved onto it first, while the entry is still listed, so nothing else of it shifts.
- */
-function keepDevice(plan, field, x, ctx) {
-  if (!plan.process) adoptProcess(plan, getRef(ctx));
-  plan.process[field] = { ...x };
-  return true;
-}
-
-/** Formulation records, read once per editor: what the TFF and dialysis lists check before an entry changes. */
-const batchesOf = (ctx) => ctx.store.all('batches');
+/** The editor's note and the question's words for an entry `ids` (formulation records) name. */
+const usedWords = (ids, verb) => ({ text: `${verb === 'names' ? 'Named by' : 'Used by'} ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))}).`, keep: `${listIds(ids)} ${ids.length === 1 ? verb : verb.replace(/s$/, '')} it` });
 const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 const req = (s) => String(s ?? '').trim();
 
@@ -888,15 +937,10 @@ function devices(body, ctx) {
     <div id="instrumentList"></div><div id="mixerList"></div>`;
   const shippedMixers = ctx.data.devices?.mixers || [];
   catalogue(body.querySelector('#instrumentList'), ctx, {
-    col: 'devices', shipped: ctx.data.devices?.instruments || [], items: (ref) => ref.devices,
+    col: 'devices', kind: 'device', shipped: ctx.data.devices?.instruments || [], items: (ref) => ref.devices,
     // A formulation names its instrument by id (plan.process.deviceId); the id never changes, so an edit is safe,
     // but a hidden or deleted instrument would leave those records naming one the designer cannot show.
-    usedBy: (x) => {
-      const ids = batchesOf(ctx).filter((b) => b?.plan?.process && devicesUsed(b.plan).deviceId === x.id).map((b) => b.id);
-      return ids.length ? { text: `Used by ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))}).`, keep: `${listIds(ids)} ${ids.length === 1 ? 'uses' : 'use'} it`, ids,
-        after: `${ids.length === 1 ? 'That record keeps' : 'Those records keep'} a copy of it as it is now (its name, pumps and quench), so ${ids.length === 1 ? 'its' : 'their'} process is drawn and run as before, marked deleted.` } : null;
-    },
-    keep: (plan, x) => keepDevice(plan, 'deviceRecord', x, ctx),
+    usedBy: (x, ref, ids) => (ids.length ? usedWords(ids, 'uses') : null),
     title: 'Instruments', noun: 'instrument', label: (x) => x.name || x.id,
     headers: ['Name', 'Vendor', { label: 'Pumps', right: true }, 'Mixers it takes', 'Quench', 'Notes'],
     cells: (x, ref) => [m(`<b>${esc(x.name)}</b>`), x.vendor || '', x.pumps ?? '–',
@@ -922,8 +966,7 @@ function devices(body, ctx) {
     },
   });
   catalogue(body.querySelector('#mixerList'), ctx, {
-    col: 'mixers', shipped: shippedMixers, items: (ref) => ref.mixers,
-    keep: (plan, x) => keepDevice(plan, 'mixerRecord', x, ctx),
+    col: 'mixers', kind: 'mixer', shipped: shippedMixers, items: (ref) => ref.mixers,
     title: 'Mixers', noun: 'mixer', label: (x) => x.name || x.id,
     headers: ['Name', 'Kind', { label: 'Inlets', right: true }, 'Taken by', 'Notes'],
     cells: (x, ref) => [m(`<b>${esc(x.name)}</b>`), x.kind || '', x.inlets ?? '–',
@@ -938,11 +981,11 @@ function devices(body, ctx) {
       if (inlets != null && (inlets < 1 || !Number.isInteger(inlets))) return 'Inlets: a whole number, 1 or more';
       return { name: req(f.name), kind: req(f.kind), inlets, notes: req(f.notes) };
     },
-    usedBy: (x, ref) => {
+    // An instrument that takes a mixer is not a record that needs it: hidden or deleted, the mixer only leaves
+    // that instrument's list, and is back on it when shown again.
+    usedBy: (x, ref, ids) => {
       const by = ref.devices.filter((d) => (d.mixers || []).includes(x.id)).map((d) => d.name);
-      const ids = batchesOf(ctx).filter((b) => b?.plan?.process && devicesUsed(b.plan).mixerId === x.id).map((b) => b.id);
-      if (ids.length) return { text: `Used by ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))})${by.length ? `; taken by ${esc(by.join(', '))}` : ''}.`, keep: `${listIds(ids)} ${ids.length === 1 ? 'uses' : 'use'} it`, ids,
-        after: `${ids.length === 1 ? 'That record keeps' : 'Those records keep'} a copy of it as it is now, so ${ids.length === 1 ? 'its' : 'their'} process is drawn as before, marked deleted.` };
+      if (ids.length) { const w = usedWords(ids, 'uses'); return { ...w, text: w.text.replace(/\.$/, by.length ? `; taken by ${esc(by.join(', '))}.` : '.') }; }
       return by.length ? { text: `Taken by ${esc(by.join(', '))}. Hidden or deleted, it no longer shows on ${by.length === 1 ? 'that instrument' : 'those instruments'}; shown again, it is back on them.` } : null;
     },
   });
@@ -953,7 +996,7 @@ const loadWindow = (sa) => `${fmt((sa / 10000 / 0.5) * 1000, 1)} – ${fmt((sa /
 function tff(body, ctx) {
   body.innerHTML = '<div id="tffList"></div>';
   catalogue(body.querySelector('#tffList'), ctx, {
-    col: 'tffModules', shipped: (ctx.data.tff_modules || []).map((x) => ({ id: x.part, ...x })), items: (ref) => ref.tffModules,
+    col: 'tffModules', kind: 'tffModule', shipped: (ctx.data.tff_modules || []).map((x) => ({ id: x.part, ...x })), items: (ref) => ref.tffModules,
     title: 'TFF hollow-fiber modules', noun: 'TFF module', label: (x) => x.part || x.id,
     intro: 'One representative module ships; add the ones your lab uses. A formulation record chooses from this list.',
     headers: ['Part', 'Family', 'MWCO', 'Membrane', 'Fiber ID', 'Length cm', 'Fibers', { label: 'SA cm²', right: true }, { label: 'RNA load mg (min–max)', right: true }],
@@ -977,19 +1020,7 @@ function tff(body, ctx) {
     },
     // A formulation names its module by part number (its TFF step in plan.process), so that number stays put while
     // any record with TFF switched on names it; the record would otherwise fall back to the first module listed.
-    usedBy: (x) => {
-      const ids = batchesOf(ctx).filter((b) => devicesUsed(b?.plan).tff.includes(x.part)).map((b) => b.id);
-      return ids.length ? { text: `Named by ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))}). The part number stays as they name it; a changed surface area changes their load window.`, locked: ['part'], keep: `${listIds(ids)} ${ids.length === 1 ? 'names' : 'name'} it`, ids,
-        after: `${ids.length === 1 ? 'That record keeps' : 'Those records keep'} a copy of the module as it is now, so the TFF load window and volumes are worked out as before; the module shows as deleted there.` } : null;
-    },
-    // The TFF step keeps the module (calc/process.js stepOf; formulation.js reads step.moduleRecord when the
-    // module is no longer listed, instead of quietly taking the first module on the list).
-    keep: (plan, x) => {
-      if (!plan.process) adoptProcess(plan, getRef(ctx));
-      let changed = false;
-      for (const s of plan.process.downstream || []) if (s.step === 'tff' && s.device === x.part) { s.moduleRecord = { ...x }; changed = true; }
-      return changed;
-    },
+    usedBy: (x, ref, ids) => (ids.length ? { ...usedWords(ids, 'names'), text: `${usedWords(ids, 'names').text} The part number stays as they name it; a changed surface area changes their load window.`, locked: ['part'] } : null),
     footer: () => '<p class="muted" style="margin:8px 0 0">Load window from the record: min = SA/10000/0.5·1000 mg, max = SA/10000/0.32·1000 mg.</p>',
   });
 }
@@ -1000,7 +1031,7 @@ function dialysis(body, ctx) {
   body.innerHTML = '<div id="dialysisList"></div>';
   const legacy = ctx.data.materials?.dialysis_cassettes || [];
   catalogue(body.querySelector('#dialysisList'), ctx, {
-    col: 'dialysis', shipped: ctx.data.materials?.dialysis_devices || [], items: (ref) => ref.dialysis,
+    col: 'dialysis', kind: 'dialysis', shipped: ctx.data.materials?.dialysis_devices || [], items: (ref) => ref.dialysis,
     title: 'Dialysis devices', noun: 'dialysis device', label: (x) => x.name || x.id,
     intro: 'Cassettes, float devices and tubing for buffer exchange. A formulation record chooses its cassette by name from this list.',
     headers: ['Name', 'Kind', { label: 'MWCO kD', right: true }, { label: 'Volume mL', right: true }, 'Vendor', 'Notes'],
@@ -1022,19 +1053,34 @@ function dialysis(body, ctx) {
       if (lo != null && hi != null && lo > hi) return 'The volume range runs from the smaller to the larger number';
       return { name, kind: f.kind, mwco_kDa: num(f.mwco_kDa), vendor: req(f.vendor), volume_min_mL: lo, volume_max_mL: hi, notes: req(f.notes) };
     },
-    usedBy: (x) => {
-      const ids = batchesOf(ctx).filter((b) => devicesUsed(b?.plan).dialysis.includes(x.name)).map((b) => b.id);
-      return ids.length ? { text: `Chosen on ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))}), which name it, so the name stays.`, locked: ['name'], keep: `${listIds(ids)} ${ids.length === 1 ? 'names' : 'name'} it`, ids,
-        after: `${ids.length === 1 ? 'That record keeps' : 'Those records keep'} the cassette's name as written; nothing is worked out from it.` } : null;
-    },
+    usedBy: (x, ref, ids) => (ids.length ? { text: `Chosen on ${plural(ids.length, 'formulation record')} (${esc(listIds(ids))}), which name it, so the name stays.`, locked: ['name'], keep: usedWords(ids, 'names').keep } : null),
     footer: () => (legacy.length ? `<p class="muted" style="margin:8px 0 0">The cassette menu on a formulation record also keeps the cassettes earlier versions listed, for the records that name them: ${esc(legacy.join(', '))}.</p>` : ''),
   });
 }
 
+/**
+ * The filters the record's filtration step offers. They ship with the app and the lab cannot add its own yet, so
+ * there is nothing to delete; a filter the lab does not use can be archived (spec 9.5), which takes it out of the
+ * formulation record's menus while the records that name it keep it. "None" is a choice, not a filter.
+ */
 function consumables(body, ctx) {
-  const ref = getRef(ctx);
-  body.innerHTML = `<div class="card"><h2>Filters</h2><ul>${ref.materials.filters.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
-    <p class="muted" style="margin:0">Dialysis devices have their own tab now: <a href="#/materials?tab=dialysis">Dialysis</a>.</p></div>`;
+  function draw() {
+    const ref = getRef(ctx), gone = archivedSet(ctx.store, 'filter');
+    const rows = ref.materials.filters.filter((c) => c !== 'None' && !gone.has(c)).map((c) => {
+      const n = whereUsed(ctx.store, 'filter', c).length;
+      return { attrs: `data-filter="${esc(c)}"`, cells: [c, m(n ? plural(n, 'formulation') : '<span class="muted">–</span>'), m(`<button type="button" class="mat-add" data-act="archfilter" data-id="${esc(c)}">archive</button>`)] };
+    });
+    body.innerHTML = `<div class="card"><h2>Filters</h2><p class="muted small" style="margin:0 0 8px">Offered by the filtration step of a formulation record. Archive one your lab does not use: it leaves the menus, and the records that name it keep it.</p>
+      ${editTable(['Filter', 'Used by', ''], rows, 'Every filter is archived.')}
+      <p class="muted" style="margin:8px 0 0">Dialysis devices have their own tab now: <a href="#/materials?tab=dialysis">Dialysis</a>.</p></div>`;
+  }
+  wire(body, {
+    archfilter: async (b) => {
+      const f = b.dataset.id, used = whereUsed(ctx.store, 'filter', f).map((u) => u.id);
+      await offerArchive(ctx, 'filter', f, f, `${used.length ? `${f} is chosen on ${plural(used.length, 'formulation')} (${listIds(used)}). ` : ''}It ships with the app, so it is not deleted. Archive it? It leaves the filter menus${used.length ? ', those records keep it' : ''}, and it can be restored.`, draw);
+    },
+  });
+  draw();
 }
 
 /**

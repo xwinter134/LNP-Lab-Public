@@ -15,7 +15,7 @@ export const SNOOZE_MS = 864e5;
 // nothing a backup lacks) and not the counters (they only move when a record does). A collection added later and
 // left off this list is still exported; only its changes alone would not bring the reminder up.
 const DATA = ['experiments', 'batches', 'measurements', 'stocks', 'buffers', 'events', 'inbox', 'imports',
-  'rnaLots', 'lipidLots', 'lipids', 'compositions', 'devices', 'mixers', 'tffModules', 'dialysis', 'settings', 'archive', 'views',
+  'rnaLots', 'lipidLots', 'lipids', 'compositions', 'devices', 'mixers', 'tffModules', 'dialysis', 'settings', 'archive', 'views', 'bufferCatalog',
   'quarantine', 'insightReports',
   'studies', 'bioMeasurements', 'bioCatalog', 'bliImages']; // the biological layers (spec 8)
 

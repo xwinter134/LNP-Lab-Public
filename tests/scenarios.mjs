@@ -3648,10 +3648,13 @@ export async function questionsWaitForTheAnswer({ page, base, errors }) {
     await open('settings');
     await p2.click('#emptyTrash'); await answered(/Erase the \d+ deleted item/);
     same('Empty trash', trash, await count('trash'));
-    // And a yes is waited for too, and goes ahead.
+    // And a yes is waited for too, and goes ahead: everything goes but what other records still name (the
+    // demo's measurements name E1's formulations), which stays and says so (spec 12.2).
     await p2.evaluate(() => { window.__answer = true; });
     await p2.click('#emptyTrash'); await answered(/Erase the \d+ deleted item/);
-    if (await count('trash')) throw new Error(`${where}: OK on "Empty trash" did not empty it`);
+    const left = await count('trash');
+    const keptRows = await p2.locator('#trashList [data-kept]').count();
+    if (left !== keptRows) throw new Error(`${where}: OK on "Empty trash" left ${left} entries, ${keptRows} of them said to be still named`);
 
     // Adding a lipid to a stock asked for its key through prompt(), which the app's window answers with null.
     await open('stocks?new=1');
@@ -4870,10 +4873,13 @@ export async function materialsEditComposition({ page, open }) {
     await page.waitForTimeout(150);
     if (!(await readCol(page, 'compositions')).some((c) => c.id === copy.id)) throw new Error('a used composition was deleted');
     if (!(await page.locator('[data-editor]').count())) {
+      // Archived, it has left the registry; Restore in the Archived card brings it back to the list.
+      await page.click('#archivedCard > summary');
+      await page.click(`#archivedCard [data-unarchive="composition|${copy.id}"]`);
+      await page.waitForSelector(`#tabBody tr.mat-row[data-open="${copy.id}"]`, { timeout: 4000 });
       await writeCol(page, 'archive', archived0);
       // its "Archived … Undo" note goes too, or the next scenario's Undo would press this one
       await page.evaluate(() => document.querySelectorAll('#toast > *').forEach((n) => n.remove()));
-      await open('materials?tab=compositions');
       await page.click(`#tabBody tr.mat-row[data-open="${copy.id}"]`);
     }
     // "Save as new" leaves the original as it was.
@@ -5554,11 +5560,12 @@ export async function freezeThawLoggedAndCounted({ page, open }) {
 }
 
 /**
- * Deleting an RNA lot a formulation names: the question names the formulation, the formulation keeps the lot's
- * concentration and cargo (so its numbers stay) and shows the lot as deleted, and Undo brings the lot back.
+ * Deleting an RNA lot a formulation names (spec 9.5, 12.2): the question names the formulation and offers to
+ * archive it instead; archived, the lot stays in the store, leaves the RNA tab and the pickers, and the record
+ * goes on calculating with it; Undo, and Restore in the Archived card, bring it back to the lists.
  */
 export async function deleteReferencedRnaLot({ page, open }) {
-  const was = { rnaLots: await readCol(page, 'rnaLots'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), trash: await readCol(page, 'trash') };
+  const was = { rnaLots: await readCol(page, 'rnaLots'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), trash: await readCol(page, 'trash'), archive: await readCol(page, 'archive') };
   try {
     const built = await page.evaluate(async () => {
       const { buildExperiment } = await import('./app/calc/experiment.js');
@@ -5578,15 +5585,19 @@ export async function deleteReferencedRnaLot({ page, open }) {
     await page.click('[data-editor] [data-act=delete]');
     await page.waitForTimeout(250);
     const asked = await stopAnswering(page);
-    if (!asked.some((q) => q.includes(f) && /1\.50 mg\/mL/.test(q))) throw new Error(`the question should name ${f} and what it keeps: ${JSON.stringify(asked)}`);
-    if ((await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('the lot was not deleted');
+    if (!asked.some((q) => q.includes(f) && /1\.50 mg\/mL/.test(q) && /cannot be deleted[\s\S]*Archive it instead/.test(q))) throw new Error(`the question should name ${f}, say it cannot be deleted and offer to archive: ${JSON.stringify(asked)}`);
+    if (!(await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('a lot a formulation names left the store');
+    if ((await readCol(page, 'trash')).some((t) => JSON.stringify(t).includes('RNA-DEL-1'))) throw new Error('a lot a formulation names went to the trash');
+    if (!(await readCol(page, 'archive')).some((a) => a.id === 'rnaLot:RNA-DEL-1')) throw new Error('the lot was not archived');
+    if (await page.locator('#tabBody tr.mat-row[data-open="RNA-DEL-1"]').count()) throw new Error('the archived lot is still listed');
     const b = (await readCol(page, 'batches')).find((x) => x.id === f);
-    if (b.plan.rna.lotId !== 'RNA-DEL-1' || b.plan.rna.stock_mg_mL !== 1.5 || b.plan.rna.cargo !== 'mRNA') throw new Error(`the formulation should keep the lot's number and concentration, and its own cargo: ${JSON.stringify(b.plan.rna)}`);
+    if (b.plan.rna.lotId !== 'RNA-DEL-1' || b.plan.rna.stock_mg_mL != null) throw new Error(`the formulation should be left as it was: ${JSON.stringify(b.plan.rna)}`);
     await page.click('#toast button[data-toast-action="Undo"]');
     await page.waitForTimeout(200);
-    if (!(await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('Undo did not bring the lot back');
+    if ((await readCol(page, 'archive')).some((a) => a.id === 'rnaLot:RNA-DEL-1')) throw new Error('Undo left the lot archived');
+    await expectText(page, '#tabBody', /RNA-DEL-1/, 'Undo lists it again');
 
-    // Deleted again (from Settings' restore list the same entry would come back): the record says so.
+    // Archived again: the record still reads the lot, and new experiments are no longer offered it.
     await page.click('#tabBody tr.mat-row[data-open="RNA-DEL-1"]');
     await answerYes(page);
     await page.click('[data-editor] [data-act=delete]');
@@ -5594,8 +5605,15 @@ export async function deleteReferencedRnaLot({ page, open }) {
     await stopAnswering(page);
     await open(`formulation?batch=${f}`);
     const label = await page.$eval('select[name=rna_lotId]', (s) => s.selectedOptions[0]?.textContent || '');
-    if (label !== 'RNA-DEL-1 (deleted)') throw new Error(`the record should name the deleted lot: "${label}"`);
+    if (!/^RNA-DEL-1 · siRNA · TTR · 1\.50 mg\/mL$/.test(label)) throw new Error(`the record should still name the archived lot as it is: "${label}"`);
     await expectText(page, '#atBench', /RNA stock to pipette[\s\S]*RNA-DEL-1 · 1\.5 mg\/mL/, 'and go on calculating with its concentration');
+    await open('experiments?new=1&type=single');
+    const offered = await page.$$eval('select[name=rnaLotId] option', (os) => os.map((o) => o.value));
+    if (offered.includes('RNA-DEL-1')) throw new Error('an archived RNA lot is still offered for a new experiment');
+    await open('materials?tab=rna');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="rnaLot|RNA-DEL-1"]');
+    await page.waitForSelector('#tabBody tr.mat-row[data-open="RNA-DEL-1"]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list the lot again'); });
   } finally {
     await stopAnswering(page).catch(() => {});
     for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
@@ -6113,3 +6131,226 @@ export async function biologicalLayers({ page, open }) {
   if (await page.$('#animalStudyCard')) throw new Error('the animal study shows with every layer off');
 }
 scenarios.push(biologicalLayers);
+
+// ---- Spec 9.5 / 12.2, 9.2, 4.3, 4.4: nothing referenced is hard-deleted; buffer lots; provenance; before updates ----
+
+/** A small experiment built the way the wizard builds one, for the scenarios below. */
+const builtExperiment = (page, experimentId, extra = {}) => page.evaluate(async ([id, x]) => {
+  const { buildExperiment } = await import('./app/calc/experiment.js');
+  const { DEFAULT_SETTINGS } = await import('./app/refdata.js');
+  return buildExperiment({ type: 'single', name: `check ${id}`, startDate: '2026-10-17', compositionId: 1, tests: ['dls'], ...x }, { settings: DEFAULT_SETTINGS, experimentId: id, takenFormulations: [] });
+}, [experimentId, extra]);
+
+/**
+ * Every kind of component asks calc/usage.js where it is used: an instrument of one's own a record names is
+ * archived, not deleted, and leaves the process designer's picker; a shipped lipid and a shipped filter can be
+ * archived per lab; the Archived card restores each.
+ */
+export async function componentsArchivedWhenUsed({ page, open }) {
+  const was = { devices: await readCol(page, 'devices'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), archive: await readCol(page, 'archive'), trash: await readCol(page, 'trash') };
+  try {
+    const built = await builtExperiment(page, 'E993');
+    const f = built.batches[0];
+    f.plan.process = { ...(f.plan.process || {}), deviceId: 'arch-rig', mixerId: 't-mixer' };
+    await writeCol(page, 'devices', [...was.devices, { id: 'arch-rig', name: 'Archive rig', pumps: 2, quench: 'optional', mixers: ['t-mixer'] }]);
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+
+    await open('materials?tab=devices');
+    await page.click('#instrumentList tr.mat-row[data-open="arch-rig"]');
+    await expectText(page, '[data-editor]', new RegExp(`Used by 1 formulation record \\(${f.id}\\)`), 'the editor says which record uses it');
+    await answerYes(page);
+    await page.click('[data-editor] [data-act=delete]');
+    await page.waitForTimeout(250);
+    const asked = await stopAnswering(page);
+    if (!asked.some((q) => q.includes(f.id) && /cannot be deleted[\s\S]*Archive it instead/.test(q))) throw new Error(`the question should name ${f.id} and offer to archive: ${JSON.stringify(asked)}`);
+    if (!(await readCol(page, 'devices')).some((d) => d.id === 'arch-rig')) throw new Error('an instrument a record names left the store');
+    if ((await readCol(page, 'trash')).some((t) => JSON.stringify(t).includes('arch-rig'))) throw new Error('an instrument a record names went to the trash');
+    if (await page.locator('#instrumentList tr.mat-row[data-open="arch-rig"]').count()) throw new Error('the archived instrument is still listed');
+    await open('experiments?new=1&type=single');
+    const offered = await page.$$eval('select[name=pr_deviceId] option', (os) => os.map((o) => o.value));
+    if (!offered.length) throw new Error('no instrument picker in the process designer');
+    if (offered.includes('arch-rig')) throw new Error('the archived instrument is still offered for a new experiment');
+    await open(`formulation?batch=${f.id}`);
+    const kept = await page.$$eval('select[name=pr_deviceId] option:checked', (os) => os.map((o) => o.value));
+    if (kept.length && kept[0] !== 'arch-rig') throw new Error(`the record that names it lost it: ${kept}`);
+    await open('materials?tab=devices');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="device|arch-rig"]');
+    await page.waitForSelector('#instrumentList tr.mat-row[data-open="arch-rig"]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list the instrument again'); });
+
+    // A shipped lipid: never deleted, but archivable; the question says where it is used.
+    await open('materials?tab=lipids');
+    await answerYes(page);
+    await page.click('#tabBody button[data-act=archlipid][data-key=DSPC]');
+    await page.waitForTimeout(250);
+    const askedLipid = await stopAnswering(page);
+    if (!askedLipid.some((q) => /DSPC[\s\S]*is used by #\d+[\s\S]*not deleted\. Archive it\?/.test(q))) throw new Error(`archiving a shipped lipid should say where it is used: ${JSON.stringify(askedLipid)}`);
+    if (await page.locator('#tabBody tr[data-key=DSPC]').count()) throw new Error('the archived lipid is still listed');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="lipid|DSPC"]');
+    await page.waitForSelector('#tabBody tr[data-key=DSPC]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list DSPC again'); });
+
+    // A shipped filter, archived, leaves the formulation record's filter menus.
+    await open('materials?tab=consumables');
+    const filter = await page.getAttribute('#tabBody [data-act=archfilter] >> nth=1', 'data-id');
+    await answerYes(page);
+    await page.click(`#tabBody [data-act=archfilter][data-id="${filter}"]`);
+    await page.waitForTimeout(250);
+    await stopAnswering(page);
+    if (!(await readCol(page, 'archive')).some((a) => a.id === `filter:${filter}`)) throw new Error('the filter was not archived');
+    if (await page.locator(`#tabBody tr[data-filter="${filter}"]`).count()) throw new Error('the archived filter is still listed');
+    await open(`formulation?batch=${f.id}`);
+    const menu = await page.$$eval('select[name=ds_filtration_prefilter] option', (os) => os.map((o) => o.value));
+    if (!menu.length) throw new Error('no pre-filter menu on the formulation record');
+    if (menu.includes(filter)) throw new Error(`the archived filter ${filter} is still offered`);
+  } finally {
+    await stopAnswering(page).catch(() => {});
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 9.2: a buffer lot takes its measured pH, what is left and its expiry, and the overview shows them; a batch
+ * naming a lot by its name and by its number counts once; the common buffers carry no lot chips; the catalogue
+ * code is the lab's own on Materials › Buffer catalog, and a new lot is named with it.
+ */
+export async function bufferLotsAndCatalogCodes({ page, open }) {
+  const was = { buffers: await readCol(page, 'buffers'), batches: await readCol(page, 'batches'), bufferCatalog: await readCol(page, 'bufferCatalog'), counters: await readCol(page, 'counters') };
+  try {
+    await open('buffers');
+    const from = (await page.$$eval('#catalogList a.bufPrep', (as) => as.map((a) => [a.textContent, a.dataset.from]))).find(([n]) => n === 'Citrate 50 mM, pH 4.0')?.[1];
+    await open(`buffers?new=1&from=${from}`);
+    await page.fill('#bufferLotFields [name=measuredPH]', '4.06');
+    await page.fill('#bufferLotFields [name=remaining_mL]', '400');
+    await page.fill('#bufferLotFields [name=expiry]', '2026-11-30');
+    await page.dispatchEvent('#bufferLotFields [name=expiry]', 'change');
+    await page.waitForTimeout(300);
+    await page.click('#saveBuffer');
+    await page.waitForFunction(() => /#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 4000 });
+    const id = (await page.evaluate(() => location.hash)).split('=')[1];
+    const lot = (await readCol(page, 'buffers')).find((b) => b.id === id);
+    if (lot?.measuredPH !== 4.06 || lot.remaining_mL !== 400 || lot.expiry !== '2026-11-30') throw new Error(`the lot's fields were not stored: ${JSON.stringify(lot)}`);
+    // One formulation naming it twice: by the name on the bottle and by its Buffer number.
+    await writeCol(page, 'batches', [...was.batches, { id: 'E994-F1', experimentId: 'E994', status: 'planned', plan: { process: { aqueous: { buffer: lot.lot } }, rna: { diluent: lot.id } } }]);
+    await open('buffers');
+    await page.click(`#bufferList details.lotgroup:has(tr[data-lot="${id}"]) > summary`);
+    await expectText(page, `#bufferList tr[data-lot="${id}"]`, /4\.06[\s\S]*400[\s\S]*30 Nov 2026[\s\S]*\b1 batch\b/, 'the overview shows the measured pH, what is left, the expiry and one batch');
+    if (await page.locator('#catalogList .chip').count()) throw new Error('the common buffers still carry lot chips');
+
+    await open('materials?tab=buffers');
+    await expectText(page, '#tabBody', /Code/, 'the catalogue shows its codes');
+    const box = '#tabBody input[data-code="Citrate 50 mM, pH 4.0"]';
+    if ((await page.inputValue(box)) !== 'CIT50') throw new Error('the shipped code is not shown');
+    await page.fill(box, 'labcit');
+    await page.dispatchEvent(box, 'change');
+    await page.waitForTimeout(200);
+    if (!(await readCol(page, 'bufferCatalog')).some((r) => r.id === 'Citrate 50 mM, pH 4.0' && r.code === 'LABCIT')) throw new Error('the lab\'s own code was not stored');
+    await expectText(page, '#tabBody tr[data-buffer="Citrate 50 mM, pH 4.0"]', /shipped: CIT50/, 'the shipped code is still said');
+    await page.fill('#tabBody input[data-code="Acetate 25 mM, pH 5.0"]', 'LABCIT');
+    await page.dispatchEvent('#tabBody input[data-code="Acetate 25 mM, pH 5.0"]', 'change');
+    await page.waitForTimeout(200);
+    if (!/LABCIT is the code of Citrate/.test(await toastText(page))) throw new Error('a code two buffers would share was not refused');
+    await open(`buffers?new=1&from=${from}`);
+    await expectText(page, '#bufferForm', /Lot: LABCIT-pH4\.0-/i, 'a new lot is named with the lab\'s code');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 4.3: a small provenance symbol on the formulation, measurement and composition detail views; a click opens
+ * its details. A composition added under Materials is written as typed in.
+ */
+export async function provenanceSymbolOpensDetails({ page, open }) {
+  const was = { batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), measurements: await readCol(page, 'measurements'), compositions: await readCol(page, 'compositions') };
+  try {
+    const built = await builtExperiment(page, 'E995');
+    const f = built.batches[0].id;
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    const sha = 'c0ffee'.repeat(10) + 'abcd';
+    await writeCol(page, 'measurements', [...was.measurements, { id: 'prov-m1', batchId: f, experimentId: 'E995', test: 'dls', stage: 'final', date: '2026-10-17', sampleName: `${f}_final`, values: { zave_nm: 80, pdi: 0.1 },
+      provenance: { source: 'instrument-import', file: { name: 'zetasizer-run.csv', sha256: sha }, importId: 'imp-7', importedAt: '2026-10-17T09:30:00Z', importedBy: 'GH' } }]);
+
+    await open(`formulation?batch=${f}`);
+    if (await page.isVisible('#provFormulation .provPanel')) throw new Error('the provenance details show before a click');
+    await page.click('#provFormulation > summary');
+    await expectText(page, '#provFormulation .provPanel', /Source\s*Typed in[\s\S]*File name\s*–/, 'the formulation\'s details');
+
+    await open('measurements?id=prov-m1');
+    await expectText(page, '#provMeasurement > summary', /Instrument file/, 'the symbol says where the result came from');
+    await page.click('#provMeasurement > summary');
+    await expectText(page, '#provMeasurement .provPanel', new RegExp(`zetasizer-run\\.csv[\\s\\S]*${sha}[\\s\\S]*imp-7[\\s\\S]*2026-10-17 09:30[\\s\\S]*GH`), 'every detail, the hash in full');
+
+    await open('materials?tab=compositions');
+    const id = Number(await page.inputValue('#compForm [name=id]'));
+    await page.selectOption('#compForm [name=k0]', 'DSPC'); await page.fill('#compForm [name=p0]', '100');
+    await page.click('#addComp');
+    await page.waitForTimeout(200);
+    const c = (await readCol(page, 'compositions')).find((x) => x.id === id);
+    if (c?.provenance?.source !== 'manual') throw new Error(`a composition added here should be written as typed in: ${JSON.stringify(c)}`);
+    await page.click(`#tabBody tr.mat-row[data-open="${id}"]`);
+    await page.click('#provComposition > summary');
+    await expectText(page, '#provComposition .provPanel', /Typed in/, 'the composition\'s details');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 4.4 and 12.2: Settings lists the copies a migration kept, downloads one as a backup file and restores it
+ * after a question; a trash entry other records still name stays past its days and through Empty trash, and
+ * says so; deleting an experiment a study names asks first.
+ */
+export async function beforeUpdatesTrashAndStudies({ page, open }) {
+  const was = { preMigration: await readCol(page, 'preMigration'), compositions: await readCol(page, 'compositions'), trash: await readCol(page, 'trash'), measurements: await readCol(page, 'measurements'),
+    experiments: await readCol(page, 'experiments'), batches: await readCol(page, 'batches'), studies: await readCol(page, 'studies') };
+  try {
+    const extra = { id: 9901, synonym: 'from before the update', mol_pct: { DSPC: 100 }, sum: 100 };
+    await writeCol(page, 'preMigration', [{ id: 'v2-2026-10-01T08:00:00.000Z', from: 2, to: 3, at: '2026-10-01T08:00:00.000Z', data: { compositions: [...was.compositions, extra] } }]);
+    // An old trash entry whose formulation a result still names.
+    await writeCol(page, 'trash', [...was.trash, { id: 'trash-kept-1', kind: 'experiment', label: 'E997 · kept check', deletedAt: '2026-01-01T00:00:00.000Z', records: [{ col: 'batches', index: 0, after: null, before: null, rec: { id: 'E997-F1', experimentId: 'E997' } }] }]);
+    await writeCol(page, 'measurements', [...was.measurements, { id: 'm-kept-1', batchId: 'E997-F1', test: 'dls', values: { zave_nm: 90 } }]);
+
+    await open('settings');
+    await expectText(page, '#preMigrationCard', /Before updates[\s\S]*version 2 to 3/, 'the copy is listed with its versions');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }), page.click('#preMigrationCard [data-pm-download]')]);
+    if (!/before-update-v2-2026-10-01\.json$/.test(dl.suggestedFilename())) throw new Error(`the download is called ${dl.suggestedFilename()}`);
+    await answerNo(page);
+    await page.click('#preMigrationCard [data-pm-restore]');
+    await page.waitForTimeout(200);
+    if ((await readCol(page, 'compositions')).some((c) => c.id === 9901)) throw new Error('No to the restore still restored');
+    await answerYes(page);
+    await page.click('#preMigrationCard [data-pm-restore]');
+    await page.waitForTimeout(400);
+    const asked = await stopAnswering(page);
+    if (!asked.some((q) => /Restore the records as they were before the update/.test(q))) throw new Error(`the restore did not ask: ${JSON.stringify(asked)}`);
+    const back = (await readCol(page, 'compositions')).find((c) => c.id === 9901);
+    if (!back || back.provenance?.source !== 'manual') throw new Error(`the copy was not restored and brought up to date: ${JSON.stringify(back)}`);
+
+    await expectText(page, '#trashList tr[data-trash="trash-kept-1"]', /E997 · kept check[\s\S]*Kept: still named by measurement/, 'the old entry is listed and says why it is kept');
+    await answerYes(page);
+    await page.click('#emptyTrash');
+    await page.waitForTimeout(300);
+    await stopAnswering(page);
+    if (!(await readCol(page, 'trash')).some((t) => t.id === 'trash-kept-1')) throw new Error('Empty trash erased an entry a result still names');
+
+    // An experiment whose formulation a study names: Delete asks first.
+    const built = await builtExperiment(page, 'E998');
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    await writeCol(page, 'studies', [...was.studies, { id: 'Study-998', name: 'names E998', groups: [{ id: 'G1', name: 'test', batchId: built.batches[0].id, role: 'test', n: 3 }], experimentIds: [] }]);
+    await open('experiments?id=E998');
+    await answerNo(page);
+    await page.click('#delExp');
+    await page.waitForTimeout(250);
+    const askedExp = await stopAnswering(page);
+    if (!askedExp.some((q) => /named by study Study-998/.test(q))) throw new Error(`deleting an experiment a study names did not ask: ${JSON.stringify(askedExp)}`);
+    if (!(await readCol(page, 'experiments')).some((e) => e.id === 'E998')) throw new Error('No still deleted the experiment');
+  } finally {
+    await stopAnswering(page).catch(() => {});
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+scenarios.push(componentsArchivedWhenUsed, bufferLotsAndCatalogCodes, provenanceSymbolOpensDetails, beforeUpdatesTrashAndStudies);

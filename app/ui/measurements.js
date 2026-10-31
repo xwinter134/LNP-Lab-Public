@@ -8,6 +8,7 @@
 // paged, and since cycle 5 one line (how many, how many flagged, the last added) until it is opened.
 import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask } from './kit.js';
 import { provenanceLine } from '../calc/provenance.js';
+import { provenanceBadge } from './provenance.js';
 import { parseISO } from '../calc/dates.js';
 import { getSettings } from '../refdata.js';
 import { info, wireLearn } from './learn.js';
@@ -465,7 +466,7 @@ export async function render(el, ctx) {
 function detail(el, ctx, settings, id) {
   const m = ctx.store.get('measurements', id);
   if (!m) { el.innerHTML = header('Measurements', 'Not found'); return; }
-  el.innerHTML = header(raw(`<a href="#/measurements">Measurements</a> › ${esc(m.sampleName || m.batchId)}`), `${m.test.toUpperCase()} · ${m.sampleName || m.batchId}`, `${m.batchId ? `<a class="btn" href="#/formulation?batch=${esc(m.batchId)}">The formulation</a>` : ''}${m.experimentId ? `<a class="btn" href="#/experiments?id=${esc(m.experimentId)}">The plan</a>` : ''}<button id="editResult">Edit</button><button id="del" style="color:var(--warn)">Delete</button>`) +
+  el.innerHTML = header(raw(`<a href="#/measurements">Measurements</a> › ${esc(m.sampleName || m.batchId)}`), `${m.test.toUpperCase()} · ${m.sampleName || m.batchId}`, `${provenanceBadge(m, { id: 'provMeasurement' })}${m.batchId ? `<a class="btn" href="#/formulation?batch=${esc(m.batchId)}">The formulation</a>` : ''}${m.experimentId ? `<a class="btn" href="#/experiments?id=${esc(m.experimentId)}">The plan</a>` : ''}<button id="editResult">Edit</button><button id="del" style="color:var(--warn)">Delete</button>`) +
     `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', m.operator || '–'], ['Stage', m.stage || '–'], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
       ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${f.text}</div>`).join('')}
       <div id="resultValues">${valuesView(m)}</div>

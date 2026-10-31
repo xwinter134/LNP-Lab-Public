@@ -36,3 +36,25 @@ export function provenanceLine(rec) {
   if (p.importedBy) bits.push(`by ${p.importedBy}`);
   return bits.join(' · ');
 }
+
+const when = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : String(iso); };
+
+/**
+ * The details behind the provenance symbol of a detail view (spec 4.3), as [{key, label, value}] in a fixed order:
+ * source, file name, SHA-256, sheet, row, import, imported at, imported by. Every one is listed, with null where
+ * the record does not say, so a record typed in by hand reads as plainly as one from a file. The hash in full:
+ * this is where someone checks it against the file they hold.
+ */
+export function provenanceDetails(rec) {
+  const p = provenanceOf(rec);
+  return [
+    ['source', 'Source', SOURCES[p.source] || p.source],
+    ['file', 'File name', p.file?.name || null],
+    ['sha256', 'SHA-256', p.file?.sha256 || null],
+    ['sheet', 'Sheet', p.sheet || null],
+    ['row', 'Row', p.row != null ? String(p.row) : null],
+    ['importId', 'Import', p.importId || null],
+    ['importedAt', 'Imported at', p.importedAt ? when(p.importedAt) : null],
+    ['importedBy', 'Imported by', p.importedBy || null],
+  ].map(([key, label, value]) => ({ key, label, value }));
+}

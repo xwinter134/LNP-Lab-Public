@@ -1,6 +1,7 @@
 // Screen: Experiments — type-first wizard (new, or filled in from an earlier experiment), list, and detail
 // view with overview card and the Results card.
-import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, fmtDate, kpi, download, esc, swapHtml, redrawSoon, readDraft, writeDraft, dropDraft, listDrafts, draftsStoring, uid } from './kit.js';
+import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, fmtDate, kpi, download, esc, swapHtml, redrawSoon, readDraft, writeDraft, dropDraft, listDrafts, draftsStoring, uid, ask } from './kit.js';
+import { experimentBioUses } from '../calc/usage.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
 import { TYPES, TESTS, FACTORS, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
@@ -1191,11 +1192,14 @@ function detail(el, ctx, ref, settings, id) {
   el.querySelector('#exportResults')?.addEventListener('click', () => {
     download(`${exp.id}_results.csv`, resultsCsv(res, { experimentId: exp.id, compositionName: (cid) => (cid != null ? compLabel(cid) : '') }), 'text/csv');
   });
-  el.querySelector('#delExp').addEventListener('click', () => {
+  el.querySelector('#delExp').addEventListener('click', async () => {
     // No "are you sure?" first: the experiment and its formulations go to the trash, and the note that says
     // so puts them back (as does Settings › Recently deleted, for 30 days). An undo costs one click when it is
     // needed; a confirmation costs one every time and is clicked through without being read. Measurements
-    // stay where they are, as they always have.
+    // stay where they are, as they always have. The one question: when a study or its values name these
+    // formulations (spec 9.5), which then point at records in the trash; the entry is kept there for them.
+    const bio = experimentBioUses(ctx.store, exp, batches);
+    if (bio.length && !(await ask(`${describeId(exp.id)}: its formulations are named by ${bio.join(' and ')}.\n\nThey keep pointing at them, and the deleted experiment stays in Recently deleted, also past 30 days, until nothing names it. Delete ${describeId(exp.id)}?`))) return;
     const what = `${describeId(exp.id)}${batches.length ? ` and its ${batches.length} formulation${batches.length === 1 ? '' : 's'}` : ''}`;
     const entry = ctx.store.moveToTrash([['experiments', exp.id], ...batches.map((b) => ['batches', b.id])], { kind: 'experiment', label: `${describeId(exp.id)} · ${exp.name || 'untitled'}${batches.length ? ` · ${batches.length} formulation${batches.length === 1 ? '' : 's'}` : ''}` });
     if (entry) toast(`Deleted ${what}`, '', { action: 'Undo', onAction: () => {
