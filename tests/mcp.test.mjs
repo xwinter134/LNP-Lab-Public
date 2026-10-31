@@ -85,7 +85,7 @@ test('dry run, approval token, commit, list, rollback into the trash, and restor
 
   const r = await t.call('rollback_import', { importId: dr.importId });
   assert.equal(r.ok, true, r.error);
-  assert.deepEqual(r.moved, { experiments: 2, batches: 5, measurements: 7, compositions: 1, quarantine: 3 });
+  assert.deepEqual(r.moved, { experiments: 2, batches: 5, measurements: 7, compositions: 1, studies: 0, bioMeasurements: 0, quarantine: 3 });
   const after = readLab(db);
   assert.deepEqual(after.all('batches').map((x) => x.id), ['E1-F1'], 'only what was typed in is left');
   assert.equal(after.all('trash').length, 1);

@@ -20,7 +20,8 @@ import { basename, extname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { readLab, writeLab, appRunning, shippedData, emptyLab } from './lab.js';
 import { readXlsx } from './xlsx.js';
-import { parseCsvRows, lipidMatcher, tidySchema, TESTS, EXPERIMENT_TYPES, reportMarkdown, historicalKey } from '../app/calc/importcheck.js';
+import { parseCsvRows, lipidMatcher, tidySchema, TESTS, EXPERIMENT_TYPES, STUDY_TYPES, GROUP_ROLES, TABLES, reportMarkdown, historicalKey } from '../app/calc/importcheck.js';
+import { LAYERS } from '../app/calc/bio.js';
 import { planImport, applyImport, rollbackImport, listImports, labQuality, openQuarantine } from '../app/calc/importops.js';
 import { VARIABLES } from '../app/calc/variables.js';
 import { dataRows, facetDefs, readFilter, applyFilter, summary, completeness, describeFilter, tally } from '../app/calc/facets.js';
@@ -50,11 +51,13 @@ const IMPORT_INPUT = {
   type: 'object',
   properties: {
     experiments: { ...TABLE_SCHEMA, description: 'Rows of the experiments table (optional). Columns as get_schema lists them.' },
-    formulations: { ...TABLE_SCHEMA, description: 'Rows of the formulations table (required). Each row may carry _source: {file, sheet, row}, the file path, sheet name and row number in the original spreadsheet it was read from, and _raw: the original cells, kept with a refused row in quarantine.' },
+    formulations: { ...TABLE_SCHEMA, description: 'Rows of the formulations table. Each row may carry _source: {file, sheet, row}, the file path, sheet name and row number in the original spreadsheet it was read from, and _raw: the original cells, kept with a refused row in quarantine.' },
     measurements: { ...TABLE_SCHEMA, description: 'Rows of the measurements table (optional), one per test result; _source as for formulations.' },
+    studies: { ...TABLE_SCHEMA, description: 'Rows of the studies table (biological layers, optional): one row per group of a study, the rows of one study sharing its study_key; _source as for formulations.' },
+    bioMeasurements: { ...TABLE_SCHEMA, description: 'Rows of the bioMeasurements table (optional): one raw value per study, group, subject (animal or well) and read-out; _source as for formulations.' },
     first_experiment: { type: 'number', description: 'Only for an import file for the browser version, which cannot read the lab: the first E number to give.' },
   },
-  required: ['formulations'],
+  required: [],
 };
 
 /**
@@ -96,7 +99,7 @@ export function createTools(config = {}) {
   /** The tables as the check takes them, with each row's origin fingerprinted by the server itself. */
   const tablesOf = (args) => {
     const out = {};
-    for (const t of ['experiments', 'formulations', 'measurements']) {
+    for (const t of TABLES) {
       const rows = args[t];
       if (rows == null) continue;
       if (!Array.isArray(rows)) throw new Error(`${t} must be a list of rows`);
@@ -108,7 +111,7 @@ export function createTools(config = {}) {
         return row;
       }) };
     }
-    if (!out.formulations) throw new Error('formulations is required: the import is built around the formulations table');
+    if (!out.formulations && !out.studies && !out.bioMeasurements) throw new Error('formulations is required (or, for biological data alone, studies and bioMeasurements): the import is built around the formulations table');
     return out;
   };
   const filesOf = (tables) => [...new Map(Object.values(tables).flatMap((t) => t.rows).filter((r) => r.__origin?.file).map((r) => [r.__origin.file.sha256, r.__origin.file])).values()];
@@ -117,7 +120,7 @@ export function createTools(config = {}) {
   const plan = (theLab, tables, fixed) => planImport(theLab, data, tables, { importId: fixed.importId, importedAt: fixed.importedAt, source: 'mcp-import' });
   // The browser version's lab cannot be read from here: with first_experiment, numbering starts at that E number.
   const numberedFrom = (L, first) => (first ? { ...L, all: (c) => (c === 'counters' ? [...L.all('counters').filter((x) => x.id !== 'experiment'), { id: 'experiment', top: first - 1 }] : L.all(c)) } : L);
-  const resultHash = (result) => sha(canon({ e: result.experiments, u: result.experimentUpdates, b: result.batches, m: result.measurements, c: result.compositions, x: result.mixers, q: result.quarantine }));
+  const resultHash = (result) => sha(canon({ e: result.experiments, u: result.experimentUpdates, b: result.batches, m: result.measurements, c: result.compositions, x: result.mixers, q: result.quarantine, s: result.studies, su: result.studyUpdates, bm: result.bioMeasurements }));
 
   const brief = (result) => ({
     quarantine: result.quarantine.slice(0, 50).map((q) => ({ table: q.table, row: q.origin?.row ?? q.row, sheet: q.origin?.sheet, file: q.origin?.file?.name, reason: q.reason })),
@@ -125,6 +128,9 @@ export function createTools(config = {}) {
     newExperiments: result.experiments.map((e) => ({ id: e.id, name: e.name })),
     newFormulations: result.batches.length, newMeasurements: result.measurements.length,
     newCompositions: result.compositions.map((c) => ({ id: c.id, mol_pct: c.mol_pct })),
+    newStudies: result.studies.map((x) => ({ id: x.id, name: x.name, layers: x.layers, groups: x.groups.map((g) => ({ id: g.id, name: g.name, role: g.role, batchId: g.batchId })) })),
+    newBioMeasurements: result.bioMeasurements.length,
+    warnings: result.warnings.slice(0, 50),
   });
 
   // ----------------------------------------------------------------------------------------------- handlers
@@ -135,6 +141,9 @@ export function createTools(config = {}) {
         processVariables: VARIABLES.filter((v) => v.kind !== 'derived').map((v) => ({ key: v.key, step: v.step, name: v.name, kind: v.kind, unit: v.unit, min: v.min, max: v.max, options: v.kind === 'category' && !v.addable ? v.options : undefined, addable: !!v.addable })),
         tests: Object.fromEntries(Object.entries(TESTS).map(([t, vals]) => [t, Object.fromEntries(Object.entries(vals).map(([k, [lo, hi]]) => [k, { min: lo, max: hi }]))])),
         experimentTypes: EXPERIMENT_TYPES,
+        studyTypes: STUDY_TYPES, groupRoles: GROUP_ROLES,
+        layers: LAYERS.map((l) => ({ id: l.id, name: l.name, subject: l.subject, quantities: l.quantities, context: l.context.map(([key, label, kind]) => ({ key, label, kind })), ...(l.byOrgan ? { perOrgan: true } : {}), ...(l.byPopulation ? { perPopulation: true } : {}) })),
+        biology: 'Biological data (spec 8): the studies table holds one row per group of a study (the study\'s own fields may be given on its first row only); a group names its formulation by exp_key and form_key (of this import or an earlier one) or by formulation_id. bioMeasurements holds raw values only, in the unit of the quantity; the app normalises them to the reference group itself.',
         rows: 'One object per row, keyed by the column names above. Add _source: {file, sheet, row} with the path of the original file (as given to read_file), its sheet and row, so the import can be traced and is never brought in twice; add _raw with the original cells. Leave a value out when the sheet does not say it: never fill one in.',
         refused: ['a required column is empty, or a key appears twice', 'a lipid name is not in the catalogue (list_catalog)', 'mol% do not add up to 100 (± 0.5)', 'a number outside its sense limits (the limits of app/calc/qc.js: PDI over 1, EE over 100 %, a size of 0 or above 10 000 nm, pH outside 0–14 …)', 'a category that is not one of its words', 'a measurement whose formulation is not in the import or the lab', 'the same formulation, test, stage and timepoint twice without a replicate number', 'a formulation whose experiment came with an earlier import'],
         duplicates: 'A row whose source (file SHA-256, sheet, row, table, and for a measurement its test) is already in the lab is not imported again; the dry run lists it under duplicates.',
@@ -208,7 +217,7 @@ export function createTools(config = {}) {
         if (resultHash(result) !== t.resultHash) return fail('the lab changed since the dry run: run dry_run_import again');
         t.used = true;
         const file = writeImportFile(result, files);
-        return { ok: true, importId: t.importId, written: file, target: 'file', counts: { experiments: result.experiments.length, formulations: result.batches.length, measurements: result.measurements.length, quarantine: result.quarantine.length },
+        return { ok: true, importId: t.importId, written: file, target: 'file', counts: { experiments: result.experiments.length, formulations: result.batches.length, measurements: result.measurements.length, studies: result.studies.length, bioMeasurements: result.bioMeasurements.length, quarantine: result.quarantine.length },
           next: `In LNP Lab: Settings & export › Backup & restore › Import JSON, choose ${basename(file)}, with "replace instead of merge" left unticked. Every record carries importId ${t.importId}; Settings › Imports can undo it whole.` };
       }
       try {
@@ -217,7 +226,7 @@ export function createTools(config = {}) {
           if (resultHash(result) !== t.resultHash) throw Object.assign(new Error('the lab changed since the dry run (records were added or changed in the app): run dry_run_import again'), { code: 'STALE' });
           const w = applyImport(store, result, { kind: 'mcp', source: 'mcp-import', files });
           if (!w.ok) throw new Error(w.reason);
-          return { counts: w.written, experiments: result.experiments.map((e) => e.id) };
+          return { counts: w.written, experiments: result.experiments.map((e) => e.id), studies: result.studies.map((x) => x.id) };
         }, { running, stampWith: { importId: t.importId } });
         t.used = true;
         return { ok: true, importId: t.importId, target: 'sqlite', ...out, next: 'Open LNP Lab: the import is under Data (filter Origin › Import), its refused rows under Quarantine, and Settings › Imports can undo it.' };
@@ -348,9 +357,9 @@ export function createTools(config = {}) {
   function writeImportFile(result, files) {
     mkdirSync(outDir, { recursive: true });
     const q = result.quarantine.map((x, i) => ({ id: `${result.importId}-q${i + 1}`, importId: result.importId, table: x.table, file: x.file, row: x.row, raw: x.source, mapping: x.raw, reason: x.reason, origin: x.origin, originKey: x.originKey, status: 'open', createdAt: result.importedAt }));
-    const collections = { experiments: result.experiments, batches: result.batches, measurements: result.measurements, compositions: result.compositions, mixers: result.mixers, quarantine: q,
-      imports: [{ id: result.importId, kind: 'mcp', source: 'mcp-import', fileName: files.map((f) => f.name).join(', '), sha256: files[0]?.sha256 || null, files, importedAt: result.importedAt, imported: result.batches.length + result.measurements.length,
-        experimentIds: result.experiments.map((e) => e.id), batchIds: result.batches.map((b) => b.id), measurementIds: result.measurements.map((m) => m.id), compositionIds: result.compositions.map((c) => c.id), quarantineIds: q.map((x) => x.id) }] };
+    const collections = { experiments: result.experiments, batches: result.batches, measurements: result.measurements, compositions: result.compositions, mixers: result.mixers, studies: result.studies, bioMeasurements: result.bioMeasurements, quarantine: q,
+      imports: [{ id: result.importId, kind: 'mcp', source: 'mcp-import', fileName: files.map((f) => f.name).join(', '), sha256: files[0]?.sha256 || null, files, importedAt: result.importedAt, imported: result.batches.length + result.measurements.length + result.bioMeasurements.length,
+        experimentIds: result.experiments.map((e) => e.id), batchIds: result.batches.map((b) => b.id), measurementIds: result.measurements.map((m) => m.id), compositionIds: result.compositions.map((c) => c.id), studyIds: result.studies.map((x) => x.id), bioMeasurementIds: result.bioMeasurements.map((m) => m.id), quarantineIds: q.map((x) => x.id) }] };
     const file = join(outDir, `lnp-lab-import-${result.importId}.json`);
     writeFileSync(file, JSON.stringify({ exportedAt: result.importedAt, ns, importId: result.importId, collections }, null, 1));
     return file;
@@ -358,11 +367,11 @@ export function createTools(config = {}) {
 
   const RO = { readOnlyHint: true, openWorldHint: false };
   const defs = [
-    { name: 'get_schema', description: 'The fields an import takes: the three tidy tables (experiments, formulations, measurements) with types, units, allowed categories and sense limits, the process variables, and the rules a row is refused by. Read it before mapping a spreadsheet.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
+    { name: 'get_schema', description: 'The fields an import takes: the tidy tables (experiments, formulations, measurements, and for biological data studies and bioMeasurements) with types, units, allowed categories and sense limits, the process variables, the biological layers, and the rules a row is refused by. Read it before mapping a spreadsheet.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
     { name: 'list_catalog', description: 'What the lab already has: lipids (map lipid names to these), compositions, buffers, experiments (with the historical key of an earlier import), mixers.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
     { name: 'read_file', description: 'Read a local .xlsx or .csv file: every sheet as raw rows of cell values with their row numbers, and the file\'s SHA-256. Nothing is interpreted beyond dates.', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'Absolute path of the file' }, sheet: { type: 'string', description: 'Only this sheet' }, maxRows: { type: 'number', description: `Rows per sheet, default ${MAX_ROWS}` } }, required: ['path'] }, annotations: RO },
     { name: 'dry_run_import', description: 'Check mapped rows with the app\'s own rules, against the lab, without writing anything. Returns the quality report (counts, importable, quarantine with reasons, duplicates, completeness) and an approval token for commit_import. Show the report to the person before any commit.', inputSchema: IMPORT_INPUT, annotations: RO },
-    { name: 'commit_import', description: 'Write a checked import, after the person approved its dry-run report. Needs the approvalToken of that dry run and exactly the same rows; refused otherwise. Writes to the macOS app\'s database (only while the app is closed), or for the browser version an import file to read in under Settings › Import JSON.', inputSchema: { ...IMPORT_INPUT, properties: { ...IMPORT_INPUT.properties, token: { type: 'string', description: 'approvalToken from dry_run_import' } }, required: ['token', 'formulations'] }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+    { name: 'commit_import', description: 'Write a checked import, after the person approved its dry-run report. Needs the approvalToken of that dry run and exactly the same rows; refused otherwise. Writes to the macOS app\'s database (only while the app is closed), or for the browser version an import file to read in under Settings › Import JSON.', inputSchema: { ...IMPORT_INPUT, properties: { ...IMPORT_INPUT.properties, token: { type: 'string', description: 'approvalToken from dry_run_import' } }, required: ['token'] }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
     { name: 'quality_report', description: 'The quality of one import (importId) or of the whole lab: counts, completeness per field as the Data overview shows it, open quarantine by reason.', inputSchema: { type: 'object', properties: { importId: { type: 'string' } } }, annotations: RO },
     { name: 'rollback_import', description: 'Move every record of an import into the lab\'s trash, from where Settings › Recently deleted restores it. Only while the app is closed.', inputSchema: { type: 'object', properties: { importId: { type: 'string' } }, required: ['importId'] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } },
     { name: 'list_imports', description: 'The import history with counts: what each import brought, what of it is in the lab or in the trash, and how many of its rows wait in quarantine.', inputSchema: { type: 'object', properties: {} }, annotations: RO },

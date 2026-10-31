@@ -6,7 +6,8 @@ database. It is meant for a session of its own (with Claude, or by hand) that ha
 ## The way through
 
 1. **Prepare** three tidy tables, `experiments.csv`, `formulations.csv` and `measurements.csv`, in one folder
-   (the columns are below). This is the fuzzy part: which column is which, units, names. Claude can do it.
+   (the columns are below), and for biological data `studies.csv` and `bioMeasurements.csv`. This is the fuzzy
+   part: which column is which, units, names. Claude can do it.
 2. **Check and convert** them. Close LNP Lab first, then:
    ```bash
    node scripts/import-tidy.mjs <folder> --db ~/Library/Application\ Support/org.lnplab.app/lnp-lab.db
@@ -32,7 +33,8 @@ the conversation: Claude reads the Excel files and maps them, the server checks 
 the app is closed, or makes the same `import.json` for the browser version. Claude then reads your lab data, and
 it is sent to Anthropic; the server itself sends nothing over the network.
 
-A working example, with three planted mistakes, is in [`historical-example/`](historical-example/).
+A working example, with three planted mistakes in the physicochemistry and two in the biological tables (a
+group role that is not one of the three, a flux typed as RLU), is in [`historical-example/`](historical-example/).
 
 ## The tables
 
@@ -93,16 +95,66 @@ One row per result; replicates as separate rows numbered in `replicate`.
 | Column | Required | Meaning |
 |---|---|---|
 | `exp_key`, `form_key` | yes | The formulation it belongs to |
-| `test` | yes | `dls`, `zeta`, `ee`, `content`, `ph`, `osmolality`, `endotoxin` |
+| `test` | yes | `dls`, `zeta`, `ee`, `content`, `lipid_content`, `ph`, `osmolality`, `integrity`, `endotoxin` |
 | `stage` | | `final` (default), or an in-process stage such as `IPC4` |
 | `date`, `operator`, `replicate`, `notes` | | |
 | `condition`, `timepoint_days` | | for stability pulls, e.g. `4C`, `28` |
 | `zave_nm`, `pdi`, `zave_sd`, `countRate_kcps` | for dls | size in nm, PDI 0–1 |
-| `zeta_mV` | for zeta | |
-| `ee_pct`, `total_mg_mL`, `free_mg_mL` | for ee | EE in % (0–100), RNA in mg/mL |
-| `total_mg_mL` | for content | |
-| `ph`, `mOsm_kg`, `eu_mL` | for ph, osmolality, endotoxin | |
+| `zeta_mV`, `sd_mV` | for zeta | mV |
+| `ee_pct`, `total_mg_mL`, `free_mg_mL`, `ee_sd` | for ee | EE in % (0–100), RNA in mg/mL |
+| `rna_mg_mL`, `rna_sd` | for content | RNA content, mg/mL (as the results grid stores it) |
+| `total_mg_mL` | for lipid_content | total lipid, mg/mL |
+| `ph`, `mOsm_kg`, `pct`, `eu_mL` | for ph, osmolality, integrity, endotoxin | |
 | `source_file`, `sheet` | | where the number was read, for the provenance |
+
+The value columns and their limits are the app's own (`app/calc/qc.js` and the results grid,
+`app/calc/gridentry.js`), not a list of the import's: a value the Measurements screen refuses is refused here,
+with the same words, and a probable unit slip it only warns about (an EE of 0.93 %) is imported with that warning
+as a flag.
+
+### studies.csv (optional, biological layers)
+
+One row per **group** of a study; the rows of one study share its `study_key`. The study's own fields (name,
+type, layers, date, licence, context) may be given on its first row only; a later row that says otherwise is
+refused. The model is the Studies screen's (`app/calc/bio.js`, spec 8.3).
+
+| Column | Required | Meaning |
+|---|---|---|
+| `study_key` | yes | Your own name for the study, unique; the app gives it a Study number (Study-004) |
+| `name`, `date`, `notes` | | |
+| `type` | | `in vitro` or `in vivo` (in vivo unless the only layer is `invitro`) |
+| `layers` | | `invitro`, `invivo`, `biodist`, `tropism`, separated by `;` (from its values when empty) |
+| `licence` | | animal licence or ethics approval number |
+| `subtract_background` | | yes (default) or no: the negative control is subtracted before normalising |
+| `group` | yes | the group's key inside the study (`G1`, `Ref` …), unique there |
+| `group_name` | | shown in the charts |
+| `role` | yes | `reference` (the lab standard running alongside, one per study), `test` or `negative` (PBS, empty LNP) |
+| `exp_key`, `form_key` | | the group's formulation, of this import or an earlier one |
+| `formulation_id` | | or the id of a formulation in the lab (`E12-F3`) |
+| `n` | | animals or wells in the group |
+| context | | in vitro: `cellLine`, `cargo`, `reporter`, `dose_ng`, `cells`, `timepoint_h`, `serum`; in vivo: `species`, `strain`, `sex`, `age`, `route` (i.v., i.m., s.c., i.p., intranasal, other), `dose_mg_kg`, `timepoint_h`, `animalsPerGroup`; biodistribution: `organs` (separated by `;`, liver if empty); tropism: `organ`, `method` (flow cytometry, imaging), `markers` |
+
+A study without a reference group, without a test group or (in vivo) without a licence number is imported all
+the same; the report lists it under "Worth a look", as the Studies screen warns about it (spec 8.2).
+
+### bioMeasurements.csv (optional)
+
+One **raw** value per study, group, subject and read-out. The app normalises to the reference group itself,
+every time it shows a study; never give fold changes here.
+
+| Column | Required | Meaning |
+|---|---|---|
+| `study_key`, `group` | yes | the study and one of its groups (its key, id or name) |
+| `subject` | yes | the animal or well id (`M1`, `B3`): one value per subject and read-out |
+| `layer` | yes | `invitro`, `invivo`, `biodist`, `tropism` |
+| `quantity` | yes | in vitro: `luciferase` (RLU), `positive_pct` (%), `mfi` (a.u.), `viability_pct` (%); in vivo: `total_flux` (p/s), `serum_titer` (ng/mL); biodistribution: `organ_flux` (p/s), `organ_signal` (a.u.), `invivo_roi_flux` (p/s); tropism: `positive_pct` (%), `mfi` (a.u.) |
+| `value` | yes | the raw number |
+| `unit` | | the quantity's unit as above; a value in another unit is refused (convert it first) |
+| `organ` | for biodist | `liver`, `spleen` … |
+| `population` | for tropism | `hepatocytes`, `Kupffer cells` … |
+| `timepoint_h`, `view` | | hours; `dorsal` or `ventral` |
+| `date`, `notes` | | |
+| `image_file`, `image_sha256` | | the raw image a value was read from (IVIS), its path and SHA-256 |
 
 ## What is refused
 
@@ -110,11 +162,17 @@ A row goes to quarantine, with the reason, when:
 - a required column is empty, or a key appears twice;
 - a lipid name is unknown (add the lipid under Materials first, then run again with `--db`);
 - the mol% do not add up to 100 (± 0.5);
-- a number is outside what is physically sensible: PDI over 1 ("probably a typing slip"), EE over 100 %, size
-  under 10 nm, a pH outside 0–14, and so on;
+- a number is outside what is physically sensible, by the app's own rules: PDI over 1 ("probably a typing
+  slip"), EE over 100 %, a size of 0 or above 10 000 nm, a pH outside 0–14, a negative concentration, and so on;
 - a category is not one of its words (mixer type, buffer system …);
 - a measurement names a formulation that is not there, or was refused itself;
-- the same formulation, test, stage and timepoint appear twice without a replicate number.
+- the same formulation, test, stage and timepoint appear twice without a replicate number;
+- a study row with a role other than reference, test or negative, or naming a formulation that is not there; a
+  biological value whose group, layer, quantity or unit does not fit its study, or one for the same subject and
+  read-out twice.
+
+A row already imported (the same file, by its SHA-256, the same sheet and row) is not imported again: the report
+counts it under duplicates.
 
 ## What Gholan decides before the first real run
 
