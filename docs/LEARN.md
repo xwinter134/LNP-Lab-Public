@@ -120,6 +120,17 @@ authoritative. The per-paper notes are in `docs/literature/`.
 
 The design and modelling entries follow the same sources as the ML module; see `docs/ML.md`.
 
+### What the code itself cites
+
+The methods the app computes with are cited where they are used and listed, with their licence and patent
+check, in `docs/LICENSE-CHECK.md` and `NOTICE.md`. For the reader of this reference, the same list in one place:
+
+- Optimizer and models: Hvarfner, Hellsten, Nardi (ICML 2024); Binois, Gramacy, Ludkovski (JCGS 2018); Rasmussen and Williams, *Gaussian Processes for Machine Learning* (2006); Ginsbourger, Le Riche, Carraro (2010); Snoek, Larochelle, Adams (NeurIPS 2012); Letham et al. (Bayesian Anal 2019); Eriksson and Jankowiak (UAI 2021); Derringer and Suich (1980).
+- Designs and diagnostics: Plackett and Burman (Biometrika 1946); Ryan and Joiner (1976).
+- Buffers: CurTiPot by I. G. R. Gutz (USP), pKa data and the pH method with the Davies activity correction.
+- Statistics of groups and studies: Welch (Biometrika 1947), Holm (Scand J Stat 1979), Šidák (JASA 1967); agreement of the automatic and manual BLI values: Bland and Altman (Lancet 1986).
+- BLI images: Otsu (IEEE Trans Syst Man Cybern 1979) for the threshold; the Living Image file parsing follows labdataranger (MIT, KI Preclinical Imaging and Testing); radianceQuantifier (GPL-3.0) for the idea of finding mice on the photograph, no code; test data from BioImage Archive S-BIAD3647 (CC0). InVivoPLOT (Klose et al., Nat Commun 2018) is deliberately not rebuilt (spec 8.7).
+
 ## Testing
 
 `tests/advise.test.mjs` checks the content as well as the code, because an explainer with a dangling link or a

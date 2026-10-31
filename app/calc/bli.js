@@ -26,13 +26,26 @@
 //  6. Flux in p/s from app/calc/ivis.js (calibrated, dark-subtracted, flat-field corrected), summed over each
 //     mask with every luminescent pixel weighted by the share of it the mask covers.
 //
-// What is stored per mouse (spec: "crop, mask and ROI values with the algorithm version"): the bounding box,
-// the mask as run lengths, a small 8-bit crop of the photograph, the ROI geometry and values, and
-// ALGORITHM.version, so a value can be traced to the code that made it after the code has changed.
+// What is stored per mouse (spec: "a standardised crop per mouse, the masks and all ROI values with the version
+// of the algorithm"): the bounding box, the mask as run lengths, two standardised crops (the photograph and the
+// luminescence, each turned so the body axis points up, head at the top, at one fixed scale: CROP), the ROI
+// geometry and values, and ALGORITHM.version, so a value can be traced to the code that made it after the code
+// has changed. Standardised so that crops of different acquisitions, binnings and poses line up one on another:
+// the material a learned model would later be trained on (spec 8.7, corrections as training data).
+//
+// Review (spec 8.7: "every value can be checked in the image and corrected by hand"): a saved record is opened
+// again over the same files, proven the same by their SHA-256 (matchFiles), with its own masks and values
+// (restoreMice); a click picks a mouse (mouseAt); a brush adds to or erases from a mask (editMask), and the mouse
+// is measured again (remeasure). Each change is logged by the screen (logCorrection) with the algorithm version.
 import { solve } from './stats.js';
 import { fluxImage } from './ivis.js';
 
-export const ALGORITHM = { name: 'lnp-lab-bli', version: '1.0.0' };
+// 1.1.0: standardised crops (photograph and luminescence) instead of the bounding-box thumbnail of 1.0.0. The
+// masks, the flux and the ROIs are measured exactly as in 1.0.0.
+export const ALGORITHM = { name: 'lnp-lab-bli', version: '1.1.0' };
+
+/** The standardised crop: this many pixels per cm, this wide and tall in cm, body axis up, centred on the mouse. */
+export const CROP = { pxPerCm: 8, widthCm: 5, heightCm: 11 };
 
 /** The methods the test bench compares; `id` is stored with every result. */
 export const METHODS = [
@@ -345,18 +358,6 @@ function base64(bytes) {
   return s;
 }
 
-/** A small 8-bit crop of the photograph (at most `max` pixels on its long side), base64, for the record. */
-function photoCrop(photo, box, max = 64) {
-  const bw = box.x1 - box.x0 + 1, bh = box.y1 - box.y0 + 1;
-  const k = Math.max(1, Math.ceil(Math.max(bw, bh) / max));
-  const cw = Math.ceil(bw / k), ch = Math.ceil(bh / k);
-  let hi = 1;
-  for (let y = box.y0; y <= box.y1; y++) for (let x = box.x0; x <= box.x1; x++) hi = Math.max(hi, photo.data[y * photo.width + x]);
-  const out = new Uint8Array(cw * ch);
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) out[y * cw + x] = Math.min(255, Math.round(255 * photo.data[(box.y0 + y * k) * photo.width + box.x0 + x * k] / hi));
-  return { width: cw, height: ch, step: k, data: base64(out) };
-}
-
 /**
  * Weighted sum of a flux image over photograph pixels. Each luminescent pixel is split 4 × 4; each sub-sample
  * is mapped to the photograph by physical position (both images share the field of view and its centre) and
@@ -398,6 +399,70 @@ export function liverRoi(axis, headEnd, tailEnd, cmP, tailFound) {
   const ux = (hx - tx) / d, uy = (hy - ty) / d; // from the tail base towards the head
   const up = tailFound ? Math.max(0, Math.min(LIVER.fromTailCm / cmP, d - 1.5 / cmP)) : (1 - LIVER.at) * d;
   return { cx: tx + ux * up, cy: ty + uy * up, rx: LIVER.alongCm / cmP, ry: LIVER.across * axis.width, angle: Math.atan2(uy, ux) };
+}
+
+/**
+ * The total flux over a mask given as photograph pixel indices: the bounding box, the gross sum, the number of
+ * luminescent pixels it covers (for the background) and how many of them are saturated. The one measurement
+ * analyseClick and a corrected mask (remeasure) share.
+ */
+function measureMask(fimg, geo, w, h, mpx) {
+  const inMask = new Uint8Array(w * h);
+  let bx0 = w, bx1 = -1, by0 = h, by1 = -1;
+  for (const i of mpx) { inMask[i] = 1; const x = i % w, y = (i - x) / w; if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
+  const bbox = { x0: bx0, y0: by0, x1: bx1, y1: by1 };
+  const total = sumFlux(fimg, geo, (x, y) => { const xi = Math.floor(x), yi = Math.floor(y); return xi >= 0 && yi >= 0 && xi < w && yi < h && inMask[yi * w + xi] === 1; }, bbox);
+  return { bbox, total };
+}
+
+/** The warnings of a mouse's measurement: saturation, and a signal close to the background floor. */
+function mouseWarnings(total, bgOver, saturation) {
+  const warn = [];
+  if (total.saturated) warn.push(`${total.saturated} luminescent pixel${total.saturated === 1 ? '' : 's'} at or above the CCD saturation level (${saturation}): the flux reads low. Image again with a shorter exposure or more binning.`);
+  if (total.flux > 0 && bgOver > 0.1 * total.flux) warn.push(`The background over this mouse's area is ${Math.round(100 * bgOver / total.flux)} % of its flux: the signal is close to the floor.`);
+  return warn;
+}
+
+/**
+ * A crop pixel's place in the photograph: the frame is centred on the mouse, its vertical runs from the tail end
+ * to the head end of the long axis (head at the top), and it has CROP.pxPerCm pixels per cm whatever the binning
+ * and field of view. Returns {width, height, point(i, j) → [x, y] in photograph pixels}.
+ */
+export function cropFrame(axis, cmP, crop = CROP) {
+  const [hx, hy] = axis.head || axis.ends?.[0] || [axis.cx, axis.cy - 1];
+  const [tx, ty] = axis.tail || axis.ends?.[1] || [axis.cx, axis.cy + 1];
+  const d = Math.hypot(hx - tx, hy - ty) || 1;
+  const ux = (hx - tx) / d, uy = (hy - ty) / d; // towards the head
+  const px = -uy, py = ux; // across: with the head straight up, to the right
+  const W = Math.round(crop.widthCm * crop.pxPerCm), H = Math.round(crop.heightCm * crop.pxPerCm);
+  const step = 1 / (crop.pxPerCm * cmP); // photograph pixels per crop pixel
+  return { width: W, height: H, point: (i, j) => { const a = (i + 0.5 - W / 2) * step, b = (H / 2 - (j + 0.5)) * step; return [axis.cx + b * ux + a * px, axis.cy + b * uy + a * py]; } };
+}
+
+/**
+ * The two standardised crops of a mouse: the photograph (8-bit, scaled to its own brightest pixel) and the
+ * luminescence in p/s per luminescent pixel (8-bit on a square-root scale up to `max`, so value ≈ max·(b/255)²).
+ * Both in the same frame (cropFrame), pixel for pixel; outside the pictures they are 0.
+ */
+export function standardCrops(analysis, axis) {
+  const photo = analysis.photoImg, f = analysis.fluxImg, geo = analysis.geo;
+  const fr = cropFrame(axis, analysis.photo.cmPerPixel);
+  const n = fr.width * fr.height;
+  const ph = new Float64Array(n), lu = new Float64Array(n);
+  let phMax = 1, luMax = 0;
+  for (let j = 0; j < fr.height; j++) for (let i = 0; i < fr.width; i++) {
+    const [x, y] = fr.point(i, j), k = j * fr.width + i;
+    const xi = Math.floor(x), yi = Math.floor(y);
+    if (photo && xi >= 0 && yi >= 0 && xi < photo.width && yi < photo.height) { ph[k] = photo.data[yi * photo.width + xi]; if (ph[k] > phMax) phMax = ph[k]; }
+    const lx = Math.floor((x - geo.ox) / geo.kx), ly = Math.floor((y - geo.oy) / geo.kx);
+    if (f && lx >= 0 && ly >= 0 && lx < f.width && ly < f.height) { lu[k] = Math.max(0, f.flux[ly * f.width + lx]); if (lu[k] > luMax) luMax = lu[k]; }
+  }
+  const b8 = (arr, fn) => { const o = new Uint8Array(n); for (let k = 0; k < n; k++) o[k] = fn(arr[k]); return base64(o); };
+  const base = { width: fr.width, height: fr.height, pxPerCm: CROP.pxPerCm, orientation: 'head up' };
+  return {
+    crop: { ...base, data: b8(ph, (v) => Math.min(255, Math.round(255 * v / phMax))) },
+    lumCrop: { ...base, unit: 'p/s per luminescent pixel', scale: 'sqrt', max: luMax, data: b8(lu, (v) => (luMax > 0 ? Math.min(255, Math.round(255 * Math.sqrt(v / luMax))) : 0)) },
+  };
 }
 
 /**
@@ -480,11 +545,8 @@ export function analyseClick({ meta, cal, images, method = DEFAULT_METHOD, expec
       mpx = [];
       for (let i = 0; i < grown.length; i++) if (grown[i] && (own[i] || !othersGrown[i])) mpx.push(i);
     }
-    const inMask = new Uint8Array(w * h);
-    let bx0 = w, bx1 = -1, by0 = h, by1 = -1;
-    for (const i of mpx) { inMask[i] = 1; const x = i % w, y = (i - x) / w; if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y; }
-    const bbox = { x0: bx0, y0: by0, x1: bx1, y1: by1 };
-    const total = sumFlux(fimg, geo, (x, y) => { const xi = Math.floor(x), yi = Math.floor(y); return xi >= 0 && yi >= 0 && xi < w && yi < h && inMask[yi * w + xi] === 1; }, bbox);
+    const { bbox, total } = measureMask(fimg, geo, w, h, mpx);
+    const { x0: bx0, x1: bx1, y0: by0, y1: by1 } = bbox;
     const axis = longAxis(p, w);
     // The tail end: the side of the axis where the thin parts the opening removed lie, within this mouse's columns.
     let head = null, headFrom = 'assumed: top of the image';
@@ -509,14 +571,11 @@ export function analyseClick({ meta, cal, images, method = DEFAULT_METHOD, expec
     liverM.flux -= bgPerPixel * liverM.lumPixels;
     const areaCm2 = mpx.length * cmP * cmP;
     const bgOver = bgPerPixel * total.lumPixels;
-    const warn = [];
-    if (total.saturated) warn.push(`${total.saturated} luminescent pixel${total.saturated === 1 ? '' : 's'} at or above the CCD saturation level (${fimg.saturation}): the flux reads low. Image again with a shorter exposure or more binning.`);
-    if (total.flux > 0 && bgOver > 0.1 * total.flux) warn.push(`The background over this mouse's area is ${Math.round(100 * bgOver / total.flux)} % of its flux: the signal is close to the floor.`);
+    const warn = mouseWarnings(total, bgOver, fimg.saturation);
     return {
       n: k + 1,
       bbox, areaCm2,
       mask: encodeMask(mpx, w, bbox),
-      crop: photoCrop(photo, bbox),
       axis: { angle: axis.angle, lengthCm: axis.length * cmP, widthCm: axis.width * cmP, head, tail, headFrom, cx: axis.cx, cy: axis.cy, length: axis.length, width: axis.width },
       // Net of the stage background (the dark frame never matches the moment of exposure to the last count, and
       // the residual, one or two counts a pixel, adds up over a whole mouse); the gross sum is kept beside it.
@@ -529,8 +588,10 @@ export function analyseClick({ meta, cal, images, method = DEFAULT_METHOD, expec
     };
   });
   if (fimg.cosmicFixed) notes.push(`${fimg.cosmicFixed} isolated hot pixel${fimg.cosmicFixed === 1 ? '' : 's'} (cosmic rays) replaced by their neighbours.`);
-  return { algorithm: { ...ALGORITHM, method: M.id }, threshold, photo: { width: w, height: h, cmPerPixel: cmP }, geo, fluxImg: fimg, deviation: dev, mice, background, notes,
+  const out = { algorithm: { ...ALGORITHM, method: M.id }, threshold, photo: { width: w, height: h, cmPerPixel: cmP }, geo, fluxImg: fimg, photoImg: photo, deviation: dev, mice, background, notes,
     conversion: { cccd: fimg.cccd?.coef ?? null, factor: fimg.factor, dark: fimg.dark, flatField: fimg.ff ? `${fimg.ff.shelf} f/${fimg.ff.f}` : 'none' } };
+  for (const m of mice) Object.assign(m, standardCrops(out, m.axis));
+  return out;
 }
 
 /**
@@ -550,4 +611,122 @@ export function moveLiver(analysis, mouseNo, cx, cy) {
  */
 export function logCorrection({ mouse, field, from, to, by = '', at = new Date().toISOString(), algorithm = ALGORITHM }) {
   return { mouse, field, from, to, by, at, algorithm: `${algorithm.name} ${algorithm.version}${algorithm.method ? ` ${algorithm.method}` : ''}` };
+}
+
+/* ------------------------------------------------------------------ review and correction (spec 8.7) */
+
+/** A mouse's mask as photograph pixel indices. */
+export function maskPixels(m, w) {
+  const mk = decodeMask(m.mask, m.bbox), bw = m.bbox.x1 - m.bbox.x0 + 1;
+  const out = [];
+  for (let k = 0; k < mk.length; k++) if (mk[k]) out.push((m.bbox.y0 + Math.floor(k / bw)) * w + m.bbox.x0 + (k % bw));
+  return out;
+}
+
+/** Which mouse a point of the photograph lies on: the one whose mask holds it, else null. */
+export function mouseAt(analysis, x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  for (const m of analysis.mice) {
+    const b = m.bbox;
+    if (xi < b.x0 || xi > b.x1 || yi < b.y0 || yi > b.y1) continue;
+    const bw = b.x1 - b.x0 + 1;
+    if (decodeMask(m.mask, b)[(yi - b.y0) * bw + (xi - b.x0)]) return m.n;
+  }
+  return null;
+}
+
+/**
+ * Measure a mouse again over new mask pixels, as analyseClick measured it: the bounding box and mask, area, total
+ * and gross flux net of the stored background level, saturation, the long axis (the head kept at the end nearer
+ * the one found before) and the standardised crops. The liver ROI stays where it was, measured again.
+ * Returns the mouse's new record; the analysis is not changed.
+ */
+export function remeasure(analysis, m, mpx) {
+  const { width: w, height: h, cmPerPixel: cmP } = analysis.photo;
+  const fimg = analysis.fluxImg, geo = analysis.geo;
+  const { bbox, total } = measureMask(fimg, geo, w, h, mpx);
+  const bg = analysis.background?.perLumPixel || 0;
+  const bgOver = bg * total.lumPixels;
+  const ax = longAxis(mpx, w);
+  const near = (p) => (m.axis?.head ? Math.hypot(p[0] - m.axis.head[0], p[1] - m.axis.head[1]) : p[1]);
+  const head = near(ax.ends[0]) <= near(ax.ends[1]) ? ax.ends[0] : ax.ends[1];
+  const tail = head === ax.ends[0] ? ax.ends[1] : ax.ends[0];
+  const axis = { angle: ax.angle, lengthCm: ax.length * cmP, widthCm: ax.width * cmP, head, tail, headFrom: m.axis?.headFrom || 'assumed: top of the image', cx: ax.cx, cy: ax.cy, length: ax.length, width: ax.width };
+  const liverM = ellipseFlux(fimg, geo, m.liver);
+  return {
+    ...m, bbox, areaCm2: mpx.length * cmP * cmP, mask: encodeMask(mpx, w, bbox), axis,
+    totalFlux: total.flux - bgOver, grossFlux: total.flux, backgroundOverMouse: bgOver, saturatedPixels: total.saturated,
+    liver: { ...m.liver, flux: liverM.flux - bg * liverM.lumPixels },
+    warnings: mouseWarnings(total, bgOver, fimg.saturation), edited: true,
+    ...standardCrops(analysis, axis),
+  };
+}
+
+/**
+ * A brush stroke on a mask (spec 8.7: "manually correctable"): a disc of radius r photograph pixels at (x, y)
+ * added to the mouse ('add', never into another mouse's mask) or erased from it ('erase'). Returns the mouse
+ * measured again, or null when nothing changed or the mask would be empty (a mouse to drop is left out instead).
+ */
+export function editMask(analysis, mouseNo, { x, y, r = 4, mode = 'erase' } = {}) {
+  const m = analysis.mice.find((q) => q.n === mouseNo);
+  if (!m) return null;
+  const { width: w, height: h } = analysis.photo;
+  const mine = new Set(maskPixels(m, w));
+  const others = new Set(analysis.mice.filter((q) => q.n !== mouseNo).flatMap((q) => maskPixels(q, w)));
+  const before = mine.size;
+  let touched = 0;
+  for (let yy = Math.max(0, Math.floor(y - r)); yy <= Math.min(h - 1, Math.ceil(y + r)); yy++) for (let xx = Math.max(0, Math.floor(x - r)); xx <= Math.min(w - 1, Math.ceil(x + r)); xx++) {
+    if ((xx - x) ** 2 + (yy - y) ** 2 > r * r) continue;
+    const i = yy * w + xx;
+    if (mode === 'add') { if (!others.has(i) && !mine.has(i)) { mine.add(i); touched++; } } else if (mine.delete(i)) touched++;
+  }
+  if (!touched || !mine.size) return null;
+  const out = remeasure(analysis, m, [...mine].sort((a, b) => a - b));
+  out.maskEdit = { pixelsBefore: before, pixelsAfter: mine.size };
+  return out;
+}
+
+/**
+ * Whether the picked files are the ones a saved image record was made from, by SHA-256 (spec 8.7: raw images
+ * kept as files beside the database, with path and hash). Every file of the record must be among the picked
+ * ones; a file of the same name with another hash is a different file, and the record is not opened over it.
+ * @param {{name, sha256}[]} saved    the record's files
+ * @param {{name, sha256}[]} picked   the files picked now, hashed
+ * @returns {{ok: boolean, missing: string[], changed: {name, saved, picked}[], message: string}}
+ */
+export function matchFiles(saved = [], picked = []) {
+  const hashes = new Set(picked.map((f) => f.sha256));
+  const missing = [], changed = [];
+  for (const f of saved) {
+    if (!f?.sha256 || f.error || hashes.has(f.sha256)) continue;
+    const same = picked.find((p) => String(p.name).toLowerCase() === String(f.name).toLowerCase());
+    if (same) changed.push({ name: f.name, saved: f.sha256, picked: same.sha256 }); else missing.push(f.name);
+  }
+  const ok = !missing.length && !changed.length;
+  const short = (x) => String(x).slice(0, 12);
+  const message = ok ? '' : `These are not the files the record was made from, so it is not opened over them. ${[
+    ...changed.map((c) => `${c.name} differs (SHA-256 ${short(c.saved)}… saved, ${short(c.picked)}… picked)`),
+    ...(missing.length ? [`missing: ${missing.join(', ')}`] : []),
+  ].join('; ')}. Pick the export folder the record names, unchanged.`;
+  return { ok, missing, changed, message };
+}
+
+/**
+ * Open a saved record over a fresh analysis of the same files: the record's mice (their masks, ROIs, values,
+ * animals, groups, corrections by hand) replace the ones found now, so what is shown is what was saved, and the
+ * flux image and geometry of the files themselves are there to correct it with. A mouse saved without its axis
+ * ends (1.0.0) gets them from its mask, head at the top.
+ */
+export function restoreMice(analysis, record) {
+  const w = analysis.photo.width;
+  const mice = (record.mice || []).map((m) => {
+    if (m.axis?.head && m.axis?.tail) return { ...m, warnings: m.warnings || [] };
+    const ax = longAxis(maskPixels(m, w), w);
+    const head = ax.ends[0][1] <= ax.ends[1][1] ? ax.ends[0] : ax.ends[1];
+    return { ...m, warnings: m.warnings || [], axis: { ...m.axis, head, tail: head === ax.ends[0] ? ax.ends[1] : ax.ends[0], cx: ax.cx, cy: ax.cy, length: ax.length, width: ax.width } };
+  });
+  const notes = [...analysis.notes];
+  const was = record.algorithm?.version;
+  if (was && was !== ALGORITHM.version) notes.unshift(`Saved with ${record.algorithm.name} ${was}: the masks and values shown are the saved ones, not those ${ALGORITHM.version} would find.`);
+  return { ...analysis, mice, notes, algorithm: record.algorithm || analysis.algorithm, background: record.background || analysis.background };
 }

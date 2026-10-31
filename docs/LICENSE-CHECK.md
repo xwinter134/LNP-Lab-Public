@@ -26,6 +26,12 @@ first, keeps its own terms (`NOTICE.md`).
 | Maharjan et al.: *Machine learning-driven optimization of mRNA-lipid nanoparticle vaccine quality*, J Pharm Anal 2024 | `app/calc/ml/objective.js` (goal limits) | Numbers (quality limits) | none used | check | yes / yes |
 | Sato et al.: *Understanding the manufacturing process of LNPs for mRNA delivery using machine learning*, Chem Pharm Bull 2024 | `app/calc/advise.js`, `app/calc/ml/space.js` | Findings (factor ranking, ranges) | none used | check | yes / yes |
 | Klose et al. (InVivoPLOT), Nat Commun 2018 | not implemented on purpose (spec 8.7) | none | n/a | **patented per the maker**: the app does not build the holder plus organ atlas | n/a |
+| labdataranger (KI Preclinical Imaging and Testing), `sandbox/IVIS_Filetree_Parse.ipynb`: parsing Living Image ClickInfo files | `app/calc/ivis.js` (parseClickInfo, clickMeta) | Approach followed (sections of `Key: value` lines); the parser is new code, written from the files themselves | MIT, Copyright (c) 2024 KI Preclinical Imaging and Testing | none known | comment yes, NOTICE yes (attribution) |
+| radianceQuantifier / maRQup (S. Achar et al.; eLife article 106470): finding mice on the brightfield, cropping, removing tails | `app/calc/bli.js` (the idea of the first stage) | **Idea only**; no code read into or copied from it | **GPL-3.0**: may not go into this MIT project, and does not | none known | comment yes (ivis.js), NOTICE yes |
+| Otsu N: *A threshold selection method from gray-level histograms*, IEEE Trans Syst Man Cybern 1979 | `app/calc/bli.js` (otsu, the 'threshold' and 'morph' methods) | Method (textbook algorithm), implemented from the paper | none used | no (1979) | comment yes, NOTICE yes |
+| Welch B L 1947 (unequal-variance t test); Holm S 1979 and Šidák Z 1967 (multiple testing) | `app/calc/stats.js`, `app/calc/bio.js` (compareToReference), `app/calc/insights.js` | Textbook methods | none used | no | comment yes, NOTICE yes |
+| Bland J M, Altman D G: agreement of two methods of measurement, Lancet 1986 | `app/calc/bio.js` (agreement), `scripts/bli-benchmark.mjs` | Textbook method | none used | no | comment yes, NOTICE yes |
+| BioImage Archive **S-BIAD3647** (IVIS click folders and the published flux table) | `tests/fixtures/ivis/`, `scripts/bli-benchmark.mjs`, `docs/BLI-BENCHMARK.md` | **Data**, one folder committed as a test fixture | **CC0 1.0** | n/a | fixture README yes, NOTICE yes |
 | (Gholan's list) | | | | | |
 
 Rules that follow (spec 11.1):

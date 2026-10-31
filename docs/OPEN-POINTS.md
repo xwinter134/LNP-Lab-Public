@@ -41,6 +41,10 @@ What only Gholan can provide or decide, collected from all six phases. Each item
 | E14 | Lipid descriptors from SMILES with RDKit.js (a new dependency) | entered by hand, behind a switch |
 | E15 | Store a model summary so Claude insights can read the GP's lengthscales | not stored |
 | E16 | Em dashes: about 100 older UI texts use one, mostly "—" for an empty choice; the style rule says no em dashes. What should an empty choice show? | unchanged |
+| E17 | Publish the MCP server to npm (`lnp-lab-mcp`), and under whose npm account | packed, not published (`npm run pack:npm` in `mcp/`) |
+| E18 | The approval code when the client cannot ask (no MCP elicitation, no Mac notification) travels in the tool result marked for the user: acceptable, or refuse to write without elicitation or a notification? | accepted, documented as the weaker path |
+| E19 | Biological values: refuse implausible ones (e.g. % positive over 100) in the import and the Studies grid alike? Today both take any number, and the unit must be the quantity's | any number |
+| E20 | The standard BLI crop: 5 × 11 cm at 8 px/cm, body axis up. Fine for training data later, or another size? | 5 × 11 cm, 8 px/cm |
 
 ## To check on a Mac
 
