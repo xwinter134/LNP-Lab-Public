@@ -40,29 +40,38 @@ export function getRef(ctx) {
   const dialysis = mergeById(d.materials?.dialysis_devices || [], st.all('dialysis'));
   // What pickers offer (spec 9.5): the same lists without archived components. Lookups (lipidByKey,
   // compositionById, the full lists) keep everything, so a record that names an archived one still reads.
-  const gone = { lipid: archivedSet(st, 'lipid'), lipidLot: archivedSet(st, 'lipidLot'), composition: archivedSet(st, 'composition'), rnaLot: archivedSet(st, 'rnaLot') };
+  const gone = Object.fromEntries(['lipid', 'lipidLot', 'composition', 'rnaLot', 'buffer', 'device', 'mixer', 'tffModule', 'dialysis', 'filter'].map((k) => [k, archivedSet(st, k)]));
   const rnaLots = st.all('rnaLots');
+  const tffModules = mergeById((d.tff_modules || []).map((m) => ({ id: m.part, ...m })), st.all('tffModules'));
+  const devices = mergeById(d.devices?.instruments || [], st.all('devices')), mixers = mergeById(d.devices?.mixers || [], st.all('mixers'));
+  const filters = d.materials?.filters || [];
   const active = {
     lipids: lipids.filter((l) => !gone.lipid.has(String(l.key))),
     lipidLots: lipidLots.filter((l) => !gone.lipidLot.has(String(l.id))),
     compositions: compositions.filter((c) => !gone.composition.has(String(c.id))),
     rnaLots: rnaLots.filter((r) => !gone.rnaLot.has(String(r.id))),
+    devices: devices.filter((x) => !gone.device.has(String(x.id))), mixers: mixers.filter((x) => !gone.mixer.has(String(x.id))),
+    tffModules: tffModules.filter((x) => !gone.tffModule.has(String(x.id))), dialysis: dialysis.filter((x) => !gone.dialysis.has(String(x.id))),
+    filters: filters.filter((x) => !gone.filter.has(String(x))),
   };
   /** A picker's list: the active ones, plus the value already chosen even when it has been archived since. */
   const pick = (kind, chosen) => {
-    const full = { lipids, lipidLots, compositions, rnaLots }[kind], idOf = kind === 'lipids' ? (x) => x.key : (x) => x.id;
+    const full = { lipids, lipidLots, compositions, rnaLots, devices, mixers, tffModules, dialysis, filters }[kind];
+    const idOf = kind === 'lipids' ? (x) => x.key : kind === 'filters' ? (x) => x : kind === 'tffModules' ? (x) => x.part : kind === 'dialysis' ? (x) => x.name : (x) => x.id;
     return chosen == null || chosen === '' ? active[kind] : full.filter((x) => active[kind].includes(x) || String(idOf(x)) === String(chosen));
   };
   return {
     lipids, lipidByKey, lipidLots, compositions, compositionById, active, pick, archived: gone,
     rnaLots,
-    buffersCatalog: d.buffers_catalog, buffers: st.all('buffers'),
+    // The common buffers, with the lab's own lot code laid over a shipped one (Materials › Buffer catalog,
+    // collection `bufferCatalog`, {id: the buffer's name, code}): the code a new lot of it is named with.
+    buffersCatalog: catalogWithCodes(d.buffers_catalog || [], st.all('bufferCatalog')), buffers: st.all('buffers'),
     // TFF modules and dialysis devices: one or a few shipped examples, with the user's own added, edited or hidden
     // under Materials, as for the devices below. A shipped module has no id of its own; its part number is its id.
-    tffModules: mergeById((d.tff_modules || []).map((m) => ({ id: m.part, ...m })), st.all('tffModules')),
+    tffModules,
     dialysis, materials: { ...d.materials, dialysis_cassettes: dialysisMenu(d.materials?.dialysis_cassettes || [], dialysis) },
     // Formulation devices and mixers: the shipped list, with the user's own added or edited under Materials.
-    devices: mergeById(d.devices?.instruments || [], st.all('devices')), mixers: mergeById(d.devices?.mixers || [], st.all('mixers')),
+    devices, mixers,
     pka: d.pka, reagents: d.reagents,
   };
 }
@@ -73,9 +82,9 @@ export function compositionLabel(c, ref) {
   return `#${c.id}${c.synonym ? ' ' + c.synonym : ''} — ${parts}`;
 }
 
-/** Latest lot (by received date) with a purity for a lipid key, if the user recorded any. */
+/** Latest lot (by received date) with a purity for a lipid key, if the user recorded any; an archived one is not offered. */
 export function latestLipidLot(ref, key) {
-  return ref.lipidLots.filter((l) => l.lipidKey === key).sort((a, b) => (b.received || '').localeCompare(a.received || ''))[0] || null;
+  return (ref.active?.lipidLots || ref.lipidLots).filter((l) => l.lipidKey === key).sort((a, b) => (b.received || '').localeCompare(a.received || ''))[0] || null;
 }
 
 /**
@@ -107,6 +116,12 @@ export function keepRetiredTffModules(store, data) {
     copied.push(m.part);
   }
   return copied;
+}
+
+/** The shipped common buffers, each with the lab's own code when it set one (`shippedCode` keeps the original). */
+export function catalogWithCodes(shipped, own) {
+  const by = new Map(own.filter((o) => o?.code).map((o) => [o.id, o.code]));
+  return shipped.map((b) => (by.has(b.name) && by.get(b.name) !== b.code ? { ...b, code: by.get(b.name), shippedCode: b.code } : b));
 }
 
 /** Shipped entries with the user's records laid over them by id; the user's own new ones after. */

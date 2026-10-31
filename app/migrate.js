@@ -170,8 +170,10 @@ const BACKUP_SKIP = new Set(['trash', 'preMigration']);
 /**
  * A copy of every collection, kept in the store before a migration writes (spec 4.4): {id: 'v2-<time>', from,
  * to, at, data: {collection: rows}}. In the store rather than a download because the migration runs at start-up
- * without asking, and a dialog then would be in the way; Settings lists it, and Restore works from it like from a
- * backup file. Only the most recent two are kept, so a lab that updates often does not carry every one.
+ * without asking, and a dialog then would be in the way. Settings › Before updates lists them (app/ui/
+ * premigration.js): Download hands one out as a backup file, and Restore puts it back with restorePreMigration()
+ * below. Only the most recent two are kept, so a lab that updates often does not carry every one. Not part of a
+ * backup file (Store.exportAll leaves `preMigration` out): it would carry the same records twice.
  */
 export function backupBeforeMigration(store, from, to, now = new Date(), collections = null) {
   const cols = collections || (typeof store.exportAll === 'function' ? Object.keys(store.exportAll().collections) : []);
@@ -183,6 +185,32 @@ export function backupBeforeMigration(store, from, to, now = new Date(), collect
   return rec;
 }
 
+/** A pre-migration copy as a backup file, the same shape as Settings' "Export everything" writes. */
+export function preMigrationFile(rec, ns = '') {
+  return { exportedAt: new Date().toISOString(), ns, preMigration: { id: rec.id, from: rec.from, to: rec.to, at: rec.at }, collections: rec.data || {} };
+}
+
+/**
+ * Put a pre-migration copy back (spec 4.4): every collection it holds replaces the one in the store, through
+ * Store.importAll with merge off, exactly as a backup file restored with "replace" would. Lists the copy does not
+ * hold (the trash, the copies themselves, a list that came with a later version) stay as they are.
+ *
+ * The copy holds the records as an earlier version wrote them, so the recorded schema version goes back to the
+ * copy's `from` and the migration runs on them again at once: this version reads only records it understands,
+ * and the lab is as it was just after that update, with what was entered since replaced. Whoever wants the
+ * records exactly as the earlier version left them downloads the copy instead (preMigrationFile).
+ * Returns {ok, restored: importAll's count, migrated} or {ok: false, reason}.
+ */
+export function restorePreMigration(store, id) {
+  const rec = store.get('preMigration', id);
+  if (!rec?.data || typeof rec.data !== 'object') return { ok: false, reason: 'that copy is no longer kept' };
+  const restored = store.importAll({ collections: rec.data }, { merge: false });
+  try { localStorage.setItem(`${store.ns}.schemaVersion`, String(rec.from || 1)); } catch {}
+  // No second copy: the one restored from is still in the list, and it holds these very records.
+  const migrated = migrate(store, { backup: false });
+  return { ok: true, restored, migrated };
+}
+
 /**
  * Run whatever this store still needs. Safe to call on every load: it checks before it writes, and a store
  * already at the current version is untouched.
@@ -192,7 +220,7 @@ export function backupBeforeMigration(store, from, to, now = new Date(), collect
  * leave the old records in place for good, with nothing ever trying again. Before anything is changed, a copy of
  * every collection is kept in the same transaction (backupBeforeMigration).
  */
-export function migrate(store) {
+export function migrate(store, { backup = true } = {}) {
   const key = `${store.ns}.schemaVersion`;
   let at = 0;
   try { at = Number(localStorage.getItem(key)) || 0; } catch {}
@@ -201,7 +229,7 @@ export function migrate(store) {
   const empty = !store.all('batches').length && !store.all('measurements').length && !store.all('compositions').length && !store.all('experiments').length;
   if (empty) { done(); return null; }
   return store.transaction(() => {
-    backupBeforeMigration(store, at || 1, SCHEMA_VERSION);
+    if (backup) backupBeforeMigration(store, at || 1, SCHEMA_VERSION);
     const renamed = needsRename(store) ? renameToNumberedScheme(store) : null;
     const added = addProvenanceAndProcess(store);
     return { renamed, added };

@@ -10,6 +10,8 @@ if (typeof document !== 'undefined') import('../main.js').then((m) => { appVersi
 import { exportNow } from './backup.js';
 import { claudeCards, wireClaudeCards } from './imports.js';
 import { LAYERS } from '../calc/bio.js';
+import { preMigrationCard, wirePreMigration } from './premigration.js';
+import { trashEntryUses } from '../calc/usage.js';
 
 // The QC limits: [key in settings.qc, label, step].
 const QC_FIELDS = [['pdiMax', 'PDI max', 0.01], ['zaveMin', 'Z-ave min (nm)', 1], ['zaveMax', 'Z-ave max (nm)', 1], ['eeMin', 'EE min (%)', 1], ['countRateMin', 'Count rate min (kcps)', 10]];
@@ -80,6 +82,7 @@ export async function render(el, ctx) {
         <p class="muted">Last export: ${esc(lastExport(ctx)?.text || 'never')}</p></div>
     </div>
     ${trashCard(ctx)}
+    ${preMigrationCard(ctx)}
     ${claudeCards(ctx)}`;
   // Feedback here as well as in the sidebar's foot, which a narrow window hides.
   el.insertAdjacentHTML('beforeend', `<div class="card" id="feedbackCard"><h2>Feedback</h2>
@@ -134,8 +137,11 @@ export async function render(el, ctx) {
   el.querySelector('#emptyTrash')?.addEventListener('click', async () => {
     const n = ctx.store.count('trash');
     if (!(await ask(`Erase the ${n} deleted item${n === 1 ? '' : 's'} for good? This cannot be undone.`))) return;
-    ctx.store.emptyTrash(); toast('Trash emptied'); render(el, ctx);
+    // Entries whose records something still names stay (app/store.js), and the note says how many.
+    const r = ctx.store.emptyTrash();
+    toast(r.kept ? `Trash emptied; ${r.kept} item${r.kept === 1 ? '' : 's'} kept: still named by other records` : 'Trash emptied', r.kept ? 'warn' : ''); render(el, ctx);
   });
+  wirePreMigration(el, ctx, () => render(el, ctx));
   el.querySelector('#clearAll').addEventListener('click', async () => {
     if (!(await ask('Delete ALL data in this browser? Export first.')) || !(await ask('Really delete everything?'))) return;
     // the namespace on screen, which in demo mode is the demo one: this button must never reach past it
@@ -230,10 +236,14 @@ const when = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()
  */
 function trashCard(ctx) {
   const trash = ctx.store.recentTrash();
+  // What still names an entry's records (calc/usage.js): such an entry is kept past 30 days and through "Empty
+  // trash", and says so in its row, so nobody wonders why it is still there.
+  const kept = (t) => { try { return trashEntryUses(ctx.store, t); } catch { return []; } };
+  const keptNote = (uses) => { const ids = [...new Set(uses.map((u) => u.label))]; return uses.length ? `<div class="muted small" data-kept>Kept: still named by ${esc(ids.slice(0, 3).join(', '))}${ids.length > 3 ? ` and ${ids.length - 3} more` : ''}</div>` : ''; };
   return `<div class="card" id="trashCard"><div style="display:flex;align-items:center;gap:10px"><h2 style="flex:1">Recently deleted</h2>${ctx.store.count('trash') ? '<button id="emptyTrash">Empty trash</button>' : ''}</div>
     ${trash.length ? `<div id="trashList">${table(['Deleted', 'What', { label: 'Records', right: true }, ''], trash.map((t) => ({
       attrs: `data-trash="${esc(t.id)}"`,
-      cells: [when(t.deletedAt), raw(`${chip(KIND[t.kind] || t.kind)} ${esc(t.label)}`), t.records.length, raw(`<button type="button" data-restore="${esc(t.id)}" style="padding:4px 10px">Restore</button>`)],
+      cells: [when(t.deletedAt), raw(`${chip(KIND[t.kind] || t.kind)} ${esc(t.label)}${keptNote(kept(t))}`), t.records.length, raw(`<button type="button" data-restore="${esc(t.id)}" style="padding:4px 10px">Restore</button>`)],
     })))}</div>` : '<p class="muted" id="trashList">Nothing deleted in the last 30 days.</p>'}
-    <p class="muted">Deleted experiments (with their formulations), lipid stocks, buffers and materials (RNA and lipid lots, lipids, compositions, devices) stay here for 30 days. Restore puts back exactly what was removed, where it was. Measurements are never deleted with an experiment. The trash is part of the backup.</p></div>`;
+    <p class="muted">Deleted experiments (with their formulations), lipid stocks, buffers and materials (RNA and lipid lots, lipids, compositions, devices) stay here for 30 days, and longer while other records still name them: those are kept, also when the trash is emptied. Restore puts back exactly what was removed, where it was. Measurements are never deleted with an experiment. The trash is part of the backup.</p></div>`;
 }

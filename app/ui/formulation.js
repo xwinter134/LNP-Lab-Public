@@ -7,6 +7,7 @@ import { normaliseRoles, bufferAnswersTo } from '../calc/buffer.js';
 import { archivedSet } from '../calc/usage.js';
 import { VARIABLES, TYPED_VARIABLES, VARIABLE_STEPS, readVariable, sourceOf, checkVariable } from '../calc/variables.js';
 import { provenanceLine } from '../calc/provenance.js';
+import { provenanceBadge } from './provenance.js';
 import { bufferCode } from '../calc/buffer.js';
 import { flowsFromTotal, TYPES, experimentProgress } from '../calc/experiment.js';
 import { describeId } from '../schema.js';
@@ -427,7 +428,7 @@ export async function render(el, ctx) {
     const shelf = ctx.store.all('stocks'); // as stored now: a thaw logged since the record opened counts
     const stockOpts = [{ value: '', label: '— choose —' }, ...shelf.filter((s) => s.compositionId === batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} · ${fmt(s.molarity_mM, 1)} mM · ${s.status}${ft(s)}` })), ...shelf.filter((s) => s.compositionId !== batch.compositionId).map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}) · ${fmt(s.molarity_mM, 1)} mM${ft(s)}` })),
       ...(batch.stockId && !c.stock ? [{ value: batch.stockId, label: `${batch.stockId} (deleted)` }] : [])];
-    const rnaOpts = [{ value: '', label: '—' }, ...ref.rnaLots.map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` })),
+    const rnaOpts = [{ value: '', label: '—' }, ...ref.pick('rnaLots', plan.rna.lotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` })),
       ...(plan.rna.lotId && !c.rnaLot ? [{ value: plan.rna.lotId, label: `${plan.rna.lotId} (deleted)` }] : [])];
     const groups = benchNumbers(c, batch), progress = stepProgress(batch);
     if (progress.current) reached.add(progress.current);
@@ -524,7 +525,7 @@ export async function render(el, ctx) {
     // it in the designer, so the drawing and this step cannot disagree.
     const step4 = `<label style="font-weight:400"><input type="checkbox" name="proc_tff" ${tffStep ? 'checked' : ''} style="width:auto"> Concentrate by TFF</label>
       ${tffStep ? tbl([
-        tr('Module', `<select name="proc_tffModule" style="width:220px">${(tffStep.device && !ref.tffModules.some((x) => x.part === tffStep.device) ? [tffStep.moduleRecord?.part === tffStep.device ? { ...tffStep.moduleRecord, family: `${tffStep.moduleRecord.family || ''} (deleted)` } : { part: tffStep.device, family: 'as written', surface_cm2: NaN }] : []).concat(ref.tffModules).map((x) => `<option value="${esc(x.part)}" ${x.part === tffStep.device ? 'selected' : ''}>${esc(x.part)} · ${esc(x.family)}${Number.isFinite(x.surface_cm2) ? ` · ${fmt(x.surface_cm2, 0)} cm²` : ''}</option>`).join('')}</select>`, `${txt('a_tff_lot', a.tff_lot, 160)} <span class="muted">module lot</span>`),
+        tr('Module', `<select name="proc_tffModule" style="width:220px">${(tffStep.device && !ref.tffModules.some((x) => x.part === tffStep.device) ? [tffStep.moduleRecord?.part === tffStep.device ? { ...tffStep.moduleRecord, family: `${tffStep.moduleRecord.family || ''} (deleted)` } : { part: tffStep.device, family: 'as written', surface_cm2: NaN }] : []).concat(ref.pick('tffModules', tffStep.device)).map((x) => `<option value="${esc(x.part)}" ${x.part === tffStep.device ? 'selected' : ''}>${esc(x.part)} · ${esc(x.family)}${Number.isFinite(x.surface_cm2) ? ` · ${fmt(x.surface_cm2, 0)} cm²` : ''}</option>`).join('')}</select>`, `${txt('a_tff_lot', a.tff_lot, 160)} <span class="muted">module lot</span>`),
         tr('Exchange buffer', esc(bufferLine(tffStep) || 'not set'), editLink),
         tr('RNA load window (mg)', c.tff ? `${fmt(c.tff.minLoad_mg, 1)} – ${fmt(c.tff.maxLoad_mg, 1)}` : '–', c.tff?.checks.map((x) => `<span class="chip warn">${x}</span>`).join('') || ''),
         tr('Target conc. after TFF (mg/mL)', inp('ds_tff_target_mg_mL', ds.tff.target_mg_mL), ''), tr('Reduce volume to at least (mL)', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '–', inp('a_tff_end_mL', a.tff_end_mL)),
@@ -539,8 +540,8 @@ export async function render(el, ctx) {
       tr('1st dilution buffer', `<select name="ds_final_buffer1" style="width:260px">${bufferOpts('dialysis', ds.finalFormulation.buffer1).map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer1_mL, 2)} mL</b> → ${fmt(cp.v1, 2)} mL (DF ${fmt(cp.df1, 3)})` : ''),
       tr('2nd dilution buffer (cryoprotectant)', `<select name="ds_final_buffer2" style="width:260px">${bufferOpts('final', ds.finalFormulation.buffer2).map((o) => `<option value="${o.value}" ${o.value === ds.finalFormulation.buffer2 ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer2_mL, 2)} mL</b> → ${fmt(cp.vFinal_mL, 2)} mL (DF ${fmt(cp.df2, 2)})` : ''),
       tr('Final volume (mL) / RNA (mg)', cp ? `${fmt(cp.vFinal_mL, 2)} / ${fmt(cp.rna_mg, 2)}` : '–', `<label style="font-weight:400"><input type="checkbox" name="a_compounded" ${a.compounded ? 'checked' : ''} style="width:auto"> done</label>`),
-      tr('Pre-filter', `<select name="ds_filtration_prefilter" style="width:220px">${ref.materials.filters.map((x) => `<option ${x === ds.filtration.prefilter ? 'selected' : ''}>${x}</option>`).join('')}</select>`, txt('a_prefilter_lot', a.prefilter_lot, 140)),
-      tr('Sterile filter 0.2 µm', `<select name="ds_filtration_sterile" style="width:220px">${ref.materials.filters.map((x) => `<option ${x === ds.filtration.sterile ? 'selected' : ''}>${x}</option>`).join('')}</select>`, `${txt('a_sterile_lot', a.sterile_lot, 140)} <label style="font-weight:400"><input type="checkbox" name="a_filtered" ${a.filtered ? 'checked' : ''} style="width:auto"> filtered</label> <label style="font-weight:400"><input type="checkbox" name="a_ipc6" ${a.ipc6 ? 'checked' : ''} style="width:auto"> IPC6 / pH / osmolality samples</label>`),
+      tr('Pre-filter', `<select name="ds_filtration_prefilter" style="width:220px">${ref.pick('filters', ds.filtration.prefilter).map((x) => `<option ${x === ds.filtration.prefilter ? 'selected' : ''}>${x}</option>`).join('')}</select>`, txt('a_prefilter_lot', a.prefilter_lot, 140)),
+      tr('Sterile filter 0.2 µm', `<select name="ds_filtration_sterile" style="width:220px">${ref.pick('filters', ds.filtration.sterile).map((x) => `<option ${x === ds.filtration.sterile ? 'selected' : ''}>${x}</option>`).join('')}</select>`, `${txt('a_sterile_lot', a.sterile_lot, 140)} <label style="font-weight:400"><input type="checkbox" name="a_filtered" ${a.filtered ? 'checked' : ''} style="width:auto"> filtered</label> <label style="font-weight:400"><input type="checkbox" name="a_ipc6" ${a.ipc6 ? 'checked' : ''} style="width:auto"> IPC6 / pH / osmolality samples</label>`),
       `<tr class="advanced"><td>Biosafety aliquot (0.5 mL → 0.05 mg/mL)</td><td style="text-align:right">${c.bio ? `buffer 1 ${fmt(c.bio.buffer1_mL, 3)} mL, buffer 2 ${fmt(c.bio.buffer2_mL, 3)} mL` : '–'}</td><td></td></tr>`,
     ]);
 
@@ -554,7 +555,7 @@ export async function render(el, ctx) {
       `${describeId(batch.id)}`,
       // The status is a small labelled control among the actions. As a bare select it took the global
       // width:100% and wrapped onto a line of its own, a page-wide dropdown under the title.
-      `<span class="chip ${batch.status === 'planned' ? '' : 'info'}">${batch.status}</span><span class="chip cargoChip" title="The cargo: what this formulation encapsulates">${esc(c.cargoName)}</span><span class="muted">${esc(batch.id)} · ${esc(batch.label || '')} · ${esc(exp?.name || '')}</span>
+      `<span class="chip ${batch.status === 'planned' ? '' : 'info'}">${batch.status}</span><span class="chip cargoChip" title="The cargo: what this formulation encapsulates">${esc(c.cargoName)}</span><span class="muted">${esc(batch.id)} · ${esc(batch.label || '')} · ${esc(exp?.name || '')}</span>${provenanceBadge(batch, { id: 'provFormulation' })}
        <label class="inline" style="margin:0">Status <select id="statusSel" style="width:auto">${['planned', 'produced', 'measured', 'analyzed'].map((s) => `<option ${s === batch.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
        ${saver.html()}<button id="printBatch">Print worksheet</button>`) +
       layerTabBar(ctx, 'core', tabHref) +

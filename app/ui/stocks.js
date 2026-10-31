@@ -75,7 +75,7 @@ export async function render(el, ctx) {
   /** The form, for a stock on record or a new one. Returns true when it is going on with the draft of a new stock. */
   function renderEditor(stock) {
     const state = stock ? JSON.parse(JSON.stringify(stock)) : {
-      compositionId: ref.compositions[ref.compositions.length - 1]?.id, molPct: null, molarity_mM: settings.defaultLipidStock_mM,
+      compositionId: ref.active.compositions[ref.active.compositions.length - 1]?.id, molPct: null, molarity_mM: settings.defaultLipidStock_mM,
       volume_mL: settings.defaultStockVolume_mL, date: todayISO(), operator: settings.operator, actual: {}, lots: {},
       container: '100 mL glass vial', filter: 'PES 0.2 µm syringe filter', notes: '',
     };

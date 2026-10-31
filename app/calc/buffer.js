@@ -376,3 +376,32 @@ export function bufferLotName({ code, targetPH, date } = {}, taken = []) {
 
 /** Whether a lot string names this buffer: its lot name, its record id or a former name it still answers to. */
 export const bufferAnswersTo = (b, s) => !!b && !!s && (b.lot === s || b.id === s || (b.aliases || []).includes(s));
+
+/**
+ * A lot code typed on Materials › Buffer catalog, checked: upper case, letters and digits in parts joined by "-"
+ * (CIT50, PBS1X, TRIS20-SUC10). Returns {code} or {error}. An empty code is {code: ''}: the shipped one again.
+ * A code another common buffer already has is refused, since the lot overview groups lots by their code and the
+ * two would read as one buffer.
+ */
+export function checkBufferCode(typed, name, catalog = []) {
+  const code = String(typed ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!code) return { code: '' };
+  if (!/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(code)) return { error: 'Letters and digits, parts joined by "-" (for example CIT50 or TRIS20-SUC10)' };
+  const twin = catalog.find((b) => b.name !== name && b.code === code);
+  if (twin) return { error: `${code} is the code of ${twin.name}` };
+  return { code };
+}
+
+/**
+ * What the lot overview shows of a lot (spec 9.2): the pH measured when it was (else the target, marked so),
+ * the volume made and what is left of it, and its expiry, with whether it has passed. `today` is an ISO date.
+ */
+export function lotFacts(lot, today = '') {
+  const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+  const measured = num(lot?.measuredPH);
+  return {
+    pH: measured ?? num(lot?.targetPH), pHMeasured: measured != null,
+    volume_mL: num(lot?.volume_mL), remaining_mL: num(lot?.remaining_mL),
+    expiry: lot?.expiry || null, expired: !!(lot?.expiry && today && String(lot.expiry) < String(today)),
+  };
+}

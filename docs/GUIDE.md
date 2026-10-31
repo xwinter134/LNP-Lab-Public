@@ -182,18 +182,27 @@ Choosing this lot on a bench record fills in the stock concentration, so the RNA
 
 ![Materials & lots: an RNA lot and the form to add another](guide/materials-rna.jpg)
 
-**Buffer catalog** lists standard buffer recipes and their roles. **Formulation devices** lists the instruments
+**Buffer catalog** lists standard buffer recipes, their roles and the **code** each one's lots are named with
+(CIT50, PBS1X …). Type your lab's own code over it; an emptied field brings the shipped one back, and a code another
+buffer already has is refused. A lot already made keeps its name. **Formulation devices** lists the instruments
 and the mixers each takes; **TFF modules** one representative hollow-fibre module with the RNA load window it can
 take; **Dialysis** a few example cassettes and float devices with their MWCO and volume range. In each of those
 three you can add your own (**+ Add …**), edit a shipped entry (kept as your own version of it, with **Back to the
 shipped version**), or hide one you do not have. A module or cassette a formulation record names keeps its name.
 **Consumables** lists the filters.
 
-**Archiving instead of deleting.** A lipid that a recipe or a stock uses, and a composition formulations read their
-recipe from, cannot be deleted: their amounts and their place in a model depend on it. **Delete** then asks
-whether to **archive** it instead. An archived one is hidden from the lists and from every picker, the records
-that use it keep it and show it, and it is listed under **Archived** at the top of Materials & lots, with
-**Restore**. A buffer lot that formulations name is archived the same way from the Buffers screen.
+**Archiving instead of deleting.** Nothing that another record still names is ever deleted: lipids, lipid lots,
+compositions (also one only a stock uses), RNA lots, buffer lots, instruments, mixers, TFF modules and dialysis
+devices. **Delete** (or **Hide**, for a shipped entry) then says where it is used and asks whether to **archive**
+it instead. An archived one is hidden from the lists and from every picker, the records that use it keep it and
+show it, and it is listed under **Archived** at the top of Materials & lots, with **Restore**. A shipped lipid or
+filter cannot be deleted at all, but **archive** next to it takes one your lab does not use out of the lists. A
+buffer lot that formulations name is archived the same way from the Buffers screen. Something nothing names is
+deleted as before, into the trash with **Undo**.
+
+**Where a record came from.** A formulation, a result and a composition of your own show a small symbol beside
+their title: **Typed in**, **Instrument file**, **Imported with Claude** or **Restored from a backup**. Click it
+for the details: the file name and its SHA-256, the sheet and row, the import, and when and by whom.
 
 ## 5. Weighing out a lipid stock
 
@@ -252,8 +261,10 @@ that use it keep it and show it, and it is listed under **Archived** at the top 
 - The roles decide where a lot is offered: a **loading** buffer appears as the RNA dilution buffer on the bench
   record, a **quench** buffer for pump 3, and so on.
 - You can add a second buffer component (for example triphosphate with HEPES).
+- Under **Record**, a lot takes its **pH measured**, what is **left (mL)** and when it **expires**.
 - **Prepared buffer lots** shows one row per buffer: how many lots, the newest, and its roles. Click a row for a
-  table of all its lots (date, pH, volume, what is left, expiry, and how many batches used it). The tabs above
+  table of all its lots (date, the pH measured or else the target, volume, what is left, expiry, and how many
+  batches used it). The tabs above
   filter by role. A lot that formulations name cannot be deleted; **Delete** then offers to archive it.
 
 ## 7. Planning an experiment
@@ -913,12 +924,14 @@ Noticed too late? Everything deleted in the last 30 days is under **Settings & e
 
 **What to look for**
 
-- The results of a deleted experiment are not deleted with it. They wait in case you restore the experiment. Once
-  it has left the trash (after 30 days, or when you empty the trash), the overview lists them under **Needs
-  attention** as results that belong to a formulation that no longer exists, so you can keep or delete them.
+- The results of a deleted experiment are not deleted with it. They wait in case you restore the experiment, and
+  keep it in the trash while they do. A result whose formulation is no longer anywhere (deleted by an earlier
+  version) is listed on the overview under **Needs attention**, so you can keep or delete it.
 - The deleted experiment's number is never given to a new one, so its tube labels and instrument files can never be
   matched to another experiment.
-- **Empty trash** erases the trash for good, after a question. Some deletes have no trash at all: a single result
+- **Empty trash** erases the trash for good, after a question. An entry another record still names (a result or
+  a study naming a deleted formulation) is kept, also past 30 days, and its row says **Kept: still named by …**.
+  Deleting an experiment whose formulations a study names asks first. Some deletes have no trash at all: a single result
   (it asks first), an inbox row (**Drop**) and a manual calendar entry.
 - The trash is part of the backup.
 
@@ -963,6 +976,11 @@ trash, and the counters that keep numbers from being given out twice.
    that are only here are kept. Tick **replace instead of merge** to replace each collection the file holds with
    the file's version; the app asks first.
 4. The notice says how many records were imported in how many collections, and what was skipped.
+
+**Before updates.** When an update changes how records are stored, the app keeps a copy of every record first.
+**Settings & export › Before updates** lists the two newest with their date and versions. **Download** saves one
+as a backup file; **Restore** (after a question) puts it back over what you have now and brings it up to this
+version again, so whatever was entered since is replaced. Export a backup first.
 
 Numbers never go backwards: after restoring an older backup in the same browser, the next experiment still gets a
 number no earlier experiment has had. On a new computer, numbering carries on from the backup, so restore the most
