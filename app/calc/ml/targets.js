@@ -32,8 +32,13 @@ export function registerTargetProvider(fn) {
   return () => { const i = providers.indexOf(fn); if (i >= 0) providers.splice(i, 1); };
 }
 
-/** The biology layers switched on in Settings: settings.bioLayers = {invitro: true, …}; none by default. */
-export const activeLayers = (settings) => Object.entries(settings?.bioLayers || {}).filter(([, on]) => on === true).map(([k]) => k);
+/**
+ * The biology layers switched on in Settings. The app keeps them as settings.bio = {invitro: true, …} (calc/bio.js);
+ * settings.bioLayers is read as well, the shape this module was written against first. None by default.
+ */
+export const activeLayers = (settings) => Object.entries({ ...(settings?.bioLayers || {}), ...(settings?.bio || {}) }).filter(([, on]) => on === true).map(([k]) => k);
+/** In vivo for the optimizer: every layer measured in animals (potency, biodistribution, tropism). */
+export const isInVivo = (layer) => layer !== 'invitro';
 
 /** Every target the switched-on layers offer; [] when no layer is on, whatever is registered. */
 export function biologicalTargets(ctx, settings, list = providers) {
@@ -81,7 +86,7 @@ export function applyTargets(rows, targets, ctx = null) {
  */
 export function targetGoals(targets) {
   return targets.map((t) => ({ name: t.name, label: t.label, unit: 'log10 vs reference', goal: t.goal || 'maximize', best: t.best ?? 1, worst: t.worst ?? 0, weight: 1,
-    on: false, biology: t.layer, ...(t.layer === 'invivo' && !INVIVO_OPTIMISATION ? { locked: 'In-vivo optimisation is not enabled in this version.' } : {}) }));
+    on: false, biology: t.layer, ...(isInVivo(t.layer) && !INVIVO_OPTIMISATION ? { locked: 'In-vivo optimisation is not enabled in this version.' } : {}) }));
 }
 
 /**

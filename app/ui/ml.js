@@ -29,7 +29,8 @@ import { prepare, fitPrepared, defaultSelection, reproduce } from '../calc/ml/pi
 import { makeFingerprint, setupOf } from '../calc/ml/fingerprint.js';
 import { clampBudget, lipidMixerCombos } from '../calc/ml/select.js';
 import { predictionCheck } from '../calc/ml/predcheck.js';
-import { biologicalTargets, applyTargets, targetGoals } from '../calc/ml/targets.js';
+import { biologicalTargets, applyTargets, targetGoals, physchemAsLimits } from '../calc/ml/targets.js';
+import '../calc/ml/biotargets.js'; // registers the studies' targets (spec 7.9)
 import { runsNeeded } from '../calc/variables.js';
 import { transparencyCard, predictionFold, accountCsv, whyTable } from './mlpanel.js';
 
@@ -456,7 +457,8 @@ function goalsCard(state) {
         raw(`<select name="c_name_${i}">${RESPONSE_DEFS.map((r) => `<option value="${r.name}" ${c.name === r.name ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`),
         raw(`<select name="c_op_${i}" style="width:90px"><option value="<" ${c.op === '<' ? 'selected' : ''}>below</option><option value=">" ${c.op === '>' ? 'selected' : ''}>above</option></select>`),
         raw(`<input type="number" step="any" name="c_value_${i}" value="${c.value ?? ''}" style="width:90px">`)] })))}
-      <button id="addConstraint" style="margin-top:6px;padding:4px 10px">+ Add limit</button></div></div>`;
+      <button id="addConstraint" style="margin-top:6px;padding:4px 10px">+ Add limit</button>
+      ${state.goals.some((g) => g.biology) ? `<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:10px"><input type="checkbox" name="physchemLimits" ${state.goalsBeforeLimits ? 'checked' : ''} style="width:auto"> Size and PDI as limits, the biological result as the goal</label>` : ''}</div></div>`;
 }
 
 /** A small plot of one desirability curve, so the shape is visible rather than implied. */
@@ -980,7 +982,18 @@ function wire(el, ctx, ref, settings, state, report, h) {
     let redraw = false, recompute = false;
     let m;
     let refit = false;
-    if ((m = n.match(/^g_(on|goal|target|lo|hi|best|worst|weight)_(\d+)$/))) { state.goals[+m[2]][m[1]] = v; redraw = true; recompute = !!report; refit = m[1] === 'on'; }
+    if ((m = n.match(/^g_(on|goal|target|lo|hi|best|worst|weight)_(\d+)$/))) {
+      state.goals[+m[2]][m[1]] = v; redraw = true; recompute = !!report; refit = m[1] === 'on';
+      // A biological result is held out by study (spec 7.9): animals or wells of one study share a cohort or a
+      // passage, so a split by experiment would let one study's siblings vouch for each other.
+      if (m[1] === 'on' && v && state.goals[+m[2]].biology && state.strategy === 'experiment') state.strategy = 'study';
+    }
+    else if (n === 'physchemLimits') {
+      // Size and PDI as conditions, the biology as the goal (spec 7.9); switched off, the goals come back as they were.
+      if (v) { state.goalsBeforeLimits = JSON.parse(JSON.stringify({ goals: state.goals, constraints: state.constraints })); Object.assign(state, physchemAsLimits(state.goals, state.constraints)); }
+      else if (state.goalsBeforeLimits) { Object.assign(state, state.goalsBeforeLimits); delete state.goalsBeforeLimits; }
+      redraw = true; recompute = !!report; refit = true;
+    }
     else if ((m = n.match(/^c_(on|name|op|value)_(\d+)$/))) { state.constraints[+m[2]][m[1]] = v; redraw = true; recompute = !!report; }
     else if ((m = n.match(/^s_on_(.+)$/))) {
       const key = m[1];
