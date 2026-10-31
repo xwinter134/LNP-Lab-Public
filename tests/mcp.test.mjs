@@ -8,7 +8,7 @@ import { readFileSync, mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
-import { createTools, TOKEN_MINUTES } from '../mcp/tools.js';
+import { createTools as makeTools, TOKEN_MINUTES, CODE_TRIES, PRIVACY_NOTE } from '../mcp/tools.js';
 import { invokeOn, readLab } from '../mcp/lab.js';
 import { readXlsx, serialDate } from '../mcp/xlsx.js';
 import { Store, sqliteBackend, failureKind } from '../app/store.js';
@@ -19,6 +19,10 @@ import { crc32 } from '../app/calc/xlsx.js';
 
 const EX = new URL('../docs/historical-example/', import.meta.url).pathname;
 const notRunning = () => ({ running: false, why: '' });
+// The person approves in the client's dialog (MCP elicitation), unless a test says otherwise: approval itself is
+// tested on its own below.
+const accept = async () => ({ action: 'accept', content: { approve: true } });
+const createTools = (cfg) => makeTools({ canConfirm: () => true, confirm: accept, ...cfg });
 
 /** A lab database like the app's: one row per collection. E1 exists, so the import numbers after it. */
 function makeDb(extra = {}) {
@@ -26,7 +30,8 @@ function makeDb(extra = {}) {
   const db = join(dir, 'lnp-lab.db');
   const d = new DatabaseSync(db);
   d.exec('CREATE TABLE collections (key TEXT PRIMARY KEY, json TEXT)');
-  const cols = { experiments: [{ id: 'E1', name: 'Typed in', type: 'single', batchIds: ['E1-F1'] }], batches: [{ id: 'E1-F1', experimentId: 'E1', compositionId: 1, plan: { conditions: {} }, provenance: { source: 'manual' } }], ...extra };
+  // Import with Claude switched on in the lab's settings, as the server requires for a write (spec 11.2).
+  const cols = { settings: [{ id: 'default', mcpImport: true }], experiments: [{ id: 'E1', name: 'Typed in', type: 'single', batchIds: ['E1-F1'] }], batches: [{ id: 'E1-F1', experimentId: 'E1', compositionId: 1, plan: { conditions: {} }, provenance: { source: 'manual' } }], ...extra };
   for (const [k, v] of Object.entries(cols)) d.prepare('INSERT INTO collections VALUES (?, ?)').run(`lnp-lab.${k}`, JSON.stringify(v));
   d.close();
   return { dir, db };

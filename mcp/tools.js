@@ -13,12 +13,29 @@
 // TOKEN_MINUTES. commit_import with any other content, a used or an old token, or after the lab changed, is
 // refused, and says to run the dry run again.
 //
+// The token alone proves a dry run, not that a person approved it: Claude holds the token and could commit the
+// moment the report comes back (spec 6.4, 12.2: "never writes without dry run and approval"). So commit_import
+// also needs the person, by the strongest way the client offers:
+//   1. MCP elicitation: the server asks the client to put the question to the person itself ("Write import …
+//      into LNP Lab?"), in a dialog of the client, and only an "accept" with approve ticked writes. Claude neither
+//      sees nor answers it. Used whenever the client declares the capability (config.canConfirm / confirm).
+//   2. Otherwise a confirmation code, made by the server at the dry run, that the person types back to Claude.
+//      The code is shown out of Claude's sight where the server can (config.showCode: a macOS notification),
+//      and only failing that in the part of the tool result addressed to the person (MCP annotation audience
+//      "user", kept out of the JSON Claude reads), which a client may still pass on to the model: the weakest
+//      way, said so in README.md. Three wrong codes void the token. The code is random, so Claude cannot make
+//      one up.
+//
+// The app's own switch is honoured too (spec 11.2, Settings › Claude › Import with Claude, `mcpImport`): while
+// it is off in the lab, commit_import and rollback_import refuse, unless the server was started explicitly with
+// LNP_LAB_ALLOW_IMPORT=1 (or --allow-import). Reading is not affected.
+//
 // This server sends nothing over the network. Claude, the client that calls it, reads what the tools return.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import { basename, extname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
-import { readLab, writeLab, appRunning, shippedData, emptyLab } from './lab.js';
+import { readLab, readBackup, writeLab, appRunning, shippedData, emptyLab } from './lab.js';
 import { readXlsx } from './xlsx.js';
 import { parseCsvRows, lipidMatcher, tidySchema, TESTS, EXPERIMENT_TYPES, STUDY_TYPES, GROUP_ROLES, TABLES, reportMarkdown, historicalKey } from '../app/calc/importcheck.js';
 import { LAYERS } from '../app/calc/bio.js';
@@ -32,6 +49,14 @@ import { flatRows } from '../app/ui/insights.js';
 import { getRef } from '../app/refdata.js';
 
 export const TOKEN_MINUTES = 30;
+/** Wrong confirmation codes before a token is void. */
+export const CODE_TRIES = 3;
+/** What Claude (and so the person) is told once, in the first answer of every session (spec 11.2). */
+export const PRIVACY_NOTE = 'Privacy: with this server, Claude reads your lab data (the files you name and what these tools return). That data is sent to Anthropic, which runs Claude, as part of this conversation. The LNP Lab server itself sends nothing over the network: it only reads and writes the LNP Lab database and the files you name on this computer. Tell the person this before going on.';
+// Letters a person reads off a screen without doubt: no 0/O, 1/I/L.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const makeCode = () => { const b = randomBytes(6); return [...b].map((x) => CODE_ALPHABET[x % CODE_ALPHABET.length]).join('').replace(/^(...)(...)$/, '$1-$2'); };
+const sameCode = (a, b) => String(a || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === String(b || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const MAX_ROWS = 500;
 
 const sha = (s) => createHash('sha256').update(s).digest('hex');
@@ -42,6 +67,21 @@ export function canon(v) {
   return JSON.stringify(v ?? null);
 }
 const fail = (message, extra = {}) => ({ ok: false, error: message, ...extra });
+
+/**
+ * A tool's answer as MCP content (mcp/server.js): the privacy note first when the answer carries it, the report
+ * as markdown, the rest as JSON for Claude, and what is meant for the person alone (a confirmation code) in a block
+ * of its own marked for the user (annotations.audience ['user']), never in the JSON.
+ */
+export function formatResult(out) {
+  const { markdown, forPerson, privacy, ...rest } = out || {};
+  const content = [];
+  if (privacy) content.push({ type: 'text', text: privacy });
+  if (markdown) content.push({ type: 'text', text: markdown });
+  content.push({ type: 'text', text: JSON.stringify(rest, null, 1) });
+  if (forPerson) content.push({ type: 'text', text: forPerson.text || `For you, not for Claude: your confirmation code is ${forPerson.confirmationCode}. Type it only if you approve the report.`, annotations: { audience: ['user'], priority: 1 } });
+  return { content, isError: out?.ok === false };
+}
 
 /** A data row's columns as the check reads them: strings, numbers and booleans as given, nothing nested. */
 const cleanRow = (r) => Object.fromEntries(Object.entries(r || {}).filter(([k, v]) => !k.startsWith('_') && (v == null || ['string', 'number', 'boolean'].includes(typeof v))));
@@ -56,6 +96,7 @@ const IMPORT_INPUT = {
     studies: { ...TABLE_SCHEMA, description: 'Rows of the studies table (biological layers, optional): one row per group of a study, the rows of one study sharing its study_key; _source as for formulations.' },
     bioMeasurements: { ...TABLE_SCHEMA, description: 'Rows of the bioMeasurements table (optional): one raw value per study, group, subject (animal or well) and read-out; _source as for formulations.' },
     first_experiment: { type: 'number', description: 'Only for an import file for the browser version, which cannot read the lab: the first E number to give.' },
+    first_study: { type: 'number', description: 'Likewise, with studies: the first Study number to give (5 for Study-005).' },
   },
   required: [],
 };
@@ -68,6 +109,10 @@ const IMPORT_INPUT = {
  *   outDir: where import files go (default ~/Downloads); baseDir: what relative paths are read against;
  *   running(dbPath): whether the app is running (tests pass a stand-in); personal: the insight tools (spec 10),
  *   on when true, when LNP_LAB_PERSONAL=1, or when the lab's settings have personalBuild switched on;
+ *   backupPath: a backup file of the browser version (Settings › Export everything) read as the lab when there
+ *   is no database file; allowImport: write even while the lab's mcpImport setting is off (LNP_LAB_ALLOW_IMPORT);
+ *   canConfirm() and confirm({message, requestedSchema}): MCP elicitation, from mcp/server.js;
+ *   showCode(code, text): show a confirmation code out of Claude's sight, true when it was shown;
  *   now(): the clock, for tests.
  */
 export function createTools(config = {}) {
@@ -81,7 +126,24 @@ export function createTools(config = {}) {
   const tokens = new Map();
 
   const target = () => (config.target && config.target !== 'auto' ? config.target : dbPath && existsSync(dbPath) ? 'sqlite' : 'file');
-  const lab = () => (dbPath && existsSync(dbPath) ? readLab(dbPath, ns) : emptyLab(ns));
+  const backupPath = config.backupPath ?? process.env.LNP_LAB_BACKUP;
+  /** Where the lab is read from: the database file, else a backup file of the browser version, else nowhere. */
+  const labSource = (backup = null) => (backup ? 'backup' : dbPath && existsSync(dbPath) ? 'sqlite' : backupPath && existsSync(resolve(baseDir, backupPath)) ? 'backup' : 'none');
+  const lab = (backup = null) => {
+    const src = labSource(backup);
+    if (src === 'sqlite') return readLab(dbPath, ns);
+    if (src === 'backup') return readBackup(resolve(baseDir, String(backup || backupPath)), ns);
+    return emptyLab(ns);
+  };
+  // spec 11.2: the app's switch for this module. Unknown (no lab to read: an import file for the browser
+  // version, read in by the person by hand) counts as on; a lab that says nothing has the app's default, off.
+  const importAllowed = () => {
+    if (config.allowImport ?? (process.env.LNP_LAB_ALLOW_IMPORT === '1' || process.env.LNP_LAB_ALLOW_IMPORT === 'true')) return { ok: true, why: 'started with LNP_LAB_ALLOW_IMPORT' };
+    if (labSource() === 'none') return { ok: true, why: 'no lab to read the setting from' };
+    const st = lab().all('settings').find((x) => x?.id === 'default');
+    return st?.mcpImport === true ? { ok: true, why: 'switched on in the app' } : { ok: false };
+  };
+  const IMPORT_OFF = 'Import with Claude is switched off in LNP Lab. Switch it on in the app under Settings › Claude › Import with Claude (and quit the app again before the commit), or start this server with LNP_LAB_ALLOW_IMPORT=1 to allow it regardless. Nothing was written.';
   const personalOn = () => config.personal ?? (process.env.LNP_LAB_PERSONAL === '1' || lab().all('settings').some((s) => s.id === 'default' && s.personalBuild === true));
 
   /** Read a source file once, for its hash (and, in read_file, its rows). */
@@ -119,7 +181,8 @@ export function createTools(config = {}) {
   /** The plan of an import against the lab as it is now; `fixed` = {importId, importedAt} to plan it again exactly. */
   const plan = (theLab, tables, fixed) => planImport(theLab, data, tables, { importId: fixed.importId, importedAt: fixed.importedAt, source: 'mcp-import' });
   // The browser version's lab cannot be read from here: with first_experiment, numbering starts at that E number.
-  const numberedFrom = (L, first) => (first ? { ...L, all: (c) => (c === 'counters' ? [...L.all('counters').filter((x) => x.id !== 'experiment'), { id: 'experiment', top: first - 1 }] : L.all(c)) } : L);
+  const numberedFrom = (L, first, firstStudy = null) => (first || firstStudy ? { ...L, all: (c) => (c === 'counters' && first ? [...L.all('counters').filter((x) => x.id !== 'experiment'), { id: 'experiment', top: first - 1 }]
+    : c === 'trash' && firstStudy ? [...L.all('trash'), { id: 'numbering', records: [{ col: 'studies', rec: { id: `Study-${firstStudy - 1}` } }] }] : L.all(c)) } : L);
   const resultHash = (result) => sha(canon({ e: result.experiments, u: result.experimentUpdates, b: result.batches, m: result.measurements, c: result.compositions, x: result.mixers, q: result.quarantine, s: result.studies, su: result.studyUpdates, bm: result.bioMeasurements }));
 
   const brief = (result) => ({
@@ -132,6 +195,41 @@ export function createTools(config = {}) {
     newBioMeasurements: result.bioMeasurements.length,
     warnings: result.warnings.slice(0, 50),
   });
+
+  const canConfirm = () => { try { return !!config.canConfirm?.(); } catch { return false; } };
+  const showCode = (code, text) => { try { return !!config.showCode?.(code, text); } catch { return false; } };
+
+  /**
+   * Whether the person approved the import of token record `t`: {ok, by} or {ok: false, error, code}. The code
+   * they typed, when they were given one and it matches; else the client asks them (elicitation); else no.
+   */
+  async function approved(t, args) {
+    if (args.confirmation != null && args.confirmation !== '') {
+      if (!t.codeShown) return { ok: false, code: 'NO_CODE', error: 'no confirmation code was given out for this dry run: the client confirms with the person itself, so pass only the approvalToken' };
+      if (sameCode(args.confirmation, t.code)) return { ok: true, by: `confirmation code (${t.codeShown})` };
+      t.tries++;
+      if (t.tries >= CODE_TRIES) { t.used = true; return { ok: false, code: 'CODE_WRONG', error: `the confirmation code is wrong ${CODE_TRIES} times: this approval is void. Run dry_run_import again for a new report and code.` }; }
+      return { ok: false, code: 'CODE_WRONG', error: `that is not the confirmation code (${CODE_TRIES - t.tries} tries left). Ask the person to type the code exactly as shown to them; never guess it.` };
+    }
+    if (canConfirm()) {
+      let res;
+      try {
+        res = await config.confirm({
+          message: `Write import ${t.importId} into LNP Lab? ${t.summary}. Read the quality report Claude showed you first. Every record can be undone later under Settings › Imports.`,
+          requestedSchema: { type: 'object', properties: { approve: { type: 'boolean', title: 'Yes, write this import', description: `${t.summary}, as in the dry-run report`, default: false } }, required: ['approve'] },
+        });
+      } catch (err) {
+        // The client said it could ask, and then could not: the code is the way left.
+        const shown = showCode(t.code, `LNP Lab import ${t.importId}: ${t.summary}. To approve it, type this code to Claude: ${t.code}`);
+        t.codeShown = shown ? 'notification' : 'result';
+        return { ok: false, code: 'ASK_FAILED', error: `the client could not ask you to confirm (${err.message}). ${shown ? 'A confirmation code was shown to the person in a notification on this computer' : 'A confirmation code is shown to the person with this answer (the part addressed to them)'}: ask them to type it if they approve the report, and pass what they type as confirmation. Never copy or guess it.`, ...(shown ? {} : { forPerson: { confirmationCode: t.code } }) };
+      }
+      if (res?.action === 'accept' && res.content?.approve === true) return { ok: true, by: 'the person, in the client\'s confirmation dialog' };
+      if (res?.action === 'decline' || (res?.action === 'accept' && res.content?.approve !== true)) { t.used = true; return { ok: false, code: 'DECLINED', error: 'the person did not approve this import: nothing was written, and this approval is void. Ask them what to change, then run dry_run_import again.' }; }
+      return { ok: false, code: 'CANCELLED', error: 'the person closed the confirmation without answering: nothing was written. Ask them whether to go ahead, then call commit_import again.' };
+    }
+    return { ok: false, code: 'NEEDS_CONFIRMATION', error: `the person has not approved this import yet. ${t.codeShown === 'notification' ? 'A confirmation code was shown to them in a notification on this computer' : 'A confirmation code was shown to them with the dry-run report'}: ask them to read the report and type the code, and pass it as confirmation.` };
+  }
 
   // ----------------------------------------------------------------------------------------------- handlers
   const handlers = {
@@ -188,17 +286,36 @@ export function createTools(config = {}) {
       const fixed = { importId: `imp-${at.toISOString().slice(0, 10)}-${randomBytes(3).toString('hex')}`, importedAt: at.toISOString() };
       const L = lab();
       const first = target() === 'file' && Number(args.first_experiment) > 0 ? Number(args.first_experiment) : null;
+      const firstStudy = target() === 'file' && Number(args.first_study) > 0 ? Number(args.first_study) : null;
       // An import file is merged by id: numbered over experiments the browser lab already has, it would replace them.
-      if (target() === 'file' && !L.all('experiments').length && !first) return fail('there is no database file here (the browser version keeps its records in the browser), so the server cannot see which experiment numbers are taken: pass first_experiment, the number after the newest experiment in the lab (shown under Experiments), e.g. 42 when the newest is E41');
-      const { result, report } = plan(numberedFrom(L, first), tables, fixed);
+      if (target() === 'file' && tables.formulations && !L.all('experiments').length && !first) return fail('there is no database file here (the browser version keeps its records in the browser), so the server cannot see which experiment numbers are taken: pass first_experiment, the number after the newest experiment in the lab (shown under Experiments), e.g. 42 when the newest is E41; or start the server with LNP_LAB_BACKUP set to a fresh backup file (Settings › Export everything)');
+      if (target() === 'file' && tables.studies && labSource() === 'none' && !firstStudy) return fail('there is no database file or backup here, so the server cannot see which study numbers are taken: pass first_study, the number after the newest study (shown under Studies), e.g. 5 when the newest is Study-004');
+      const { result, report } = plan(numberedFrom(L, first, firstStudy), tables, fixed);
       const token = randomBytes(16).toString('hex');
-      const inputHash = sha(canon({ tables, first }));
-      tokens.set(token, { inputHash, resultHash: resultHash(result), ...fixed, first, expires: at.getTime() + TOKEN_MINUTES * 60e3, used: false });
+      const inputHash = sha(canon({ tables, first, firstStudy }));
+      const code = makeCode();
+      const rec = { inputHash, resultHash: resultHash(result), ...fixed, first, firstStudy, expires: at.getTime() + TOKEN_MINUTES * 60e3, used: false, code, codeShown: null, tries: 0,
+        summary: `${result.batches.length} formulations, ${result.measurements.length} measurements${result.studies.length ? `, ${result.studies.length} studies with ${result.bioMeasurements.length} values` : ''}${result.quarantine.length ? `, ${result.quarantine.length} rows to quarantine` : ''}` };
+      tokens.set(token, rec);
+      const allowed = importAllowed();
+      // How the person will approve: the client asks them (elicitation), or they type the code shown to them.
+      let approval, forPerson;
+      if (canConfirm()) approval = 'commit_import asks the person to confirm in a dialog of their own; pass only the approvalToken.';
+      else {
+        const shown = showCode(code, `LNP Lab import ${fixed.importId}: ${rec.summary}. To approve it, type this code to Claude: ${code}`);
+        rec.codeShown = shown ? 'notification' : 'result';
+        approval = shown
+          ? 'A confirmation code was shown to the person in a notification on this computer. Ask them to read the report and, if they approve it, to type the code to you; pass what they type as confirmation. Never guess it.'
+          : 'A confirmation code is shown to the person with this report (the part addressed to them). Ask them to read the report and, if they approve it, to type that code to you; pass what they type as confirmation. Do not copy it yourself: it stands for their approval.';
+        if (!shown) forPerson = { confirmationCode: code, text: `To approve import ${fixed.importId} (${rec.summary}), type this code to Claude: ${code}. Do not type it if you have not read the report.` };
+      }
       return {
         ok: true, importId: fixed.importId, target: target(), report, ...brief(result),
         markdown: reportMarkdown(report, { title: 'Import quality report (dry run, nothing written)' }),
-        approvalToken: token, tokenExpires: new Date(at.getTime() + TOKEN_MINUTES * 60e3).toISOString(),
-        next: 'Show this report to the person. Only once they approve it, call commit_import with exactly the same rows and this approvalToken. Any change to the rows needs a new dry run.',
+        approvalToken: token, tokenExpires: new Date(at.getTime() + TOKEN_MINUTES * 60e3).toISOString(), approval,
+        ...(allowed.ok ? {} : { importModule: `off: ${IMPORT_OFF}` }),
+        ...(forPerson ? { forPerson } : {}),
+        next: `Show this report to the person and wait for their approval. ${approval} Call commit_import with exactly the same rows and this approvalToken. Any change to the rows needs a new dry run.`,
       };
     },
 
@@ -207,18 +324,22 @@ export function createTools(config = {}) {
       if (!t) return fail('no valid approval token: run dry_run_import first, show the report, and pass the approvalToken it returns');
       if (t.used) return fail('this approval token was used already: each dry run approves one commit');
       if (now().getTime() > t.expires) { tokens.delete(args.token); return fail(`this approval token has expired (after ${TOKEN_MINUTES} minutes): run dry_run_import again`); }
+      const allowed = importAllowed();
+      if (!allowed.ok) return fail(IMPORT_OFF, { code: 'IMPORT_OFF' });
       let tables;
       try { tables = tablesOf(args); } catch (err) { return fail(err.message); }
-      if (sha(canon({ tables, first: t.first })) !== t.inputHash) return fail('these rows are not the ones the dry run checked (or a source file changed since): run dry_run_import again with them and show the new report');
+      if (sha(canon({ tables, first: t.first, firstStudy: t.firstStudy })) !== t.inputHash) return fail('these rows are not the ones the dry run checked (or a source file changed since): run dry_run_import again with them and show the new report');
+      const yes = await approved(t, args);
+      if (!yes.ok) return fail(yes.error, { code: yes.code, ...(yes.forPerson ? { forPerson: yes.forPerson } : {}) });
       const files = filesOf(tables);
       const fixed = { importId: t.importId, importedAt: t.importedAt };
       if (target() === 'file') {
-        const { result } = plan(numberedFrom(lab(), t.first), tables, fixed);
+        const { result } = plan(numberedFrom(lab(), t.first, t.firstStudy), tables, fixed);
         if (resultHash(result) !== t.resultHash) return fail('the lab changed since the dry run: run dry_run_import again');
         t.used = true;
         const file = writeImportFile(result, files);
         return { ok: true, importId: t.importId, written: file, target: 'file', counts: { experiments: result.experiments.length, formulations: result.batches.length, measurements: result.measurements.length, studies: result.studies.length, bioMeasurements: result.bioMeasurements.length, quarantine: result.quarantine.length },
-          next: `In LNP Lab: Settings & export › Backup & restore › Import JSON, choose ${basename(file)}, with "replace instead of merge" left unticked. Every record carries importId ${t.importId}; Settings › Imports can undo it whole.` };
+          approvedBy: yes.by, next: `In LNP Lab: Settings & export › Backup & restore › Import JSON, choose ${basename(file)}, with "replace instead of merge" left unticked. Every record carries importId ${t.importId}; Settings › Imports can undo it whole.` };
       }
       try {
         const out = await writeLab(dbPath, ns, (store) => {
@@ -229,21 +350,23 @@ export function createTools(config = {}) {
           return { counts: w.written, experiments: result.experiments.map((e) => e.id), studies: result.studies.map((x) => x.id) };
         }, { running, stampWith: { importId: t.importId } });
         t.used = true;
-        return { ok: true, importId: t.importId, target: 'sqlite', ...out, next: 'Open LNP Lab: the import is under Data (filter Origin › Import), its refused rows under Quarantine, and Settings › Imports can undo it.' };
+        return { ok: true, importId: t.importId, target: 'sqlite', ...out, approvedBy: yes.by, next: 'Open LNP Lab: the import is under Data (filter Origin › Import), its refused rows under Quarantine, and Settings › Imports can undo it.' };
       } catch (err) {
         if (err.code === 'STALE') t.used = true;
         return fail(err.message, err.code ? { code: err.code } : {});
       }
     },
 
-    quality_report({ importId = null } = {}) {
-      const L = lab();
+    quality_report({ importId = null, backup = null } = {}) {
+      if (backup && !existsSync(resolve(baseDir, String(backup)))) return fail(`cannot read the backup file ${backup}: it is not there`);
+      const L = lab(backup);
       if (importId && !L.all('imports').some((i) => i.id === importId)) return fail(`there is no import ${importId} (list_imports names them)`);
-      return { ok: true, ...labQuality(L, data, importId || null), openQuarantine: openQuarantine(L).filter((e) => !importId || e.importId === importId).slice(0, 50).map((e) => ({ id: e.id, importId: e.importId, table: e.table, row: e.origin?.row ?? e.row, reason: e.reason })) };
+      return { ok: true, lab: labSource(backup), ...labQuality(L, data, importId || null), openQuarantine: openQuarantine(L).filter((e) => !importId || e.importId === importId).slice(0, 50).map((e) => ({ id: e.id, importId: e.importId, table: e.table, row: e.origin?.row ?? e.row, reason: e.reason })) };
     },
 
     async rollback_import({ importId } = {}) {
       if (!importId) return fail('importId is required (list_imports names them)');
+      if (!importAllowed().ok) return fail(IMPORT_OFF.replace('before the commit', 'before the rollback'), { code: 'IMPORT_OFF' });
       if (target() !== 'sqlite') return fail('the lab is not a database file this server can reach (the browser version): undo the import in LNP Lab, Settings & export › Imports › Undo import');
       try {
         const r = await writeLab(dbPath, ns, (store) => rollbackImport(store, importId), { running, stampWith: { rollback: importId } });
@@ -253,9 +376,10 @@ export function createTools(config = {}) {
       } catch (err) { return fail(err.message, err.code ? { code: err.code } : {}); }
     },
 
-    list_imports() {
-      const L = lab();
-      return { ok: true, target: target(), imports: listImports(L).map((i) => ({ id: i.id, kind: i.kind, files: i.files || i.fileName, importedAt: i.importedAt, imported: i.imported, inLab: i.state.inLab, live: i.state.live, inTrash: i.state.trash.length > 0, quarantineOpen: i.quarantineOpen })) };
+    list_imports({ backup = null } = {}) {
+      if (backup && !existsSync(resolve(baseDir, String(backup)))) return fail(`cannot read the backup file ${backup}: it is not there`);
+      const L = lab(backup);
+      return { ok: true, target: target(), lab: labSource(backup), ...(labSource(backup) === 'none' ? { note: 'There is no database file here and no backup was given: the browser version keeps its lab in the browser. Pass backup, the path of a file saved with Settings › Export everything, to list its imports.' } : {}), imports: listImports(L).map((i) => ({ id: i.id, kind: i.kind, files: i.files || i.fileName, importedAt: i.importedAt, imported: i.imported, inLab: i.state.inLab, live: i.state.live, inTrash: i.state.trash.length > 0, quarantineOpen: i.quarantineOpen })) };
     },
 
     // ------------------------------------------------------------------- insights (spec 10, personal build)
@@ -371,10 +495,10 @@ export function createTools(config = {}) {
     { name: 'list_catalog', description: 'What the lab already has: lipids (map lipid names to these), compositions, buffers, experiments (with the historical key of an earlier import), mixers.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
     { name: 'read_file', description: 'Read a local .xlsx or .csv file: every sheet as raw rows of cell values with their row numbers, and the file\'s SHA-256. Nothing is interpreted beyond dates.', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'Absolute path of the file' }, sheet: { type: 'string', description: 'Only this sheet' }, maxRows: { type: 'number', description: `Rows per sheet, default ${MAX_ROWS}` } }, required: ['path'] }, annotations: RO },
     { name: 'dry_run_import', description: 'Check mapped rows with the app\'s own rules, against the lab, without writing anything. Returns the quality report (counts, importable, quarantine with reasons, duplicates, completeness) and an approval token for commit_import. Show the report to the person before any commit.', inputSchema: IMPORT_INPUT, annotations: RO },
-    { name: 'commit_import', description: 'Write a checked import, after the person approved its dry-run report. Needs the approvalToken of that dry run and exactly the same rows; refused otherwise. Writes to the macOS app\'s database (only while the app is closed), or for the browser version an import file to read in under Settings › Import JSON.', inputSchema: { ...IMPORT_INPUT, properties: { ...IMPORT_INPUT.properties, token: { type: 'string', description: 'approvalToken from dry_run_import' } }, required: ['token'] }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
-    { name: 'quality_report', description: 'The quality of one import (importId) or of the whole lab: counts, completeness per field as the Data overview shows it, open quarantine by reason.', inputSchema: { type: 'object', properties: { importId: { type: 'string' } } }, annotations: RO },
+    { name: 'commit_import', description: 'Write a checked import, after the person approved its dry-run report. Needs the approvalToken of that dry run, exactly the same rows, and the person: the server asks them to confirm through the client, or takes the confirmation code they typed; refused otherwise. Refused while Import with Claude is off in the app. Writes to the macOS app\'s database (only while the app is closed), or for the browser version an import file to read in under Settings › Import JSON.', inputSchema: { ...IMPORT_INPUT, properties: { ...IMPORT_INPUT.properties, token: { type: 'string', description: 'approvalToken from dry_run_import' }, confirmation: { type: 'string', description: 'The confirmation code exactly as the person typed it to you, when the dry run says one was shown to them. Never make one up or copy it yourself.' } }, required: ['token'] }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+    { name: 'quality_report', description: 'The quality of one import (importId) or of the whole lab: counts, completeness per field as the Data overview shows it, open quarantine by reason. For the browser version, give backup: the path of a file saved with Settings › Export everything.', inputSchema: { type: 'object', properties: { importId: { type: 'string' }, backup: { type: 'string', description: 'Path of a backup file (Settings › Export everything) to read instead of the database' } } }, annotations: RO },
     { name: 'rollback_import', description: 'Move every record of an import into the lab\'s trash, from where Settings › Recently deleted restores it. Only while the app is closed.', inputSchema: { type: 'object', properties: { importId: { type: 'string' } }, required: ['importId'] }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false } },
-    { name: 'list_imports', description: 'The import history with counts: what each import brought, what of it is in the lab or in the trash, and how many of its rows wait in quarantine.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
+    { name: 'list_imports', description: 'The import history with counts: what each import brought, what of it is in the lab or in the trash, and how many of its rows wait in quarantine. For the browser version, give backup as for quality_report.', inputSchema: { type: 'object', properties: { backup: { type: 'string', description: 'Path of a backup file (Settings › Export everything)' } } }, annotations: RO },
   ];
   const personalDefs = [
     { name: 'summarize_database', description: 'An overview of the lab for insights: counts, period, medians of size, PDI and EE, coverage by lipid, buffer and mixer, completeness, and the date and data state of the latest saved insight report.', inputSchema: { type: 'object', properties: {} }, annotations: RO },
@@ -385,12 +509,20 @@ export function createTools(config = {}) {
   ];
   const personalNames = new Set(personalDefs.map((d) => d.name));
 
+  let noticeGiven = false;
+  const run = async (name, args) => {
+    if (!handlers[name]) return fail(`no tool ${name}`);
+    if (personalNames.has(name) && !personalOn()) return fail(`${name} is part of the insights module, which is off: switch on Settings › Claude insights in a personal build of LNP Lab, or start the server with LNP_LAB_PERSONAL=1`);
+    try { return await handlers[name](args || {}); } catch (err) { return fail(err.message); }
+  };
   return {
     list: () => (personalOn() ? [...defs, ...personalDefs] : defs),
+    /** A tool's answer. The first of the session, whichever tool it is, carries the privacy note (spec 11.2). */
     async call(name, args = {}) {
-      if (!handlers[name]) return fail(`no tool ${name}`);
-      if (personalNames.has(name) && !personalOn()) return fail(`${name} is part of the insights module, which is off: switch on Settings › Claude insights in a personal build of LNP Lab, or start the server with LNP_LAB_PERSONAL=1`);
-      try { return await handlers[name](args || {}); } catch (err) { return fail(err.message); }
+      const out = await run(name, args);
+      if (noticeGiven) return out;
+      noticeGiven = true;
+      return { privacy: PRIVACY_NOTE, ...out };
     },
     tokens, // for tests
   };
