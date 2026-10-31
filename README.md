@@ -51,6 +51,11 @@ npm run history    # replays a finished campaign: would the optimizer have found
                    # (npm run history -- --db lnp-lab.db --campaign E3,E4,E5, or --sim for the simulated lab)
 ```
 
+The replay on the simulated lab (`docs/history-benchmark.md`; not real data): the best score so far, in the order
+the runs were made and in the order the optimizer would have asked for them.
+
+![Best score so far: historical order against the optimizer's replay](docs/history-benchmark.svg)
+
 Tools around the app (each checks with the app's own code, none writes into your lab without you):
 
 ```bash
