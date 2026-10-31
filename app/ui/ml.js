@@ -1047,25 +1047,22 @@ const roundNumber = (ctx) => ctx.store.all('experiments').filter((e) => /^ML rou
  */
 /**
  * Every analysis keeps its fingerprint (spec 7.5), not only a round made from it: what was on screen when a
- * figure was taken for a paper can be made again. Written two seconds after the screen settles, so dragging a
- * weight does not write a record per step; the same fingerprint is kept once, and the newest 100 are kept.
+ * figure was taken for a paper can be made again. Written at once, as the setup is (persist), not on a timer:
+ * a write that lands seconds later, in whatever the person is doing by then, is a write nobody asked for. The
+ * same fingerprint is kept once, and the newest 100 are kept.
  */
 export const ANALYSES = 'mlAnalyses', KEEP_ANALYSES = 100;
-let keepTimer = null;
 function keepAnalysis(ctx, fp) {
   if (!fp?.hash) return;
-  clearTimeout(keepTimer);
-  keepTimer = setTimeout(() => {
-    try {
-      const all = ctx.store.all(ANALYSES);
-      if (all.some((a) => a.id === fp.hash)) return;
-      ctx.store.transaction(() => {
-        ctx.store.put(ANALYSES, { id: fp.hash, fingerprint: fp });
-        const old = all.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(KEEP_ANALYSES - 1);
-        for (const a of old) ctx.store.remove(ANALYSES, a.id);
-      });
-    } catch { /* a full or read-only store: the analysis is still on screen, only not kept */ }
-  }, 2000);
+  try {
+    const all = ctx.store.all(ANALYSES);
+    if (all.some((a) => a.id === fp.hash)) return;
+    ctx.store.transaction(() => {
+      ctx.store.put(ANALYSES, { id: fp.hash, fingerprint: fp });
+      const old = all.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(KEEP_ANALYSES - 1);
+      for (const a of old) ctx.store.remove(ANALYSES, a.id);
+    });
+  } catch { /* a read-only window or a full store: the analysis is still on screen, only not kept */ }
 }
 
 function createExperiment(ctx, ref, settings, state, picks, name, note, busy, fingerprint = null) {
