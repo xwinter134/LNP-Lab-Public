@@ -14,7 +14,7 @@ const link = (id) => `<a href="#/formulation?batch=${encodeURIComponent(id)}">${
 function item(f) {
   const ids = f.formulationIds || [];
   return `<li>${esc(f.text)}${f.value ? ` ${chip(f.value, 'info')}` : ''}
-    <div class="muted">${esc(ANALYSES[f.analysis] || f.analysis)}${ids.length ? ` · ${ids.slice(0, SHOW_IDS).map(link).join(', ')}${ids.length > SHOW_IDS ? ` and ${ids.length - SHOW_IDS} more` : ''}` : ''}</div></li>`;
+    <div class="muted">${esc(ANALYSES[f.analysis] || f.analysis)}${ids.length ? ` · ${ids.slice(0, SHOW_IDS).map(link).join(', ')}${ids.length > SHOW_IDS ? ` and ${ids.length - SHOW_IDS} more` : ''}` : ''}${f.link ? ` · <a href="${esc(f.link)}" data-report-link>Show in Data</a>` : ''}</div></li>`;
 }
 
 /** The card, as HTML; '' when Claude insights are off. */
