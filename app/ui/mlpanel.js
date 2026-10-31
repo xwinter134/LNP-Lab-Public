@@ -232,7 +232,8 @@ function course(rounds) {
  * @param {object[]} rounds  ML experiments carrying a fingerprint: {id, name, fp}
  */
 export function predictionFold(state, check, rounds) {
-  if (!check.overall.n && !rounds.length) return '';
+  // Kept analyses alone do not open this fold: it is about rounds made and measured, the analyses ride along.
+  if (!check.overall.n && !rounds.some((r) => !r.analysis)) return '';
   const say = check.overall.n ? `${Math.round(check.overall.rate * 100)} % of ${check.overall.n} results inside the 95 % interval (target about 95 %)` : 'no suggested formulation measured yet';
   const body = `<p>${esc(hitRateSentence(check.overall))}</p>
     ${check.responses.length ? `<div class="grid g3">${check.responses.map(scatter).join('')}</div>` : ''}
