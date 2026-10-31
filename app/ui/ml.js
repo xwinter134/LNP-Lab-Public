@@ -139,7 +139,8 @@ export async function render(el, ctx) {
   const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded,
     ...(handed || !state.comboChosen ? {} : { lipid: state.lipid, mixer: state.mixer, comboChosen: true }), lipidMode: state.lipidMode, kernelRank: state.kernelRank });
   /** What the model would be fitted on now: every formulation, accounted for (calc/ml/dataset.js). */
-  const account = () => dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, limits: ALL_FACTORS });
+  // Read through the selection the panel shows (spec 7.1), so the card and the panel count the same formulations.
+  const account = () => { const p = prepNow(); return dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, limits: ALL_FACTORS, selected: (report?.selection || p.sels[p.tries[0]])?.account }); };
 
   let report = null, fit = null, running = false, drawn = null;
   const activeConstraints = () => state.constraints.filter((c) => c.on && Number.isFinite(c.value));
@@ -323,6 +324,8 @@ function confirmNote(report, state) {
 /* ---------------- where the data comes from ---------------- */
 const LEFT_OUT = {
   excluded: 'In an experiment you switched off',
+  filtered: 'Another lipid or mixer than the one chosen, or not in the selection from Data',
+  budget: 'Left out by the data budget',
   noResult: 'No result yet for a response switched on as a goal',
   missingFactor: 'A factor being modelled is not on the record',
   outside: 'A setting outside the limits the optimizer works in',
@@ -343,7 +346,7 @@ function dataCard(acc, state, report) {
   const rows = acc.experiments.map((e) => {
     const key = e.id || '_none';
     const leftWords = Object.entries(e.left).filter(([k, n]) => n && k !== 'excluded').map(([k, n]) =>
-      `${n} ${k === 'noResult' ? 'without a goal result' : k === 'missingFactor' ? 'missing a factor' : 'outside the limits'}`);
+      `${n} ${k === 'noResult' ? 'without a goal result' : k === 'missingFactor' ? 'missing a factor' : k === 'filtered' ? 'other lipid or mixer' : k === 'budget' ? 'over the data budget' : 'outside the limits'}`);
     return { attrs: `class="${e.excluded ? 'excluded' : ''}" data-exp="${esc(e.id)}"`, cells: [
       raw(`<input type="checkbox" name="x_exp_${esc(key)}" ${e.excluded ? '' : 'checked'} style="width:auto" aria-label="use ${esc(e.id || 'formulations outside any experiment')}">`),
       raw(e.id ? `<a href="#/experiments?id=${esc(e.id)}"><b>${esc(e.id)}</b></a> ${esc(e.name)}<br><a class="muted small" href="#/doe?id=${esc(e.id)}">results on Design &amp; results</a>` : '<span class="muted">Not in an experiment</span>'),
@@ -929,6 +932,7 @@ function wire(el, ctx, ref, settings, state, report, h) {
     Promise.resolve(download(`ml-suggestions-${todayISO()}.csv`, lines.join('\n') + '\n', 'text/csv'))
       .then((path) => path && toast('Suggestions exported', 'ok'));
   });
+  root.querySelector('#mlComboOk')?.addEventListener('click', () => { state.comboChosen = true; h.persist(); h.draw(); });
   // Reproduce (spec 7.5): the run on screen, or a stored round, made again from its fingerprint on today's records.
   root.querySelectorAll('[data-repro]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.repro;

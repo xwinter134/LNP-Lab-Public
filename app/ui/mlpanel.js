@@ -82,6 +82,13 @@ export function transparencyCard(o) {
   const need = runsNeeded(k, sel.target.length);
   const factors = state.space.map((f) => `${esc(f.name.replace(/\s*\(.*\)\s*$/, ''))} ${atStep(f.lo, f)}–${atStep(f.hi, f)}${f.unit ? ` ${esc(f.unit)}` : ''}`).join(', ') || 'none chosen';
   const fp = report?.fingerprint;
+  // Spec 7.1: on opening, the question which combination is meant, the one with most data preselected. Asked
+  // until it is answered (kept with the setup), and not when Data handed a selection over.
+  const top = prep.combos[0];
+  const ask = !handed && !state.comboChosen && !report && prep.combos.length > 1 && top
+    ? `<div class="note" id="mlComboAsk" style="margin:0 0 10px">Which ionizable lipid and mixer type is this about? The optimizer works on one combination at a time;
+      preselected is the one with most data, <b>${esc(lipidName(top.lipid, ref))} · ${esc(mixerName(top.mixer))}</b> (${n0(top.n)} formulations).
+      <button type="button" id="mlComboOk" style="padding:2px 10px;margin-left:6px">Use this</button> or choose another in the list below.</div>` : '';
   const budgetNote = sel.over ? ` More than the data budget of ${n0(sel.budget)} remained, so the four budget steps chose these.` : '';
   const accountBody = `<ul class="muted" id="accountLines" style="margin:6px 0">${lines.map(([v, t]) => `<li>${n0(v)} ${esc(t)}</li>`).join('') || '<li>nothing left out</li>'}</ul>
     <p class="muted">${n0(used)} formulation${used === 1 ? '' : 's'} reach the model${report?.lipidModel?.others ? `: ${n0(report.n)} of ${esc(lipidName(state.lipid, ref))} and ${n0(report.lipidModel.others)} of the other lipids` : ''}.${budgetNote}</p>`;
@@ -90,7 +97,7 @@ export function transparencyCard(o) {
   const say = `${esc(LIPID_MODES[mode].label)} mode${report?.lipidChoice?.chosenBy === 'auto' ? ' (auto)' : ''} · ${n0(used)} of ${n0(total)} formulations${fp ? ` · fingerprint ${esc(shortHash(fp))}` : ''}`;
   return `<details class="card fold" id="mlPanel" data-fold="panel" style="border-color:var(--c-ml)" ${(state.open.panel ?? !report) ? 'open' : ''}>
     <summary><h2>Data and model</h2><span class="fold-say">${say}</span></summary>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}${rankSel}</div>
+    ${ask}<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}${rankSel}</div>
     <div class="grid g2" style="margin-top:10px;align-items:start">
       <div>
         <p style="margin:0 0 6px"><b>Mode</b> <span id="mlModeLine">${esc(modeLine)}</span></p>

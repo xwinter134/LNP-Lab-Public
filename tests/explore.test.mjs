@@ -108,7 +108,16 @@ test('the optimizer accounts for every formulation: used, or left out with the r
   const a = dataAccount(rows, { space, goals, excluded: ['E3'], limits: ALL_FACTORS });
   assert.deepEqual(a.used.map((r) => r.batchId), ['E1-F1', 'E1-F2', 'X-1']);
   assert.deepEqual(a.used[1].outsideSearch, ['FRR']);
-  assert.deepEqual(a.reasons, { excluded: 1, noResult: 2, missingFactor: 1, outside: 1 });
+  assert.deepEqual(a.reasons, { excluded: 1, filtered: 0, budget: 0, noResult: 2, missingFactor: 1, outside: 1 });
+  // Read through the selection (spec 7.1): another lipid or mixer is filtered, the data budget's choice is budget,
+  // and the card then agrees with the selection on every formulation.
+  const b = dataAccount(rows, { space, goals, excluded: ['E3'], limits: ALL_FACTORS, selected: [
+    { batchId: 'X-1', status: 'excluded', reason: 'filtered', detail: 'other mixer' },
+    { batchId: 'E1-F2', status: 'excluded', reason: 'subselected', detail: 'left out by the space-filling choice' },
+    { batchId: 'E1-F1', status: 'merged', reason: 'merged', detail: 'into E1-F9' }] });
+  assert.deepEqual(b.used.map((r) => r.batchId), ['E1-F1']);
+  assert.equal(b.reasons.filtered, 1); assert.equal(b.reasons.budget, 1);
+  assert.equal(b.left.find((x) => x.batchId === 'X-1').detail, 'other mixer');
   const why = Object.fromEntries(a.left.map((x) => [x.batchId, x]));
   assert.equal(why['E1-F3'].detail, 'no Total flow on its record');
   assert.equal(why['E1-F4'].detail, 'not made yet');

@@ -112,6 +112,10 @@ export function noiseFromReplicates(rows, space, responseName) {
  *
  * A formulation is left out, for the first of these that holds:
  *   excluded       its experiment was switched off on the Data used card
+ *   filtered       another ionizable lipid or mixer type than the one chosen, or not in the selection handed over
+ *                  from Data (spec 7.1); read from the selection (select.js) when `selected` is given
+ *   budget         left out by the data budget: outside the search range plus margin, a quality flag, or the
+ *                  space-filling subselection (spec 7.2); also from `selected`
  *   noResult       no result yet for any response switched on as a goal (planned, or measured for others only)
  *   missingFactor  a factor being modelled has no value on its record
  *   outside        a factor lies outside the limits the optimizer works in at all (space.js, ALL_FACTORS lo–hi)
@@ -125,19 +129,23 @@ export function noiseFromReplicates(rows, space, responseName) {
  * @param {object[]} o.goals    the goals; those with `on: false` do not count
  * @param {string[]} [o.excluded]  experiment ids switched off ('' for formulations under no experiment)
  * @param {object[]} [o.limits] the factor limits (ALL_FACTORS); passed in so this stays free of space.js
+ * @param {object[]} [o.selected] the selection's own account (select.js selectData().account), so the card
+ *   and the selection agree on every formulation
  */
-export function dataAccount(rows, { space = [], goals = [], excluded = [], limits = [] } = {}) {
+const SELECTION_REASON = { filtered: 'filtered', handed: 'filtered', 'outside range': 'budget', quality: 'budget', subselected: 'budget' };
+export function dataAccount(rows, { space = [], goals = [], excluded = [], limits = [], selected = null } = {}) {
   const off = new Set(excluded.map(String));
+  const sel = new Map((selected || []).filter((a) => a.status === 'excluded' && SELECTION_REASON[a.reason]).map((a) => [a.batchId, a]));
   const active = goals.filter((g) => g.on !== false).map((g) => g.name);
   const limitOf = new Map(limits.map((f) => [f.key, f]));
   const fmtv = (v) => String(Number(Number(v).toPrecision(4)));
-  const out = { used: [], left: [], experiments: [], reasons: { excluded: 0, noResult: 0, missingFactor: 0, outside: 0 } };
+  const out = { used: [], left: [], experiments: [], reasons: { excluded: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 } };
   const byExp = new Map();
   for (const r of rows) {
     const key = r.experimentId || '';
     if (!byExp.has(key)) {
       byExp.set(key, { id: key, name: r.experimentName || '', type: r.experimentType || '', excluded: off.has(key),
-        total: 0, measured: 0, used: 0, responses: {}, left: { excluded: 0, noResult: 0, missingFactor: 0, outside: 0 }, outsideSearch: 0 });
+        total: 0, measured: 0, used: 0, responses: {}, left: { excluded: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 }, outsideSearch: 0 });
     }
     const e = byExp.get(key);
     e.total++;
@@ -146,6 +154,7 @@ export function dataAccount(rows, { space = [], goals = [], excluded = [], limit
     if (has.length) e.measured++;
     let reason = null, detail = '';
     if (e.excluded) { reason = 'excluded'; detail = 'its experiment is switched off'; }
+    else if (sel.has(r.batchId)) { const a = sel.get(r.batchId); reason = SELECTION_REASON[a.reason]; detail = a.detail || a.reason; }
     else if (!active.some((n) => Number.isFinite(r.values?.[n]))) {
       reason = 'noResult';
       detail = r.status === 'planned' && !has.length ? 'not made yet' : has.length ? 'measured, but not for a response switched on as a goal' : 'no result yet';
