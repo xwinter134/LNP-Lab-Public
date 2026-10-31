@@ -1956,7 +1956,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   await expectNoText(page, '#main', /Pump 1 RNA \(mL\/min\)|End volume after dialysis/, 'a folded step keeps its table out of the page');
   // the line follows the inputs and agrees with the bench card
   await setInput(page, 'rna_stock_mg_mL', '1.02');
-  if (!/– not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
+  if (!/, not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
   if (String(await opened()) !== '1') throw new Error(`a redraw changed the open steps: ${await opened()}`);
 
   // the user's own choice survives the redraws: step 1 folded, step 3 opened and typed in
@@ -1981,7 +1981,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   await page.evaluate(() => window.lnpDb.flush());
   await reopen();
   if (String(await opened()) !== '5') throw new Error(`with dialysis recorded the record should open on step 5: ${await opened()}`);
-  if (!/– not recorded/.test(await line(2)) || !/– done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
+  if (!/, not recorded/.test(await line(2)) || !/, done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
     throw new Error(`steps 2 and 3 after dialysis was recorded: "${await line(2)}" / "${await line(3)}"`);
   }
 
