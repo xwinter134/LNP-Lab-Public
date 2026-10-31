@@ -5944,21 +5944,23 @@ export async function claudeImportAndQuarantine({ page, open }) {
     if (await page.$('#privacyNote')) throw new Error('the privacy note shows with both modules off');
     const out = mkdtempSync(join(tmpdir(), 'lnp-scn-'));
     execFileSync(process.execPath, ['scripts/import-tidy.mjs', 'docs/historical-example', '--first', '900', '--out', out], { stdio: 'pipe' });
+    // The example folder also holds a study (studies.csv, bioMeasurements.csv) with two planted mistakes of its
+    // own: five rows wait in quarantine, three of the physicochemistry and two of the study.
     const file = readFileSync(join(out, 'import.json'));
     const importId = JSON.parse(file).importId;
     await page.setInputFiles('#importFile', { name: 'import.json', mimeType: 'application/json', buffer: file });
     await page.waitForSelector('#importsCard', { timeout: 5000 }).catch(() => { throw new Error('the imports card did not appear after the import'); });
-    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*3 open`), 'the import is listed with what it brought');
+    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*5 open`), 'the import is listed with what it brought');
     await open('overview');
     if (!(await page.$('#nav a[href="#/quarantine"]'))) throw new Error('Quarantine is not in the sidebar while rows wait there');
 
     await open('quarantine');
-    await expectText(page, '#quarantineSay', /3 rows an import refused/, 'the quarantine list');
+    await expectText(page, '#quarantineSay', /5 rows an import refused/, 'the quarantine list');
     await page.locator('#main tr', { hasText: 'Lipid-X' }).locator('a', { hasText: 'Open' }).click();
     await page.waitForSelector('#qCheck');
     await page.fill('[name=qf_ionizable_lipid]', 'DLin-MC3-DMA');
     await page.click('#qCheck');
-    await page.waitForFunction(() => /2 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
+    await page.waitForFunction(() => /4 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
       .catch(() => { throw new Error('the fixed row is still listed'); });
     const fixed = (await readCol(page, 'batches')).find((b) => b.provenance?.fixedFrom);
     if (!fixed || fixed.provenance.importId !== importId || fixed.experimentId !== 'E901') throw new Error(`the fixed formulation: ${JSON.stringify(fixed?.provenance)} in ${fixed?.experimentId}`);
