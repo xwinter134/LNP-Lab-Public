@@ -11,7 +11,7 @@ What only Gholan can provide or decide, collected from all six phases. Each item
 | D3 | 20–30 IVIS export folders with the manual Living Image values, how the ROIs were drawn (whole mouse, liver, tumour), Living Image version and instrument | The BLI test bench on the lab's own images (8.7) |
 | D4 | Real plate reader exports and the lab's plate layout template | Checking the plate reader import (8.3) |
 | D5 | An example study plan with groups and reference | The study model (8.3) |
-| D6 | Instrument files to try the importer with the grid preview switched on | 9.3 |
+| D6 | Instrument files to try the importer with (its preview is now always drawn as the results grid) | 9.3 |
 | D7 | The list of LNP-ML papers whose methods went into the app | The licence and patent table, `docs/LICENSE-CHECK.md` (11.1) |
 
 ## Texts to write
@@ -40,6 +40,8 @@ What only Gholan can provide or decide, collected from all six phases. Each item
 | E13 | Copy the raw IVIS images next to the database in the Mac app? | referenced by path and SHA-256 |
 | E14 | Lipid descriptors from SMILES with RDKit.js (a new dependency) | entered by hand, behind a switch |
 | E15 | Store a model summary so Claude insights can read the GP's lengthscales | not stored |
+| E17 | Leaving a form with typed, unsaved input asks first (spec 9.1). The experiment wizard and the buffer designer keep drafts instead and do not ask; should they ask too? | drafts, no question |
+| E18 | Comparing two views: each bar is the share of its own view (so a view of 40 reads against one of 400). Counts instead? | shares, counts beside them |
 | E16 | Em dashes: about 100 older UI texts use one, mostly "—" for an empty choice; the style rule says no em dashes. What should an empty choice show? | unchanged |
 
 ## To check on a Mac

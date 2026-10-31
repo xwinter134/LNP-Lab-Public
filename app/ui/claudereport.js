@@ -7,14 +7,17 @@ import { esc, chip, fmtDate } from './kit.js';
 import { getSettings } from '../refdata.js';
 import { insightsOn } from '../build.js';
 import { ANALYSES, latestReport, reportStatus } from '../calc/insightreport.js';
+import { idsHref } from '../calc/facets.js';
 
 const SHOW_IDS = 6;
-const link = (id) => `<a href="#/formulation?batch=${encodeURIComponent(id)}">${esc(id)}</a>`;
 
+// A finding's formulations open together in Data (the `ids` filter, app/calc/facets.js), where they can be read
+// side by side, exported or handed to the optimizer. One link per id opened one record at a time.
 function item(f) {
-  const ids = f.formulationIds || [];
+  const ids = [...new Set((f.formulationIds || []).map(String).filter(Boolean))];
+  const names = ids.slice(0, SHOW_IDS).map(esc).join(', ') + (ids.length > SHOW_IDS ? ` and ${ids.length - SHOW_IDS} more` : '');
   return `<li>${esc(f.text)}${f.value ? ` ${chip(f.value, 'info')}` : ''}
-    <div class="muted">${esc(ANALYSES[f.analysis] || f.analysis)}${ids.length ? ` · ${ids.slice(0, SHOW_IDS).map(link).join(', ')}${ids.length > SHOW_IDS ? ` and ${ids.length - SHOW_IDS} more` : ''}` : ''}</div></li>`;
+    <div class="muted">${esc(ANALYSES[f.analysis] || f.analysis)}${ids.length ? ` · <a class="reportIds" href="${esc(idsHref(ids))}" title="Open ${ids.length === 1 ? 'it' : `these ${ids.length}`} in Data">${names}</a>` : ''}</div></li>`;
 }
 
 /** The card, as HTML; '' when Claude insights are off. */

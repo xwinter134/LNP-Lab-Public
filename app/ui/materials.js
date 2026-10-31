@@ -11,7 +11,7 @@
 // "Back to the shipped version" removes the record. A shipped composition is not edited at all — #1 has to mean
 // the same recipe in every lab — but it can be copied and the copy edited. What the user added themselves is
 // deleted to the trash, with Undo on the note and Settings › Recently deleted as for experiments and stocks.
-import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask } from './kit.js';
+import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask, registerDirty, fieldsChanged } from './kit.js';
 import { getRef, getSettings } from '../refdata.js';
 import { archive, unarchive, KINDS } from '../calc/usage.js';
 import { CARGO_TYPES, cargoInfo, cargoLabel, lotMassPerPhosphate } from '../calc/cargo.js';
@@ -42,6 +42,10 @@ export async function render(el, ctx) {
     window.dispatchEvent(new HashChangeEvent('hashchange')); // drawn again from the address as it is now
   });
   PANELS[tab](el.querySelector('#tabBody'), ctx);
+  // An editor open with a field changed and not saved is asked about before leaving (spec 9.1). Each editor is
+  // drawn from its record and drawn again on Save and Cancel, so "changed" is a field that differs from its markup.
+  const tabBody = el.querySelector('#tabBody');
+  registerDirty(tabBody, 'changes in the open editor', () => [...tabBody.querySelectorAll('.mat-editor')].some((ed) => fieldsChanged(ed)));
   // The optimizer's lipid descriptors (spec 7.3.2), only with the descriptor mode switched on in Settings.
   if (tab === 'lipids' && getSettings(ctx).mlDescriptors) {
     el.querySelector('#tabBody').insertAdjacentHTML('beforeend', descriptorCard(getRef(ctx)));

@@ -7,7 +7,7 @@
 // click, so filtering 10,000 formulations stays well under the 200 ms the spec allows.
 import { header, esc, fmt, fmtDate, toast, download, saveBlob, todayISO, uid, ask } from './kit.js';
 import { getRef } from '../refdata.js';
-import { dataRows, facetDefs, applyFilter, readFilter, writeFilter, filterQuery, parseFilterQuery, summary, completeness, histogram, perMonth, tally, describeFilter, columnDefs, sortRows, toCsv, textMatches } from '../calc/facets.js';
+import { dataRows, facetDefs, applyFilter, readFilter, writeFilter, filterQuery, parseFilterQuery, summary, completeness, histogram, perMonth, tally, describeFilter, columnDefs, sortRows, toCsv, textMatches, chosenLabel, overlayDistributions } from '../calc/facets.js';
 import { xlsxBytes } from '../calc/xlsx.js';
 import { buildIndex, tokens, scoreEntry } from '../calc/search.js';
 
@@ -79,7 +79,7 @@ export async function render(el, ctx) {
         <div class="vtable" id="vtable" tabindex="0"><table><thead><tr>${cols.filter((x) => shown.has(x.key)).map((x) => `<th data-sort="${x.key}" class="${x.num ? 'r' : ''}" aria-sort="${x.key === sortCol.key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${esc(x.label)}${x.key === sortCol.key ? (sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead><tbody id="vbody"></tbody></table></div>
         <p class="muted" style="margin-top:6px">${rows.length} formulation${rows.length === 1 ? '' : 's'}. Click a row to open it; click a heading to sort.</p>
       </section>
-      <aside class="dataSide">${distributions(rows, ref)}${completenessCard(rows)}</aside>
+      <aside class="dataSide">${viewsCard(ctx)}${distributions(rows, ref)}${completenessCard(rows)}</aside>
     </div>`;
 
   // ---- the table, drawing only the rows in view
@@ -126,7 +126,27 @@ export async function render(el, ctx) {
     next[k] = [lo === '' ? null : d.dates ? lo : Number(lo), hi === '' ? null : d.dates ? hi : Number(hi)];
     go(next);
   }));
+  // The two sliders of a range, one per end (spec 5.1, "pH range as a slider"). Dragging shows the value in the
+  // box above and keeps the ends from crossing; letting go sets the filter, so the hash, and with it Back, gets one
+  // entry per setting rather than one per pixel. An end pushed back to the edge leaves that side open.
+  el.querySelectorAll('[data-slider]').forEach((sl) => {
+    const k = sl.dataset.slider, d = defs.find((x) => x.key === k);
+    const pair = (end) => el.querySelector(`[data-slider="${k}"][data-end="${end}"]`);
+    const dp = String(d.step || '').split('.')[1]?.length || 0;
+    const val = (s) => Number(Number(s).toFixed(dp));
+    sl.addEventListener('input', () => {
+      const lo = pair('lo'), hi = pair('hi');
+      if (Number(lo.value) > Number(hi.value)) (sl === lo ? lo : hi).value = (sl === lo ? hi : lo).value;
+      el.querySelector(`[data-range="${k}"][data-end="${sl.dataset.end}"]`).value = val(sl.value);
+    });
+    sl.addEventListener('change', () => {
+      const [min, max] = res.ranges[k];
+      const a = val(pair('lo').value), b = val(pair('hi').value);
+      go({ ...clone(f), [k]: [a <= val(min) ? null : a, b >= val(max) ? null : b] });
+    });
+  });
   el.querySelector('#facetText')?.addEventListener('change', (e) => go({ ...clone(f), q: e.target.value.trim() || undefined }));
+  wireViews(el, ctx);
 
   // ---- actions on the selection (spec 5.3)
   el.querySelector('#toMl').addEventListener('click', () => ctx.navigate('ml', { data: filterQuery(f, defs) || 'all' }));
@@ -164,6 +184,7 @@ function chips(f, defs, all) {
   }
   if (f.q) out.push(`<a href="#" class="chip on" data-facet="q" data-drop="1">"${esc(f.q)}" ×</a>`);
   if (f.missing) out.push(`<a href="#" class="chip on" data-facet="missing" data-value="${esc(f.missing)}">without ${esc(f.missing)} ×</a>`);
+  if (f.ids?.length) out.push(`<a href="#" class="chip on" id="idsChip" data-facet="ids" data-drop="1" title="${esc(f.ids.slice(0, 20).join(', '))}${f.ids.length > 20 ? ' …' : ''}">${esc(chosenLabel(f.ids.length))} ×</a>`);
   return out.join('');
 }
 
@@ -184,7 +205,7 @@ function facetPanel(f, defs, res, all) {
       html += `<div class="facet"><div class="fname">${esc(d.label)}</div><div class="frange">
         <input type="${type}" data-range="${d.key}" data-end="lo" value="${esc(v[0] ?? '')}" placeholder="${esc(d.dates ? lo : fmt(lo, 2))}" ${d.step ? `step="${d.step}"` : ''} min="${esc(lo)}" max="${esc(hi)}">
         <span>–</span><input type="${type}" data-range="${d.key}" data-end="hi" value="${esc(v[1] ?? '')}" placeholder="${esc(d.dates ? hi : fmt(hi, 2))}" ${d.step ? `step="${d.step}"` : ''} min="${esc(lo)}" max="${esc(hi)}"></div>
-        ${!d.dates ? `<input type="range" class="fslider" data-range-slider="${d.key}" min="${lo}" max="${hi}" step="${d.step || 'any'}" value="${v[1] ?? hi}" aria-label="${esc(d.label)}, upper end">` : ''}</div>`;
+        ${!d.dates && lo < hi ? ['lo', 'hi'].map((end, i) => `<input type="range" class="fslider" data-slider="${d.key}" data-end="${end}" min="${lo}" max="${hi}" step="${d.step || 'any'}" value="${v[i] ?? (i ? hi : lo)}" aria-label="${esc(d.label)}, ${i ? 'upper' : 'lower'} end">`).join('') : ''}</div>`;
       continue;
     }
     const counts = [...res.counts[d.key].entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true }));
@@ -225,32 +246,100 @@ function completenessCard(rows) {
     <p class="muted">Over 90 % good, 50–90 % patchy, under 50 % missing. Click a field to list the formulations that lack it.</p></div>`;
 }
 
-/** Two saved views side by side: their numbers and their distributions over each other (spec 5.3). */
+/**
+ * Two saved views side by side: their numbers, and all four distributions of the data screen over each other
+ * (spec 5.3). Which two is picked at the top, any two of the saved views; the sidebar's link opens it on the
+ * first two, which used to be the only pair it could show.
+ */
 function compare(el, ctx, ref, defs, c) {
-  const [a, b] = String(ctx.params.compare).split(',').map((id) => ctx.store.get('views', id));
-  if (!a || !b) { el.innerHTML = header('Evaluate', 'Compare views') + '<div class="note warn">Choose two saved views to compare.</div>'; return; }
+  const views = savedViews(ctx.store);
+  const asked = String(ctx.params.compare).split(',').map((id) => ctx.store.get('views', id));
+  // Views are matched by id: the store may hand out a copy of a record, not the one in the list.
+  const a = asked[0] || views[0], b = (asked[1] && asked[1].id !== a?.id ? asked[1] : null) || views.find((v) => v.id !== a?.id);
+  const picker = (which, cur) => `<select id="cmp${which}" aria-label="View ${which}">${views.map((v) => `<option value="${esc(v.id)}"${v.id === cur.id ? ' selected' : ''}>${esc(v.name)}</option>`).join('')}</select>`;
+  if (!a || !b) { el.innerHTML = header('Evaluate', 'Compare views') + '<div class="note warn">Save two views first (Save view on the Data screen), then pick them here.</div>'; return; }
   const sel = (v) => { const f = parseFilterQuery(v.query, defs); const t = f.q ? textMatches(f.q, c.rows, c.index, { tokens, scoreEntry }) : null; return applyFilter(c.rows, f, defs, t).rows; };
   const ra = sel(a), rb = sel(b), sa = summary(ra), sb = summary(rb);
   const line = (label, x, y) => `<tr><td>${esc(label)}</td><td class="r">${esc(String(x ?? '–'))}</td><td class="r">${esc(String(y ?? '–'))}</td></tr>`;
-  const both = (key, bins, dp) => {
-    const all = [...ra, ...rb].map((r) => r[key]).filter(Number.isFinite);
-    if (!all.length) return '';
-    const lo = Math.min(...all), hi = Math.max(...all);
-    const ha = histogram(ra.map((r) => r[key]), { bins, lo, hi }), hb = histogram(rb.map((r) => r[key]), { bins, lo, hi });
-    const top = Math.max(1, ...ha.map((h) => h.n / Math.max(1, ra.length)), ...hb.map((h) => h.n / Math.max(1, rb.length)));
-    return `<div class="card mini"><h3>${esc(key === 'size' ? 'Size (nm)' : 'PDI')}, share of each view</h3><div class="hbars">${ha.map((h, i) => `<div class="hbar"><span class="hl">${fmt(h.lo, dp)}–${fmt(h.hi, dp)}</span><span class="hb two"><i style="width:${(100 * h.n / Math.max(1, ra.length) / top).toFixed(1)}%"></i><i class="b" style="width:${(100 * hb[i].n / Math.max(1, rb.length) / top).toFixed(1)}%"></i></span></div>`).join('')}</div></div>`;
+  const ov = overlayDistributions(ra, rb);
+  const ln = (k) => ref.lipidByKey?.[k]?.name || k;
+  const chart = (id, title, items, label, max = 18) => {
+    if (!items.length) return '';
+    const list = items.slice(0, max);
+    const top = Math.max(1e-9, ...list.map((x) => Math.max(x.shareA, x.shareB)));
+    const pct = (x) => `${Math.round(100 * x)} %`;
+    return `<div class="card mini" id="${id}"><h3>${esc(title)}, share of each view</h3><div class="hbars">${list.map((x) => `<div class="hbar" title="${esc(label(x))}: ${esc(a.name)} ${x.a} (${pct(x.shareA)}), ${esc(b.name)} ${x.b} (${pct(x.shareB)})"><span class="hl">${esc(label(x))}</span><span class="hb two"><i style="width:${(100 * x.shareA / top).toFixed(1)}%"></i><i class="b" style="width:${(100 * x.shareB / top).toFixed(1)}%"></i></span><span class="hn">${x.a} · ${x.b}</span></div>`).join('')}</div></div>`;
   };
-  el.innerHTML = header('Evaluate', 'Compare views') + `<div class="card"><table><thead><tr><th></th><th class="r"><a href="#/data?${esc(a.query)}">${esc(a.name)}</a></th><th class="r"><a href="#/data?${esc(b.query)}">${esc(b.name)}</a></th></tr></thead><tbody>
+  const bin = (dp) => (x) => `${fmt(x.lo, dp)}–${fmt(x.hi, dp)}`;
+  el.innerHTML = header('Evaluate', 'Compare views') + `<div class="card"><div class="cmpPick" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="swatch a"></span>${picker('A', a)}<span class="muted">against</span><span class="swatch b"></span>${picker('B', b)}</div>
+    <table id="cmpTable"><thead><tr><th></th><th class="r"><a href="#/data?${esc(a.query)}">${esc(a.name)}</a></th><th class="r"><a href="#/data?${esc(b.query)}">${esc(b.name)}</a></th></tr></thead><tbody>
     ${line('Formulations', sa.formulations, sb.formulations)}${line('Experiments', sa.experiments, sb.experiments)}
     ${line('Median size (nm)', sa.size != null ? fmt(sa.size, 0) : null, sb.size != null ? fmt(sb.size, 0) : null)}${line('Median PDI', sa.pdi != null ? fmt(sa.pdi, 3) : null, sb.pdi != null ? fmt(sb.pdi, 3) : null)}${line('Median EE (%)', sa.ee != null ? fmt(sa.ee, 1) : null, sb.ee != null ? fmt(sb.ee, 1) : null)}
-    </tbody></table><p class="muted"><span class="swatch a"></span> ${esc(a.name)} <span class="swatch b"></span> ${esc(b.name)}</p></div>
-    <div class="grid g2">${both('size', 10, 0)}${both('pdi', 10, 2)}</div>`;
+    </tbody></table><p class="muted"><span class="swatch a"></span> ${esc(a.name)} <span class="swatch b"></span> ${esc(b.name)}. Each bar is the share of its own view; the numbers are the counts.</p></div>
+    <div class="grid g2">${chart('cmpLipid', 'Runs per ionizable lipid', ov.lipid, (x) => ln(x.key), 12)}${chart('cmpSize', 'Size (nm)', ov.size, bin(0))}${chart('cmpPdi', 'PDI', ov.pdi, bin(2))}${chart('cmpMonth', 'Runs per month', ov.month.slice().reverse(), (x) => x.key)}</div>`;
+  // Picking on one side the view the other side shows swaps the two, rather than comparing a view with itself.
+  const pick = (side) => {
+    let x = el.querySelector('#cmpA').value, y = el.querySelector('#cmpB').value;
+    if (x === y) { if (side === 'A') y = a.id; else x = b.id; }
+    ctx.navigate('data', { compare: `${x},${y}` });
+  };
+  el.querySelector('#cmpA').addEventListener('change', () => pick('A'));
+  el.querySelector('#cmpB').addEventListener('change', () => pick('B'));
 }
 
-/** The saved views, for the sidebar (app/main.js) and the delete under it. */
+/**
+ * The saved views on the data screen itself: each opens its filter, and can be renamed or deleted there (the
+ * sidebar lists them but has no room for either). With two or more, any two can be compared.
+ */
+function viewsCard(ctx) {
+  const views = savedViews(ctx.store);
+  if (!views.length) return '';
+  const opt = (v, on) => `<option value="${esc(v.id)}"${on ? ' selected' : ''}>${esc(v.name)}</option>`;
+  return `<details class="card mini fold" id="viewsCard"${viewsOpen ? ' open' : ''}><summary><h3 style="display:inline">Saved views (${views.length})</h3></summary>
+    <ul class="viewList" style="list-style:none;padding:0;margin:6px 0">${views.map((v) => `<li data-view="${esc(v.id)}" style="display:flex;gap:6px;align-items:center;margin:3px 0"><a href="#/data?${esc(v.query)}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(v.name)}">${esc(v.name)}</a><button type="button" data-rename="${esc(v.id)}" style="padding:2px 6px">Rename</button><button type="button" data-delview="${esc(v.id)}" style="padding:2px 6px">Delete</button></li>`).join('')}</ul>
+    ${views.length > 1 ? `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><select id="viewA" aria-label="First view" style="flex:1;min-width:0">${views.map((v, i) => opt(v, i === 0)).join('')}</select><select id="viewB" aria-label="Second view" style="flex:1;min-width:0">${views.map((v, i) => opt(v, i === 1)).join('')}</select><button type="button" id="compareViews">Compare</button></div>` : ''}</details>`;
+}
+let viewsOpen = false;
+
+/** Rename, delete and compare on the views card. A change to the views redraws the sidebar, which lists them. */
+function wireViews(el, ctx) {
+  const card = el.querySelector('#viewsCard');
+  if (!card) return;
+  card.querySelector('summary').addEventListener('click', () => { viewsOpen = !card.open; });
+  const changed = () => { viewsOpen = true; window.dispatchEvent(new Event('lnp:drafts')); render(el, ctx); }; // lnp:drafts redraws the sidebar (app/main.js)
+  card.querySelectorAll('[data-delview]').forEach((b) => b.addEventListener('click', async () => {
+    if (await deleteView(ctx, b.dataset.delview)) { toast('View deleted', 'ok'); changed(); }
+  }));
+  // Renamed in a field that opens in place, as a view is named when it is saved (no prompt(): the macOS app has none).
+  card.querySelectorAll('[data-rename]').forEach((b) => b.addEventListener('click', () => {
+    const li = b.closest('li'), v = ctx.store.get('views', b.dataset.rename);
+    if (!v || li.querySelector('input')) return;
+    li.innerHTML = `<input type="text" class="viewRename" value="${esc(v.name)}" aria-label="New name" style="flex:1;min-width:0"><button type="button" class="primary" data-renameok>Save</button>`;
+    const inp = li.querySelector('input');
+    const save = () => {
+      const name = inp.value.trim();
+      if (!name) { inp.focus(); return; }
+      ctx.store.put('views', { ...v, name, renamedAt: new Date().toISOString() });
+      toast(`Renamed to "${name}"`, 'ok');
+      changed();
+    };
+    li.querySelector('[data-renameok]').addEventListener('click', save);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') changed(); });
+    inp.select();
+  }));
+  card.querySelector('#compareViews')?.addEventListener('click', () => {
+    const x = card.querySelector('#viewA').value, y = card.querySelector('#viewB').value;
+    if (x === y) { toast('Pick two different views', 'warn'); return; }
+    ctx.navigate('data', { compare: `${x},${y}` });
+  });
+}
+
+/** The saved views, for the sidebar (app/main.js) and the views card. */
 export const savedViews = (store) => store.all('views').sort((a, b) => String(a.name).localeCompare(String(b.name)));
+/** Delete a view after asking; true when it went. */
 export async function deleteView(ctx, id) {
   const v = ctx.store.get('views', id);
-  if (!v || !(await ask(`Delete the view "${v.name}"? The formulations in it are not affected.`))) return;
+  if (!v || !(await ask(`Delete the view "${v.name}"? The formulations in it are not affected.`))) return false;
   ctx.store.remove('views', id);
+  return true;
 }

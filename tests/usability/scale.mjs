@@ -4,6 +4,7 @@
 //
 //   npm run scale                         6 months, fails when a screen takes longer than its budget
 //   node tests/usability/scale.mjs [--months 12] [--budget 800] [--runs 3] [--out docs/usability/scale.json] [--quota]
+//   node tests/usability/scale.mjs --formulations 10000   the data overview's filters at 10,000 formulations (spec 5.4)
 //
 // Six months was the default because it was what fit in localStorage; a year did not (usability cycle 4, S1),
 // and since the move to IndexedDB it does. The store is written through `window.lnpDb.write` when the app has
@@ -44,6 +45,94 @@ await page.clock.setFixedTime(new Date('2026-10-27T09:30:00+01:00'));
 // Started means the store is open (window.lnpDb, where there is one, is there to write through).
 const started = () => page.waitForFunction(() => window.__lnpStarted, null, { timeout: 30000 }).catch(() => {});
 await page.goto(base + '#/overview'); await started(); await page.waitForTimeout(300);
+
+/*
+ * --formulations N (spec 5.4): the data overview with N synthetic formulations. Seeds them (with a DLS and an EE
+ * result each, the process variables the facets read, four compositions over three ionizable lipids, an
+ * instrument file on a third of the results), opens Data once to build its rows, then times typical filters: from
+ * the hash change to the table drawn and the next frame. Memory is the JS heap Chromium reports over CDP
+ * (Performance.getMetrics, JSHeapUsedSize) after the rows are built and after the filters. Fails when a filter
+ * takes longer than --filter-budget (200 ms by default, the spec's figure), or the page throws.
+ *
+ *   node tests/usability/scale.mjs --formulations 10000 [--filter-budget 200] [--runs 3] [--out file.json]
+ */
+async function dataScale(n) {
+  const filterBudget = Number(arg('filter-budget', '200'));
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+  const heapMB = async () => { const { metrics } = await cdp.send('Performance.getMetrics'); const m = metrics.find((x) => x.name === 'JSHeapUsedSize'); return m ? Math.round(m.value / 1048576 * 10) / 10 : null; };
+  const seeded = await page.evaluate(async (n) => {
+    let s = 11; const u = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const comps = [
+      { id: 901, synonym: 'Scale ALC-0315', mol_pct: { ALC315: 46.3, DSPC: 9.4, Chol: 42.7, DMG0PEG2000: 1.6 }, sum: 100 },
+      { id: 902, synonym: 'Scale SM-102', mol_pct: { SM102: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100 },
+      { id: 903, synonym: 'Scale MC3', mol_pct: { MC3: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100 },
+      { id: 904, synonym: 'Scale PEG-free', mol_pct: { ALC315: 50, DSPC: 10, Chol: 40 }, sum: 100 },
+    ];
+    const buf = ['Citrate', 'Acetate', 'Malate', 'Phosphate'], mix = ['T-mixer', 'Microfluidic chip', 'IJM'], post = ['Dialysis', 'TFF', 'Dilution'];
+    const exps = [], batches = [], meas = [], d0 = Date.parse('2026-10-27');
+    const per = 16;
+    for (let e = 0; e * per < n; e++) {
+      const id = `E${e + 1}`, date = new Date(d0 - (Math.ceil(n / per) - e) * 2 * 864e5).toISOString().slice(0, 10);
+      const ids = [];
+      for (let f = 1; f <= per && e * per + f <= n; f++) {
+        const i = e * per + f, b = `${id}-F${f}`; ids.push(b);
+        batches.push({ id: b, experimentId: id, label: `F${f}`, compositionId: comps[i % 4].id, plannedDate: date, status: 'measured',
+          plan: { rna: { np: 6, working_mg_mL: 0.2 }, mixing: { frr: 3, totalFlow: 12, quenchFactor: 2, lipidStock_mM: 12.5 },
+            conditions: { bufferSystem: buf[i % 4], loadingPH: Math.round((3.5 + (i % 30) / 10) * 10) / 10, mixerType: mix[i % 3], postMethod: post[i % 3], rnaType: 'mRNA' } } });
+        const z = 60 + 60 * u(), file = i % 3 === 0 ? { fileName: 'zetasizer.csv', sha256: 'a'.repeat(64), parser: 'csv-dls', parserVersion: 1 } : null;
+        meas.push({ id: `M${meas.length}`, batchId: b, experimentId: id, test: 'dls', stage: 'final', sampleName: `${b}_final`, date, operator: 'GM', values: { zave_nm: z, pdi: 0.05 + 0.25 * u() }, flags: [], raw: file, createdAt: date + 'T12:00:00.000Z' });
+        if (i % 2) meas.push({ id: `M${meas.length}`, batchId: b, experimentId: id, test: 'ee', stage: 'final', sampleName: `${b}_final`, date, operator: 'GM', values: { ee_pct: 80 + 18 * u() }, flags: [], createdAt: date + 'T12:00:00.000Z' });
+      }
+      exps.push({ id, type: 'comparison', name: `Scale run ${e + 1}`, startDate: date, compositionId: 901, status: 'done', spec: {}, design: {}, batchIds: ids, expected: [] });
+    }
+    for (const [col, rows] of [['compositions', comps], ['experiments', exps], ['batches', batches], ['measurements', meas]]) await window.lnpDb.write(col, rows, 'lnp-lab');
+    return { experiments: exps.length, batches: batches.length, measurements: meas.length };
+  }, n);
+  await page.reload(); await started();
+  const heapStart = await heapMB();
+  // The first visit builds the rows (once per change of the records, data.js rowsFor); not a filter, timed apart.
+  const tBuild = Date.now();
+  await page.goto(base + '#/data');
+  await page.waitForSelector('#vbody tr[data-open]', { timeout: 120000 });
+  const buildMs = Date.now() - tBuild;
+  const heapRows = await heapMB();
+  const filters = ['data?ionizable=ALC315', 'data?ionizable=ALC315&bufferSystem=Citrate&loadingPH=3.8~4.2', 'data?peg=__pegfree&mixerType=Microfluidic+chip',
+    'data?size=70~90&pdi=~0.2', 'data?has=dls|ee&source=instrument-import', 'data?date=2026-01-01~2026-06-30&postMethod=TFF', 'data'];
+  /** One filter: the hash set in the page, timed to the new table in the DOM and to the frame after it. */
+  const timeFilter = (h) => page.evaluate((h) => new Promise((resolve) => {
+    const old = document.querySelector('#vbody');
+    const t0 = performance.now();
+    location.hash = '#/' + h;
+    const poll = () => {
+      const now = document.querySelector('#vbody');
+      if (now && now !== old) { const dom = performance.now() - t0; requestAnimationFrame(() => resolve({ dom, frame: performance.now() - t0, rows: Number(document.querySelector('#dataKpis .kpi .v')?.textContent) })); return; }
+      if (performance.now() - t0 > 10000) { resolve({ dom: Infinity, frame: Infinity, rows: null }); return; }
+      setTimeout(poll, 0);
+    };
+    // A hash change is routed in the task that fires it: the poll starts after it, so the first check usually hits.
+    setTimeout(poll, 0);
+  }), h);
+  const times = Object.fromEntries(filters.map((f) => [f, []]));
+  for (let r = 0; r < runs; r++) for (const f of filters) times[f].push(await timeFilter(f));
+  const median = (xs) => { const v = [...xs].sort((a, b) => a - b); return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2; };
+  const out = { formulations: n, seeded, buildMs, filterBudget, runs, heapMB: { start: heapStart, rowsBuilt: heapRows, afterFilters: await heapMB() }, filters: {} };
+  for (const f of filters) out.filters[f] = { dom: Math.round(median(times[f].map((t) => t.dom))), frame: Math.round(median(times[f].map((t) => t.frame))), rows: times[f][0].rows };
+  out.pageErrors = [...new Set(errors)].slice(0, 10);
+  if (outFile) { fs.mkdirSync(path.dirname(outFile), { recursive: true }); fs.writeFileSync(outFile, JSON.stringify(out, null, 2)); }
+  await browser.close(); srv.close();
+  console.log(`${n} formulations (${seeded.experiments} experiments, ${seeded.measurements} results); rows built on the first visit in ${buildMs} ms`);
+  console.log(`JS heap: ${out.heapMB.start} MB at start, ${out.heapMB.rowsBuilt} MB with the rows built, ${out.heapMB.afterFilters} MB after the filters`);
+  const w = Math.max(...filters.map((f) => f.length));
+  console.log(`\n${'Filter'.padEnd(w)}  ${'rows'.padStart(6)}  ${'table'.padStart(6)}  ${'frame'.padStart(6)}  budget`);
+  for (const f of filters) { const x = out.filters[f]; console.log(`${f.padEnd(w)}  ${String(x.rows).padStart(6)}  ${String(x.dom).padStart(6)}  ${String(x.frame).padStart(6)}  ${x.frame > filterBudget ? `OVER ${filterBudget}` : `≤ ${filterBudget}`}`); }
+  const failures = [...filters.filter((f) => out.filters[f].frame > filterBudget).map((f) => `#/${f}: ${out.filters[f].frame} ms to the drawn table (median of ${runs}), over ${filterBudget} ms`), ...out.pageErrors.map((e) => `page error: ${e}`)];
+  if (failures.length) { console.error('\nSCALE FAILED\n' + failures.map((x) => ' - ' + x).join('\n')); process.exit(1); }
+  console.log(`\nscale ok: every filter of the data overview within ${filterBudget} ms at ${n} formulations`);
+  process.exit(0);
+}
+const nFormulations = Number(arg('formulations', '0'));
+if (nFormulations > 0) await dataScale(nFormulations);
 
 /** A lab of `m` months, generated in the page so the records come out exactly as the browser stores them. */
 async function seed(m) {

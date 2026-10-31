@@ -15,6 +15,8 @@ import { esc } from './kit.js';
 import { describeId } from '../schema.js';
 import { AIMS, SYMPTOMS, BUDGETS, SCOPES } from '../calc/advise.js';
 import { roleLabel } from '../calc/buffer.js';
+import { CATALOG } from '../calc/designs.js';
+import { DESIGN_TYPES } from '../calc/doe.js';
 
 const href = (id, params = {}) => {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
@@ -31,6 +33,15 @@ const MATERIAL_TABS = { lipids: 'Lipids & lots', compositions: 'Compositions', r
  * @param {Array} screens    the sidebar's SCREENS list ({id, title} and {group} entries, in order)
  */
 export function crumbsFor(id, params = {}, screens = []) {
+  // A design picked in the catalogue (or recommended by the planner) opens the wizard with its `design`; the
+  // trail then says where it came from, "Plan › Design catalogue › Box-Behnken", so a crumb leads back to the
+  // catalogue rather than to an experiments list the user never went through.
+  const design = id === 'experiments' && params.new ? designOf(params) : null;
+  if (design && screens.some((s) => s.id === 'designs')) {
+    let group = null;
+    for (const s of screens) { if (s.group) group = s.group; else if (s.id === 'designs') break; }
+    return [...(group ? [{ label: group, href: null }] : []), { label: screens.find((s) => s.id === 'designs').title, href: href('designs') }, { label: design, href: href(id, params) }];
+  }
   const out = [];
   let group = null;
   for (const s of screens) { if (s.group) group = s.group; else if (s.id === id) break; }
@@ -78,6 +89,14 @@ export function crumbsFor(id, params = {}, screens = []) {
   return out;
 }
 
+/** The name of the catalogue design a wizard address carries (`design`, or a blend's `mode`), or null. */
+export function designOf(params = {}) {
+  const has = (screen, key) => new RegExp(`[?&]${key}=${String(params[key]).replace(/[^\w-]/g, '')}(&|$)`).test(screen || '');
+  if (params.design) return CATALOG.find((e) => has(e.screen, 'design'))?.name || DESIGN_TYPES[params.design] || null;
+  if (params.type === 'doe' && params.mode) return CATALOG.find((e) => has(e.screen, 'mode'))?.name || null;
+  return null;
+}
+
 /** The crumb Back goes to when there is no history inside the app: the last one before the current with a link. */
 export function parentCrumb(trail) {
   for (let i = trail.length - 2; i >= 0; i--) if (trail[i].href) return trail[i];
@@ -122,6 +141,20 @@ export function countStep() {
   else { depth = lastDepth + 1; try { history.replaceState({ ...(st || {}), lnpDepth: depth }, ''); } catch {} }
   lastDepth = depth;
 }
+
+/**
+ * How to undo a hash change the user decided against (the leave guard, app/main.js): the entry the browser moved
+ * to carries its number when it was reached with Back or Forward, so the way home is the other direction; an
+ * entry without one is new (a link, the sidebar, navigate()), and Back returns from it. `state` is
+ * history.state of the entry moved to, `from` the number of the one left.
+ */
+export function stayStep(state, from = depth) {
+  const n = state?.lnpDepth;
+  if (Number.isInteger(n) && n < from) return 'forward';
+  return 'back';
+}
+/** The number of the history entry on screen, for stayStep. */
+export const currentDepth = () => depth;
 
 const isMac = () => /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || globalThis.navigator?.userAgent || '');
 
