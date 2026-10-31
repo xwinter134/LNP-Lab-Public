@@ -4010,8 +4010,12 @@ export async function importsGroupOnlyRunsAndCatchRepeats({ page, open }) {
   const head = 'Sample Name\tZ-Average (d.nm)\tPdI';
   await paste([head, 'LNP-1\t80\t0.1', 'LNP-2\t120\t0.2', 'LNP-3\t160\t0.3', `${a} 1\t81.1\t0.08`, `${a} 2\t82.2\t0.09`, `${a} 3\t83.3\t0.10`, `${b} (1)\t90.0\t0.1`]);
   await expectText(page, '#importReadAs', /7 rows → 5 samples/, 'three formulations stay three samples, and the runs of the app\'s own samples are grouped');
-  const firstCells = await page.evaluate(() => [...document.querySelectorAll('#importPreview tbody tr')].map((r) => r.cells[0].innerText.replace(/\s+/g, ' ').trim()));
-  const want = ['LNP-1', 'LNP-2', 'LNP-3', `${a} from ${a} 1, ${a} 2, ${a} 3`, `${b} from ${b} (1)`];
+  // The preview is drawn as the results grid (spec 9.3): the matched samples in the grid, by formulation, and the
+  // three that matched nothing below it, in the order of the file.
+  const firstCells = await page.evaluate(() => [...document.querySelectorAll('#importPreview tbody tr')].map((r) => r.querySelector('td.impSample').innerText.replace(/\s+/g, ' ').trim()));
+  const want = [`${a} from ${a} 1, ${a} 2, ${a} 3`, `${b} from ${b} (1)`, 'LNP-1', 'LNP-2', 'LNP-3'];
+  const strays = await page.$$eval('#importStrays td.impSample', (tds) => tds.map((td) => td.innerText.trim()));
+  if (strays.join() !== 'LNP-1,LNP-2,LNP-3') throw new Error(`the unmatched rows below the grid: ${strays}`);
   if (JSON.stringify(firstCells) !== JSON.stringify(want)) throw new Error(`the preview's samples: ${JSON.stringify(firstCells)}, expected ${JSON.stringify(want)}`);
   await expectText(page, '#importApart', /Read as separate samples: LNP-1, LNP-2, LNP-3\./, 'the names kept apart are named');
   await expectText(page, '#importKept', /SHA-256 of the pasted rows, not the rows themselves: keep the instrument’s file/, 'the preview says what is kept of what was imported');
@@ -6386,3 +6390,241 @@ export async function lipidSmilesIsKept({ page, open }) {
   }
 }
 scenarios.push(lipidSmilesIsKept);
+
+/**
+ * Spec 5.1 and 5.3, the audit's gaps: the pH range is two sliders that set the filter and the URL; a formulation
+ * whose result came from an instrument file is under Source › Instrument file; a set of formulations is linked in
+ * by id and shown as one chip; saved views are renamed and deleted on the Data screen, and any two of them are
+ * compared with all four distributions over each other; CSV and XLSX carry the provenance columns. And spec 9.3:
+ * the import preview is the results grid, matched formulations as rows, the rows that matched nothing below.
+ */
+export async function dataSlidersViewsAndExports({ page, open }) {
+  const was = { batches: await readCol(page, 'batches'), measurements: await readCol(page, 'measurements'), experiments: await readCol(page, 'experiments'), views: await readCol(page, 'views') };
+  const ids = (sel = '#vbody tr[data-open]') => page.$$eval(sel, (trs) => trs.map((t) => t.dataset.open));
+  const kpi = async () => Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  try {
+    const plan = (pH) => ({ mixing: { frr: 3, totalFlow: 12 }, rna: { np: 6 }, conditions: { bufferSystem: 'Citrate', loadingPH: pH } });
+    await writeCol(page, 'experiments', [...was.experiments, { id: 'E993', type: 'comparison', name: 'Slider smoke', startDate: '2026-10-10', status: 'done', batchIds: ['E993-F1', 'E993-F2'], expected: [] }]);
+    await writeCol(page, 'batches', [...was.batches, { id: 'E993-F1', experimentId: 'E993', compositionId: 1, plannedDate: '2026-10-10', status: 'measured', plan: plan(4) },
+      { id: 'E993-F2', experimentId: 'E993', compositionId: 1, plannedDate: '2026-10-11', status: 'measured', plan: plan(6.4) }]);
+    await writeCol(page, 'measurements', [...was.measurements,
+      { id: 'm993a', batchId: 'E993-F1', experimentId: 'E993', test: 'dls', stage: 'final', sampleName: 'E993-F1_final', date: '2026-10-12', values: { zave_nm: 81, pdi: 0.09 }, flags: [] },
+      { id: 'm993b', batchId: 'E993-F2', experimentId: 'E993', test: 'dls', stage: 'final', sampleName: 'E993-F2_final', date: '2026-10-12', values: { zave_nm: 120, pdi: 0.21 }, flags: [], raw: { fileName: 'zetasizer.csv', sha256: 'c0ffee'.padEnd(64, '0') } }]);
+
+    // ---- the pH sliders
+    await open('overview');
+    await open('data');
+    const lo = page.locator('input.fslider[data-slider="loadingPH"][data-end="lo"]');
+    if (!(await lo.count()) || !(await page.locator('input.fslider[data-slider="loadingPH"][data-end="hi"]').count())) throw new Error('the loading pH has no slider for each end');
+    await lo.evaluate((el) => { el.value = '6'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.waitForFunction(() => /loadingPH=6~/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`the slider did not set the filter: ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150); // the screen is drawn in the task after the hash change
+    const high = await ids();
+    if (!high.includes('E993-F2') || high.includes('E993-F1')) throw new Error(`pH from 6 lists ${high.join(', ')}`);
+    if (await page.inputValue('input[data-range="loadingPH"][data-end="lo"]') !== '6') throw new Error('the box above the slider does not show its end');
+    if (await lo.inputValue() !== '6') throw new Error('the slider did not keep its place over the redraw');
+    await page.goBack();
+    await page.waitForFunction(() => !/loadingPH=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 1 failed at ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- Source › Instrument file, by the file a result came from
+    const inst = page.locator('#facets .facet[data-key="source"] .fval[data-value="instrument-import"]');
+    if (!(await inst.count())) throw new Error('no "Instrument file" under Source although a result came from one');
+    await expectText(page, '#facets .facet[data-key="source"]', /Instrument file/, 'the source label');
+    await inst.click();
+    await page.waitForFunction(() => /source=instrument-import/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 2 failed at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150); // the screen is drawn in the task after the hash change
+    if (!(await ids()).includes('E993-F2')) throw new Error('the formulation with a Zetasizer result is not under Instrument file');
+
+    // ---- a set linked in by id, one chip
+    await open('data?ids=E993-F1,E993-F2');
+    await expectText(page, '#idsChip', /^2 chosen formulations ×$/, 'the chip of a linked set');
+    if (await kpi() !== 2) throw new Error(`the linked set holds ${await kpi()} formulations`);
+    await page.click('#idsChip');
+    await page.waitForFunction(() => !/ids=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 3 failed at ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- the provenance columns, in CSV and in XLSX
+    const { readFileSync } = await import('node:fs');
+    await open('data?ids=E993-F2');
+    const [csv] = await Promise.all([page.waitForEvent('download'), page.click('#exportCsv')]);
+    const text = readFileSync(await csv.path(), 'utf8').replace(/^﻿/, '');
+    const head = text.split('\n')[0];
+    for (const h of ['Source', 'Import', 'Source file', 'SHA-256', 'Sheet', 'Row', 'Result files', 'Result files SHA-256']) if (!head.split(',').includes(h)) throw new Error(`the CSV has no "${h}" column: ${head}`);
+    if (!/zetasizer\.csv,c0ffee0+/.test(text)) throw new Error('the CSV does not name the result file and its hash');
+    const [xlsx] = await Promise.all([page.waitForEvent('download'), page.click('#exportXlsx')]);
+    const { execFileSync } = await import('node:child_process');
+    const sheet = execFileSync('python3', ['-c', 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print(z.read("xl/worksheets/sheet1.xml").decode())', await xlsx.path()]).toString();
+    if (!/SHA-256/.test(sheet) || !/zetasizer\.csv/.test(sheet)) throw new Error('the XLSX lacks the provenance columns');
+
+    // ---- saved views: renamed, deleted, any two compared
+    const view = (id, name, query) => ({ id, name, query, createdAt: '2026-10-12T10:00:00.000Z' });
+    await writeCol(page, 'views', [...was.views, view('v-one', 'Zz one', 'ids=E993-F1'), view('v-two', 'Zz two', 'ids=E993-F2'), view('v-aa', 'Aa first', 'loadingPH=6~')]);
+    await open('overview');
+    await open('data');
+    await page.click('#viewsCard > summary');
+    await page.click('#viewsCard [data-rename="v-aa"]');
+    await page.fill('#viewsCard .viewRename', 'Aa renamed');
+    await page.click('#viewsCard [data-renameok]');
+    await page.waitForFunction(() => [...document.querySelectorAll('#nav a.sub')].some((a) => /Aa renamed/.test(a.textContent)), null, { timeout: 3000 }).catch(() => { throw new Error('the renamed view is not in the sidebar'); });
+    if ((await readCol(page, 'views')).find((v) => v.id === 'v-aa')?.name !== 'Aa renamed') throw new Error('the rename was not stored');
+    await page.evaluate(() => { window.__realConfirm ||= window.confirm; window.confirm = () => true; });
+    await page.click('#viewsCard [data-delview="v-aa"]');
+    await page.waitForFunction(() => ![...document.querySelectorAll('#nav a.sub')].some((a) => /Aa renamed/.test(a.textContent)), null, { timeout: 3000 }).catch(() => { throw new Error('the deleted view is still in the sidebar'); });
+    if ((await readCol(page, 'views')).some((v) => v.id === 'v-aa')) throw new Error('the deleted view is still stored');
+    await page.evaluate(() => { window.confirm = window.__realConfirm; });
+    // Two views that are not the first two by name.
+    await page.selectOption('#viewA', 'v-two');
+    await page.selectOption('#viewB', 'v-one');
+    await page.click('#compareViews');
+    await page.waitForFunction(() => /compare=v-two,v-one/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 4 failed at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForSelector('#cmpTable', { timeout: 3000 });
+    for (const c of ['#cmpLipid', '#cmpSize', '#cmpPdi', '#cmpMonth']) if (!(await page.$(c))) throw new Error(`the comparison has no ${c} chart: "${(await page.locator('#main').innerText()).slice(0, 600)}"`);
+    await expectText(page, '#cmpTable', /Zz two[\s\S]*Zz one[\s\S]*Formulations\s*1\s*1/, 'the two picked views side by side');
+    if ((await page.locator('#cmpSize .hb.two i.b').count()) < 2) throw new Error('the size chart does not overlay both views');
+    await page.selectOption('#cmpA', 'v-one'); // the view on the other side: the two swap
+    await page.waitForFunction(() => /compare=v-one,v-two/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`picking on the comparison went to ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- the import preview drawn as the results grid
+    await open('measurements');
+    await page.click('#pasteFold > summary');
+    await page.fill('#pasteBox', 'Sample Name,Z-Average (d.nm),PdI\nE993-F1_final,82.4,0.08\nE993-F1_final,84.0,0.09\nvial X,90,0.1');
+    await page.click('#pasteGo');
+    await page.waitForSelector('#importGrid tr[data-batch="E993-F1"] .ecell', { timeout: 5000 }).catch(() => { throw new Error('the matched formulation is not a row of the grid'); });
+    await expectText(page, '#importGrid tr[data-batch="E993-F1"]', /E993-F1[\s\S]*82\.4; 84[\s\S]*83\.2 ± 1\.1 \(n = 2\)/, 'the row: the formulation, its runs and their mean');
+    await expectText(page, '#importStrays', /vial X/, 'the row that matched nothing, below the grid');
+    if (!(await page.$('#importStrays select[data-target]'))) throw new Error('the unmatched row has nowhere to be put');
+    if (await page.$('#importGrid select[data-target]')) throw new Error('a matched row asks where it goes');
+  } finally {
+    await writeCol(page, 'views', was.views);
+    await writeCol(page, 'measurements', was.measurements);
+    await writeCol(page, 'batches', was.batches);
+    await writeCol(page, 'experiments', was.experiments);
+  }
+}
+scenarios.push(dataSlidersViewsAndExports);
+
+/**
+ * Spec 9.1: leaving a form with typed, unsaved input asks first, by a link, the sidebar, Back or a crumb; staying
+ * keeps the screen and what was typed, and puts the address back. Nothing typed, nothing asked. The browser's
+ * beforeunload is answered too. The question is answered by a stand-in for confirm() so each answer is chosen.
+ */
+export async function leaveGuardAsksFirst({ page, open }) {
+  const asked = () => page.evaluate(() => window.__asked.slice());
+  const answer = (yes) => page.evaluate((y) => { window.__answer = y; }, yes);
+  const stub = () => page.evaluate(() => { window.__realConfirm ||= window.confirm; window.__asked = []; window.confirm = (m) => { window.__asked.push(m); return window.__answer; }; });
+  // Staying: the n-th question has been asked and the address is back where it was.
+  const stayed = async (n, hash, label) => {
+    await page.waitForFunction(([k, h]) => window.__asked.length >= k && location.hash === h, [n, hash], { timeout: 3000 })
+      .catch(async () => { throw new Error(`${label}: ${(await asked()).length} questions, the address at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150);
+  };
+  const unloadHeld = () => page.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; });
+  try {
+    await open('overview');
+    await open('measurements');
+    await stub();
+    // Nothing typed: no question.
+    await page.click('#manualFree');
+    await answer(false);
+    await page.click('#nav a[href="#/overview"]');
+    await page.waitForFunction(() => location.hash === '#/overview', null, { timeout: 3000 }).catch(() => { throw new Error('a form with nothing typed held the screen'); });
+    if ((await asked()).length) throw new Error(`asked with nothing typed: ${await asked()}`);
+
+    // A value typed: the sidebar asks, and staying keeps it.
+    await open('measurements');
+    await stub();
+    await page.click('#manualFree');
+    await page.fill('input[name=run_z1]', '88');
+    await answer(false);
+    await page.click('#nav a[href="#/overview"]');
+    await stayed(1, '#/measurements', 'the sidebar');
+    const q = await asked();
+    if (q.length !== 1 || !/Not saved yet: a result typed into "Type one result"\. Leave this screen anyway\?/.test(q[0])) throw new Error(`asked: ${JSON.stringify(q)}`);
+    if (await page.evaluate(() => location.hash) !== '#/measurements') throw new Error(`staying left the address at ${await page.evaluate(() => location.hash)}`);
+    if (await page.inputValue('input[name=run_z1]') !== '88') throw new Error('staying lost the value typed');
+    // The browser's own leaving (a reload, closing the tab) is held too.
+    if (!(await unloadHeld())) throw new Error('beforeunload lets a typed result go');
+    // Back, the on-screen arrow: asked, and the address comes back.
+    await page.click('#crumbBack');
+    await stayed(2, '#/measurements', 'Back');
+    if (await page.evaluate(() => location.hash) !== '#/measurements' || await page.inputValue('input[name=run_z1]') !== '88') throw new Error('staying after Back did not keep the screen');
+    // Leaving when the answer is yes.
+    await answer(true);
+    await page.click('#nav a[href="#/overview"]');
+    await page.waitForFunction(() => location.hash === '#/overview' && /Overview/.test(document.querySelector('#main h1')?.textContent || ''), null, { timeout: 3000 }).catch(() => { throw new Error('a yes did not leave'); });
+    if (await unloadHeld()) throw new Error('the form left behind still holds beforeunload');
+
+    // A Materials editor with a field changed, left by a tab link; after Cancel the link goes without a question.
+    await open('materials?tab=rna');
+    await stub();
+    const row = page.locator('#tabBody tr.mat-row').first();
+    if (!(await row.count())) throw new Error('no RNA lot to open (materialsAddLots adds one)');
+    await row.click();
+    await page.waitForSelector('[data-editor]', { timeout: 3000 });
+    const box = page.locator('[data-editor] input[type=text]:not([readonly]):not([disabled])').first();
+    await box.fill(`${await box.inputValue()} changed`);
+    await answer(false);
+    await page.click('a[href="#/materials?tab=lipids"]');
+    await stayed(1, '#/materials?tab=rna', 'a Materials tab');
+    if (!/changes in the open editor/.test((await asked())[0] || '')) throw new Error(`the Materials editor was left without a question: ${JSON.stringify(await asked())}`);
+    if (!/tab=rna/.test(await page.evaluate(() => location.hash))) throw new Error('staying left the RNA tab');
+    await page.click('[data-editor] [data-act=cancel]');
+    await page.click('a[href="#/materials?tab=lipids"]');
+    await page.waitForFunction(() => /tab=lipids/.test(location.hash), null, { timeout: 3000 });
+    if ((await asked()).length !== 1) throw new Error('asked again after Cancel');
+
+    // The correction of a stored result, left by a crumb.
+    const m = (await readCol(page, 'measurements')).find((x) => x.test === 'dls' && x.values?.zave_nm != null);
+    if (!m) throw new Error('no stored DLS result to correct');
+    await open(`measurements?id=${m.id}`);
+    await stub();
+    await page.click('#editResult');
+    await page.fill('#editReason', 'typo');
+    await answer(false);
+    await page.click('#crumbs a[href]');
+    await stayed(1, `#/measurements?id=${m.id}`, 'a crumb');
+    if (!/a correction of this result/.test((await asked())[0] || '')) throw new Error('the correction form was left without a question');
+    if (!(await page.$('#editForm'))) throw new Error('staying closed the correction form');
+    await answer(true);
+    await page.click('#crumbs a[href]');
+    await page.waitForFunction(() => !/id=/.test(location.hash) && !document.querySelector('#editForm'), null, { timeout: 3000 }).catch(() => { throw new Error('a yes did not leave the correction'); });
+  } finally {
+    await page.evaluate(() => { if (window.__realConfirm) window.confirm = window.__realConfirm; });
+  }
+}
+scenarios.push(leaveGuardAsksFirst);
+
+/** Spec 9.1: every assistant walked with Back after each step (tests/usability/back.mjs, also `npm run back`). */
+export async function backAfterEveryAssistantStep({ page, open }) {
+  const { walkBack } = await import('./usability/back.mjs');
+  const n = await walkBack({ page, open });
+  if (n < 30) throw new Error(`only ${n} steps were walked`);
+}
+scenarios.push(backAfterEveryAssistantStep);
+
+/** Spec 10 with 5.3: a finding of Claude's report opens its formulations together in Data, by the ids filter. */
+export async function claudeReportOpensInData({ page, open }) {
+  const was = { settings: await readCol(page, 'settings'), reports: await readCol(page, 'insightReports'), batches: await readCol(page, 'batches') };
+  try {
+    // Three formulations of the lab, or three made for the purpose when it has fewer (SMOKE_ONLY).
+    if (was.batches.length < 3) await writeCol(page, 'batches', [...was.batches, ...[1, 2, 3].map((i) => ({ id: `E994-F${i}`, experimentId: 'E994', compositionId: 1, plannedDate: '2026-10-01', status: 'made', plan: {} }))]);
+    const batches = (await readCol(page, 'batches')).slice(0, 3);
+    await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+    await writeCol(page, 'settings', [...was.settings.filter((s) => s.id !== 'default'), { ...(was.settings.find((s) => s.id === 'default') || { id: 'default' }), personalBuild: true }]);
+    await writeCol(page, 'insightReports', [{ id: 'report-ids', createdAt: '2026-10-15T10:00:00.000Z', title: 'Ids report', dataState: { formulations: 999 },
+      findings: [{ text: 'These three', analysis: 'correlation', formulationIds: batches.map((b) => b.id) }] }]);
+    await open('overview');
+    await open('insights');
+    await page.waitForSelector('#claudeReport a.reportIds', { timeout: 4000 }).catch(async () => { throw new Error(`no link to the report's formulations: "${(await page.locator('#main').innerText()).slice(0, 300)}"`); });
+    await page.click('#claudeReport a.reportIds');
+    await page.waitForFunction(() => /^#\/data\?ids=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`the report link went to ${await page.evaluate(() => location.hash)}`); });
+    await expectText(page, '#idsChip', new RegExp(`^${batches.length} chosen formulations? ×$`), 'Data shows the linked set as one chip');
+    const shown = await page.$$eval('#vbody tr[data-open]', (trs) => trs.map((t) => t.dataset.open).sort());
+    if (shown.join() !== batches.map((b) => b.id).sort().join()) throw new Error(`Data lists ${shown}, the report named ${batches.map((b) => b.id)}`);
+  } finally {
+    await writeCol(page, 'settings', was.settings);
+    await writeCol(page, 'insightReports', was.reports);
+    await writeCol(page, 'batches', was.batches);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(claudeReportOpensInData);

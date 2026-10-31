@@ -507,7 +507,10 @@ Triplicate runs of a sample are averaged, and the runs are kept with the result.
 
 - The line under the file name: how the file was read, how many rows became how many samples, and how many matched,
   did not match, or were refused.
-- **Target** for each sample, with `exact` when the name matched an expected measurement.
+- The preview is drawn as the results grid is (see **Typing results: the grid**): one row per formulation the
+  file matched, a column per quantity, the replicates in a cell with their mean and SD under them, and the grid's
+  orange and red. Under the formulation, the sample it lands on, with `exact` when the name matched an expected
+  measurement. The rows that matched nothing are listed below the grid, under **Not matched**.
 - **Still missing from this file:** expected samples the file does not have. If exactly one row matched nothing and
   exactly one sample is missing, the row is set to that sample; change it if that is wrong.
 - A row that matches nothing can be pointed at an open sample, sent to the inbox, or ignored.
@@ -643,11 +646,16 @@ as "everything with ALC-0315", "everything in citrate at pH 4" or "everything PE
 
 - **On the left, the filters.** Composition (ionizable, helper, sterol and PEG lipid, with **PEG-free**), process
   (buffer system, loading pH, mixer type, downstream), context (cargo, experiment, period, operator), origin
-  (typed in, instrument file, imported, and the import itself), and what was measured (DLS, RiboGreen, stability,
+  (typed in, instrument file, imported with Claude, imported from tables, and the import itself), and what was
+  measured (DLS, RiboGreen, stability,
   biological data, size and PDI ranges). The number in brackets is how many formulations you would have with that
   value ticked, the other filters as they are. Ticking two values of one filter means either; ticking two kinds
   of measurement means both. The search box at the top takes anything the app's search knows: an experiment,
   a formulation, a sample name, a lot, a stock.
+- **Ranges** (loading pH, size, PDI) have a box and a slider for each end; the filter is set when you let go of a
+  slider. An end pushed back to the edge leaves that side open.
+- **Instrument file** under Source lists every formulation with at least one result read from an instrument's
+  file, whether the formulation itself was typed in or imported.
 - **Above, the numbers** of the selection: formulations, experiments, the period, and the median size, PDI and EE.
 - **In the middle, the table.** Click a heading to sort, a row to open the formulation. **Columns** chooses what
   is shown; the choice is remembered.
@@ -656,6 +664,8 @@ as "everything with ALC-0315", "everything in citrate at pH 4" or "everything PE
   90 %, amber 50 to 90 %, red under 50 %). A click lists the formulations that lack it, to fill them in.
 
 Every filter is in the address of the page: **Back** undoes the last click, and a bookmark keeps the selection.
+Other screens open a set of formulations here: the links of a finding in Claude's report on Insights do, and the
+set shows as one chip, "3 chosen formulations ×", which the other filters narrow and the × removes.
 
 ![Data: the facets, the table, the distributions and completeness, here on the demo lab](guide/data-overview.jpg)
 
@@ -663,9 +673,25 @@ Every filter is in the address of the page: **Back** undoes the last click, and 
 
 - **Use in optimizer** opens the optimizer with exactly these formulations as its data, said in words at the top
   ("ALC-0315, Citrate, 412 formulations").
-- **CSV** and **XLSX** save the selection with every column, the source columns included.
-- **Save view** names the selection. Saved views are in the sidebar under **Data**; with two or more, **Compare
-  two views** puts their numbers and distributions side by side.
+- **CSV** and **XLSX** save the selection with every column, and with where each record came from: the source,
+  the import, the file, its SHA-256, the sheet and the row it was read from, and the instrument files of its
+  results.
+- **Save view** names the selection. Saved views are in the sidebar under **Data** and in the **Saved views** card
+  on the right of the screen, where each can be renamed or deleted. With two or more, pick any two there and press
+  **Compare**: their numbers side by side, and the four distributions (runs per ionizable lipid, size, PDI, runs
+  per month) with both views over each other, each bar the share of its own view. The two can be changed at the
+  top of the comparison.
+
+### Leaving a form you have typed into
+
+The results grid, **Type one result**, the correction of a stored result, the editors under Materials and a
+study's value grid save with a button of their own. Leaving one of them with something typed and not saved (by a
+link, the sidebar, a crumb or Back) asks first: **Cancel** keeps you on the screen with what you typed, **OK**
+leaves. In a browser, closing the tab or reloading asks too. The experiment wizard and the buffer designer keep a
+draft instead, as before.
+
+The trail at the head of a screen says how you got there: a design set up from the catalogue reads **Plan ›
+Design catalogue › Box-Behnken**, and the catalogue crumb leads back to it.
 
 ## 14. The DoE screen (Design & results)
 

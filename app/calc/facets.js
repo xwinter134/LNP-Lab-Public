@@ -10,7 +10,7 @@
 // each would add. Computed in one pass: a row that fails no filter counts for every facet, a row that fails
 // exactly one counts for that facet alone, a row that fails two counts nowhere.
 import { ionizableLipids, isPegFree, readVariable } from './variables.js';
-import { provenanceOf } from './provenance.js';
+import { provenanceOf, fromInstrumentFile, SOURCES } from './provenance.js';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const meanOf = (xs) => { const v = xs.filter(finite); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -60,6 +60,12 @@ export function dataRows(src = {}, ref = {}) {
     const prov = provenanceOf(b);
     const operators = [...new Set([b.actual?.rna_operator, ...ms.map((m) => m.operator)].filter(Boolean))];
     const ionizable = ionizableLipids(comp, lipidByKey);
+    // A formulation typed in by hand whose size came off the Zetasizer's export is both: the Source facet lists
+    // it under each, so "Instrument file" finds every formulation with a result read from a file.
+    const files = [];
+    for (const m of ms) if (fromInstrumentFile(m)) { const f = m.provenance?.file || { name: m.raw?.fileName, sha256: m.raw?.sha256 }; if (f?.name && !files.some((x) => x.name === f.name)) files.push(f); }
+    const instrument = files.length > 0 || ms.some(fromInstrumentFile);
+    const sources = [prov.source, ...(instrument && prov.source !== 'instrument-import' ? ['instrument-import'] : [])];
     rows.push({
       id: b.id, experimentId: b.experimentId || null, experimentName: e?.name || '', label: b.label || '', status: b.status || '',
       date: String(b.plannedDate || e?.startDate || '').slice(0, 10), compositionId: b.compositionId ?? null, synonym: comp?.synonym || '',
@@ -71,7 +77,10 @@ export function dataRows(src = {}, ref = {}) {
       cryoprotectant: vr('cryoprotectant'), targetPH: vr('targetPH'),
       frr: b.plan?.mixing?.frr ?? null, tfr: b.plan?.mixing?.totalFlow ?? null, np: b.plan?.rna?.np ?? null,
       quench: b.plan?.mixing?.quenchFactor ?? null, lipid_mM: b.plan?.mixing?.lipidStock_mM ?? null, rna_mg_mL: b.plan?.rna?.working_mg_mL ?? null,
-      operators, source: prov.source, importId: prov.importId || null,
+      operators, source: prov.source, sources, importId: prov.importId || null,
+      // Where the formulation's own record came from (spec 4.3), for the export's provenance columns.
+      file: prov.file?.name || null, sha256: prov.file?.sha256 || null, sheet: prov.sheet ?? null, sourceRow: prov.row ?? null,
+      resultFiles: files,
       size: meanOf(dls.map((m) => m.values?.zave_nm)), pdi: meanOf(dls.map((m) => m.values?.pdi)), ee: meanOf(ee.map((m) => m.values?.ee_pct)), zeta: meanOf(zeta.map((m) => m.values?.zeta_mV)),
       has: {
         dls: dls.some((m) => finite(m.values?.zave_nm) || finite(m.values?.pdi)),
@@ -91,7 +100,7 @@ export function dataRows(src = {}, ref = {}) {
 
 const lipidName = (ref) => (k) => ref?.lipidByKey?.[k]?.name || k;
 const HAS = [['dls', 'DLS'], ['ee', 'RiboGreen (EE)'], ['stability', 'Stability'], ['bio', 'Biological data']];
-const SOURCE = { manual: 'Typed in', 'instrument-import': 'Instrument file', 'mcp-import': 'Imported with Claude', restore: 'Imported from tables' };
+const SOURCE = SOURCES; // one wording for where a record came from, app/calc/provenance.js
 
 /**
  * The facets, in the order of the panel. `values(row)` gives the row's values as strings (several for a lipid
@@ -112,7 +121,7 @@ export function facetDefs(ref = {}) {
     { key: 'experiment', group: 'Context', label: 'Experiment', values: (r) => [r.experimentId], label1: (v, rows) => { const r = rows?.find((x) => x.experimentId === v); return r?.experimentName ? `${v} · ${r.experimentName}` : v; } },
     { key: 'date', group: 'Context', label: 'Period', range: true, dates: true, num: (r) => r.date || null },
     { key: 'operator', group: 'Context', label: 'Operator', values: (r) => r.operators },
-    { key: 'source', group: 'Origin', label: 'Source', values: (r) => [r.source], label1: (v) => SOURCE[v] || v },
+    { key: 'source', group: 'Origin', label: 'Source', values: (r) => r.sources || [r.source], label1: (v) => SOURCE[v] || v },
     { key: 'importId', group: 'Origin', label: 'Import', values: (r) => [r.importId] },
     { key: 'has', group: 'Measurements', label: 'Has', values: (r) => HAS.filter(([k]) => r.has[k]).map(([k]) => k), label1: (v) => HAS.find(([k]) => k === v)?.[1] || v, all: true },
     { key: 'size', group: 'Measurements', label: 'Size (nm)', range: true, num: (r) => r.size, step: 1 },
@@ -138,6 +147,9 @@ export function readFilter(params = {}, defs = facetDefs()) {
   }
   if (params.q) f.q = String(params.q);
   if (params.missing) f.missing = String(params.missing);
+  // A set of formulations another screen links in (a finding of Claude's report, a plot's selection): their
+  // ids, comma-separated, since an id never holds a comma.
+  if (params.ids) { const ids = String(params.ids).split(',').map((x) => x.trim()).filter(Boolean); if (ids.length) f.ids = ids; }
   return f;
 }
 export function writeFilter(f = {}, defs = facetDefs()) {
@@ -150,6 +162,7 @@ export function writeFilter(f = {}, defs = facetDefs()) {
   }
   if (f.q) out.q = f.q;
   if (f.missing) out.missing = f.missing;
+  if (f.ids?.length) out.ids = f.ids.join(',');
   return out;
 }
 /** The filter as one query string: what a saved view and a hand-over to the optimizer carry. */
@@ -177,6 +190,7 @@ function predicates(f, defs, textHits) {
   }
   if (textHits) out.push({ key: 'q', test: (r) => textHits.has(r.id) });
   if (f.missing) out.push({ key: 'missing', test: (r) => missingIn(r, f.missing) });
+  if (f.ids?.length) { const ids = new Set(f.ids); out.push({ key: 'ids', test: (r) => ids.has(r.id) }); }
   return out;
 }
 
@@ -277,6 +291,37 @@ export function perMonth(rows) {
   return out.slice(-36); // three years at most on one chart; the period facet narrows further back
 }
 
+/**
+ * Two selections' distributions over each other (spec 5.3, comparing two saved views): runs per ionizable lipid,
+ * size, PDI and runs per month, on one shared axis each. Each bar is the share of its own view, so a view of 40
+ * and one of 400 formulations can be read against each other; `a` and `b` are the counts behind the shares.
+ * @returns {{lipid, size, pdi, month}} each a list of {key, label, a, b, shareA, shareB}
+ */
+export function overlayDistributions(ra, rb, { bins = 10 } = {}) {
+  const share = (n, of) => (of ? n / of : 0);
+  const pack = (items) => items.map((x) => ({ ...x, shareA: share(x.a, ra.length), shareB: share(x.b, rb.length) }));
+  const bucketed = (key) => {
+    const all = [...ra, ...rb].map((r) => r[key]).filter(finite);
+    if (!all.length) return [];
+    let lo = all[0], hi = all[0]; for (const x of all) { if (x < lo) lo = x; if (x > hi) hi = x; }
+    const ha = histogram(ra.map((r) => r[key]), { bins, lo, hi }), hb = histogram(rb.map((r) => r[key]), { bins, lo, hi });
+    // A view with no value for this key has no bins at all; it counts none in each of the other's.
+    const edges = ha.length ? ha : hb;
+    return pack(edges.map((h, i) => ({ key: i, lo: h.lo, hi: h.hi, a: ha[i]?.n || 0, b: hb[i]?.n || 0 })));
+  };
+  const ta = new Map(tally(ra, (r) => r.ionizable).map((t) => [t.value, t.n])), tb = new Map(tally(rb, (r) => r.ionizable).map((t) => [t.value, t.n]));
+  const lipids = [...new Set([...ta.keys(), ...tb.keys()])].sort((x, y) => ((tb.get(y) || 0) + (ta.get(y) || 0)) - ((tb.get(x) || 0) + (ta.get(x) || 0)));
+  // One month axis from the first month of either to the last of either, empty months included.
+  const months = perMonth([...ra, ...rb]).map((m) => m.month);
+  const ma = new Map(perMonth(ra).map((m) => [m.month, m.n])), mb = new Map(perMonth(rb).map((m) => [m.month, m.n]));
+  return {
+    lipid: pack(lipids.map((k) => ({ key: k, a: ta.get(k) || 0, b: tb.get(k) || 0 }))),
+    size: bucketed('size'),
+    pdi: bucketed('pdi'),
+    month: pack(months.map((k) => ({ key: k, a: ma.get(k) || 0, b: mb.get(k) || 0 }))),
+  };
+}
+
 // --------------------------------------------------------------------------------------------------- wording
 
 /**
@@ -296,8 +341,15 @@ export function describeFilter(f, defs, n, rows = []) {
   }
   if (f.q) bits.push(`"${f.q}"`);
   if (f.missing) bits.push(`without ${COMPLETENESS.find((c) => c.key === f.missing)?.label || f.missing}`);
+  if (f.ids?.length) bits.push(chosenLabel(f.ids.length));
   return [...bits, `${n} formulation${n === 1 ? '' : 's'}`].join(', ');
 }
+
+/** How a set of formulations linked in by id reads, on its chip and in the sentence. */
+export const chosenLabel = (n) => `${n} chosen formulation${n === 1 ? '' : 's'}`;
+
+/** The address that opens a set of formulations in the data overview. */
+export const idsHref = (ids) => `#/data?ids=${encodeURIComponent([...new Set(ids)].join(','))}`;
 
 // ------------------------------------------------------------------------------------------------- the table
 
@@ -325,19 +377,29 @@ export function columnDefs(ref = {}) {
     { key: 'ee', label: 'EE %', get: n('ee', 1), num: true, on: true },
     { key: 'zeta', label: 'Zeta mV', get: n('zeta', 1), num: true, on: false },
     { key: 'operator', label: 'Operator', get: (r) => r.operators.join(', '), on: false },
-    { key: 'source', label: 'Source', get: (r) => SOURCE[r.source] || r.source, on: false },
+    { key: 'source', label: 'Source', get: (r) => (r.sources || [r.source]).map((x) => SOURCE[x] || x).join('; '), on: false },
     { key: 'importId', label: 'Import', get: (r) => r.importId || '', on: false },
+    // The rest of the provenance (spec 5.3: the export carries it whole): the file, sheet and row the record was
+    // read from, and the instrument files its results came from.
+    { key: 'file', label: 'Source file', get: (r) => r.file || '', on: false },
+    { key: 'sha256', label: 'SHA-256', get: (r) => r.sha256 || '', on: false },
+    { key: 'sheet', label: 'Sheet', get: (r) => r.sheet ?? '', on: false },
+    { key: 'sourceRow', label: 'Row', get: (r) => r.sourceRow ?? '', on: false },
+    { key: 'resultFiles', label: 'Result files', get: (r) => (r.resultFiles || []).map((f) => f.name).join('; '), on: false },
+    { key: 'resultSha256', label: 'Result files SHA-256', get: (r) => (r.resultFiles || []).map((f) => f.sha256 || '').join('; '), on: false },
   ];
 }
 
 /** Sort rows by a column; missing values last whichever way. Stable. */
+// One collator for every sort: localeCompare with options builds one per call, which made sorting 10,000 rows by
+// date take a third of a second on its own (spec 5.4 allows 200 ms for the whole filter).
+const collator = new Intl.Collator(undefined, { numeric: true });
 export function sortRows(rows, col, dir = 1) {
-  return rows.map((r, i) => [r, i]).sort(([a, i], [b, j]) => {
-    const x = col.get(a), y = col.get(b);
-    const ex = x == null || x === '', ey = y == null || y === '';
+  // Each row's cell is read once, not once per comparison.
+  return rows.map((r, i) => { const x = col.get(r); return [r, i, x, x == null || x === '']; }).sort(([, i, x, ex], [, j, y, ey]) => {
     if (ex !== ey) return ex ? 1 : -1;
     if (ex) return i - j;
-    const c = col.num ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+    const c = col.num ? x - y : collator.compare(String(x), String(y));
     return c ? c * dir : i - j;
   }).map(([r]) => r);
 }

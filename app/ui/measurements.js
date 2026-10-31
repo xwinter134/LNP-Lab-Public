@@ -6,7 +6,7 @@
 // the top. So it now leads with what is due across every experiment, one line per experiment and stage; the
 // import card and the manual form are one line each until they are used; and the results list is filtered and
 // paged, and since cycle 5 one line (how many, how many flagged, the last added) until it is opened.
-import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask } from './kit.js';
+import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask, registerDirty, fieldsChanged } from './kit.js';
 import { provenanceLine } from '../calc/provenance.js';
 import { provenanceBadge } from './provenance.js';
 import { parseISO } from '../calc/dates.js';
@@ -173,6 +173,9 @@ export async function render(el, ctx) {
   };
   if (ctx.params.slot) fromSlot(ctx.params.slot);
   drawFields();
+  // Leaving with a value typed and not saved asks first (spec 9.1). Choosing the sample is not typing; the values,
+  // remarks and file reference are. A save draws the screen again, and the check goes with the old form.
+  registerDirty(body, 'a result typed into "Type one result"', () => fieldsChanged(el.querySelector('#testFields')) || fieldsChanged(body, '[name=remarks], [name=fileRef]'));
   el.querySelector('[name=test]').addEventListener('change', drawFields);
   // The select is on the folded line itself, so choosing a sample is what opens the form: no extra click.
   el.querySelector('[name=slotId]').addEventListener('change', (e) => { openManual(); fromSlot(e.target.value); drawFields(); });
@@ -313,8 +316,10 @@ export async function render(el, ctx) {
     const groups = tests.map((t) => ({ test: t, cols: IMPORT_COLS[t].filter((c, j) => j === 0 || rows.some((r) => r.per[t]?.s[c.key] != null)) }));
     const multi = tests.length > 1;
     const th = (label, sub, cls = '', right = false) => `<th class="${cls}" ${right ? 'style="text-align:right"' : ''}>${esc(label)}${sub ? `<div class="muted" style="font-weight:400;font-size:11px;margin-top:1px">${esc(sub)}</div>` : ''}</th>`;
-    const head = `${multi ? `<tr class="grp"><th colspan="2"></th>${groups.map((g) => `<th class="g0" colspan="${g.cols.length}">${esc(TEST_LABEL[g.test] || g.test)}</th>`).join('')}<th colspan="3"></th></tr>` : ''}
-      <tr>${th('Sample name in file')}${th('Target')}${groups.map((g) => g.cols.map((c, j) => th(c.label, c.sub, j === 0 && multi ? 'g0' : '', true)).join('')).join('')}${th('n', '', '', true)}${th('QC')}${th('Import')}</tr>`;
+    // The two tables share their columns and differ in the first two: the grid of matched rows leads with the
+    // formulation, as the results grid does; the rows that matched nothing lead with the name and where to put it.
+    const head = (first, second) => `${multi ? `<tr class="grp"><th colspan="2"></th>${groups.map((g) => `<th class="g0" colspan="${g.cols.length}">${esc(TEST_LABEL[g.test] || g.test)}</th>`).join('')}<th colspan="3"></th></tr>` : ''}
+      <tr>${th(first)}${th(second)}${groups.map((g) => g.cols.map((c, j) => th(c.label, c.sub, j === 0 && multi ? 'g0' : '', true)).join('')).join('')}${th('n', '', '', true)}${th('QC')}${th('Import')}</tr>`;
     // The same file again (usability cycle 6, I5): its SHA-256 is on record with the results it stored, and
     // imported twice each of them would be stored twice and counted twice in every mean and fit. So nothing is
     // ticked until the person answers, to a question, that they mean to import it again.
@@ -325,10 +330,11 @@ export async function render(el, ctx) {
     let again = false;
     // Rows read from several names (E3-F2_final 1, 2 and 3) say so under the name, so a person sees what was averaged.
     const FROM_SHOWN = 6;
-    // Spec 9.3: with the results grid on, the preview's numbers are drawn as the grid draws them, replicates and
-    // colours included, so a file read in and a sheet typed in look the same. Only the drawing changes: what is
-    // matched, ticked, refused and stored is decided above, as before.
-    const gridLook = !!settings.entryGrid;
+    // Spec 9.3: the preview is drawn as the results grid is (app/ui/entrygrid.js), so a file read in and a sheet
+    // typed in look the same: one row per formulation of the experiment the file matched, a column per quantity,
+    // the replicates in a cell with their mean and SD under them, and the grid's colours. The rows that matched
+    // nothing follow in a table of their own, with where to put each. Only the drawing changed: what is matched,
+    // ticked, refused and stored is decided above, and every row keeps its index `i` for the import below.
     const gridCell = (test, c, p) => {
       const col = GRID_COLUMNS.find((x) => x.test === test && x.key === c.key);
       if (!col) return esc(fmt(p.s[c.key], c.d));
@@ -338,15 +344,35 @@ export async function render(el, ctx) {
       return previewCellHtml(p.values, col.id, bad.length ? 'bad' : warn.length ? 'warn' : '', bad.length ? bad : warn);
     };
     const fromNames = (r) => (r.names.some((x) => x !== r.sampleName) ? `<div class="muted runsOf" style="font-size:11px">from ${r.names.slice(0, FROM_SHOWN).map(esc).join(', ')}${r.names.length > FROM_SHOWN ? ` and ${r.names.length - FROM_SHOWN} more` : ''}</div>` : '');
-    const body = rows.map((r, i) => {
+    const nameCell = (r) => `<td class="impSample"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>${fromNames(r)}</td>`;
+    const rest = (r, i) => {
       const cells = groups.map((g) => g.cols.map((c, j) => {
         const p = r.per[g.test];
         const cls = [j === 0 && multi ? 'g0' : '', p?.has && p.check.errors.length ? 'refused' : ''].filter(Boolean).join(' ');
-        return `<td class="${cls}" style="text-align:right">${gridLook && p ? gridCell(g.test, c, p) : esc(fmt(p?.s[c.key], c.d))}</td>`;
+        return `<td class="${cls}" style="text-align:right">${p ? gridCell(g.test, c, p) : esc(fmt(undefined, c.d))}</td>`;
       }).join('')).join('');
       const qc = r.withValue.flatMap((t) => { const p = r.per[t]; return [...p.check.errors.map((e) => chip(e.text, 'bad')), ...p.check.warnings.map((w) => chip(w.text, 'warn')), ...p.flags.map((f) => chip(f.text, f.level === 'warn' ? 'warn' : 'info'))]; }).join(' ') || chip('ok', 'ok');
-      return `<tr ${r.refused.length && !r.ok.length ? 'class="refused"' : ''} data-row="${i}"><td><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>${fromNames(r)}</td><td>${targetCell(r, i)}</td>${cells}<td style="text-align:right">${r.n}</td><td>${qc}</td><td><input type="checkbox" data-imp="${i}" ${r.ok.length && !dup ? 'checked' : ''} style="width:auto"></td></tr>`;
-    }).join('') || `<tr><td colspan="${5 + groups.reduce((a, g) => a + g.cols.length, 0)}" class="muted">No sample names in this table.</td></tr>`;
+      return `${cells}<td style="text-align:right">${r.n}</td><td>${qc}</td><td><input type="checkbox" data-imp="${i}" ${r.ok.length && !dup ? 'checked' : ''} style="width:auto"></td>`;
+    };
+    const trOpen = (r, i, extra = '') => `<tr ${r.refused.length && !r.ok.length ? 'class="refused"' : ''} data-row="${i}"${extra}>`;
+    // A matched row's formulation and where it lands (the slot, or the formulation alone), in the experiment's order.
+    const placeOf = (r) => {
+      const order = [...r.withValue, ...tests.filter((t) => !r.withValue.includes(t))];
+      const m = order.map((t) => r.per[t]?.match).find((x) => x?.slot) || order.map((t) => r.per[t]?.match).find((x) => x?.batchId);
+      const batchId = m?.slot?.batchId || m?.batchId || null;
+      const exp = experiments.find((e) => (m?.experiment && e.id === m.experiment.id) || e.batchIds?.includes(batchId));
+      return { batchId, exp, at: exp ? exp.batchIds.indexOf(batchId) : -1 };
+    };
+    const expAt = new Map(experiments.map((e, k) => [e.id, k]));
+    const matchedRows = rows.map((r, i) => ({ r, i, ...placeOf(r) })).filter((x) => x.r.matched)
+      .sort((x, y) => (expAt.get(x.exp?.id) ?? 1e9) - (expAt.get(y.exp?.id) ?? 1e9) || x.at - y.at || x.i - y.i);
+    const gridBody = matchedRows.map(({ r, i, batchId }) => `${trOpen(r, i, ` data-batch="${esc(batchId || '')}"`)}<td class="impBatch">${batchId ? `<a href="#/formulation?batch=${esc(batchId)}">${esc(batchId)}</a>` : ''}<div class="muted" style="font-size:11px">${targetCell(r, i)}</div></td>${nameCell(r)}${rest(r, i)}</tr>`).join('');
+    const strayBody = rows.map((r, i) => (r.matched ? '' : `${trOpen(r, i)}${nameCell(r)}<td>${targetCell(r, i)}</td>${rest(r, i)}</tr>`)).join('');
+    const nCols = 5 + groups.reduce((a, g) => a + g.cols.length, 0);
+    const tables = !rows.length
+      ? `<div style="overflow-x:auto"><table class="impTable egrid"><thead>${head('Sample name in file', 'Target')}</thead><tbody><tr><td colspan="${nCols}" class="muted">No sample names in this table.</td></tr></tbody></table></div>`
+      : `${gridBody ? `<div style="overflow-x:auto"><table class="impTable egrid${multi ? ' multi' : ''}" id="importGrid"><thead>${head('Formulation', 'Sample name in file')}</thead><tbody>${gridBody}</tbody></table></div>` : ''}
+        ${strayBody ? `<h3 style="margin:12px 0 4px" id="importStrayHead">Not matched (${rows.length - matched})</h3><div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}" id="importStrays"><thead>${head('Sample name in file', 'Target')}</thead><tbody>${strayBody}</tbody></table></div>` : ''}`;
 
     // What the file did not bring, for the experiments it matched into: said up front, so a gap is seen before
     // the import and not when the experiment page still shows a sample as open.
@@ -375,7 +401,7 @@ export async function render(el, ctx) {
     const when = el.querySelector('#importDate')?.value || todayISO(), who = el.querySelector('#importOperator')?.value ?? settings.operator ?? '';
     el.querySelector('#importPreview').innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 6px"><b>${esc(file.name)}</b><span class="muted" id="importReadAs">${readAs} · ${parsed.rows.length} row${parsed.rows.length === 1 ? '' : 's'} → ${samples.length} sample${samples.length === 1 ? '' : 's'} · SHA-256 ${hash.slice(0, 8)}…</span>${chip(`${matched} matched`, 'ok')} ${chip(`${rows.length - matched} unmatched`, rows.length - matched ? 'warn' : '')}${refusedRows.length ? ' ' + chip(`${refusedRows.length} refused`, 'bad') : ''}</div>
       ${dupHtml}${missingHtml}${apartHtml}
-      <div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}${gridLook ? ' egrid' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      ${tables}
       ${refusedNote ? `<div class="note warn">${refusedNote}</div>` : ''}
       <div class="impGo"><button class="primary" id="doImport">Import selected</button>
         <label class="inline">measured <input type="date" id="importDate" value="${esc(when)}" aria-label="Date measured, unless the file gives one"></label>
@@ -563,6 +589,8 @@ function wireEdit(el, ctx, settings, m) {
     }
   });
   form.addEventListener('input', (e) => e.target.classList?.remove('invalid'));
+  // A correction typed and not saved is asked about before leaving (spec 9.1); Save and Cancel draw the record again.
+  registerDirty(form, 'a correction of this result', () => [...form.querySelectorAll('input[data-orig]')].some((i) => !i.readOnly && i.value !== i.dataset.orig) || !!el.querySelector('#editReason')?.value.trim());
   el.querySelector('#cancelEdit').addEventListener('click', () => detail(el, ctx, settings, m.id));
   el.querySelector('#saveEdit').addEventListener('click', () => {
     const errors = [];

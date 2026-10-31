@@ -7,7 +7,7 @@
 //
 // What a cell says and what a row stores are worked out in app/calc/gridentry.js, so the rules can be tested
 // without a browser, and the import preview draws its cells with the same functions.
-import { esc, toast, todayISO } from './kit.js';
+import { esc, toast, todayISO, registerDirty } from './kit.js';
 import { TEST_LABEL } from '../calc/evaluate.js';
 import { describeId, sampleName } from '../schema.js';
 import { GRID_COLUMNS, COLUMN_BY_ID, columnsForTests, parseCell, parseClipboard, distributePaste, rowResults, cellState, cellSummary, cellTextOf, undoGridSave } from '../calc/gridentry.js';
@@ -123,6 +123,9 @@ export function wireEntry(el, ctx, settings, experiments, batches, measurements,
   };
   card.querySelector('summary').addEventListener('click', () => { cardOpen = !card.open; });
   if (!c) return;
+  // Leaving with values typed and not saved asks first (spec 9.1). What was typed is kept for the session
+  // either way (`typed`), but a person leaving may not know that, and a reload would lose it.
+  registerDirty(card, 'results typed into the grid', () => [...typed.values()].some((v) => String(v).trim()));
   card.querySelector('#egExp').addEventListener('change', (e) => { cardOpen = true; writeHash({ egexp: e.target.value, egstage: '', egcols: '' }); redraw(); });
   card.querySelector('#egStage').addEventListener('change', (e) => { cardOpen = true; writeHash({ egexp: c.exp.id, egstage: e.target.value }); redraw(); });
   card.querySelectorAll('[data-egcol]').forEach((b) => b.addEventListener('change', () => {

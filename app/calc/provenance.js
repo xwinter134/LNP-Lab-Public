@@ -8,7 +8,13 @@
 // older measurement that names its instrument file in `raw` is the one exception, because the file name and its
 // hash are written on it.
 
-export const SOURCES = { manual: 'Typed in', 'instrument-import': 'Instrument file', 'mcp-import': 'Imported with Claude', restore: 'Restored from a backup' };
+// 'restore' is what scripts/import-tidy.mjs writes (app/calc/importcheck.js checkTidy, its default source): rows read
+// out of tidy tables, an old lab's spreadsheets. It never meant a backup restored in Settings, which keeps each
+// record's own provenance, so it is labelled for what it is.
+export const SOURCES = { manual: 'Typed in', 'instrument-import': 'Instrument file', 'mcp-import': 'Imported with Claude', restore: 'Imported from tables' };
+
+/** Whether a result came from an instrument's file: its provenance says so, or it names the file's hash in `raw`. */
+export const fromInstrumentFile = (m) => m?.provenance?.source === 'instrument-import' || !!m?.raw?.sha256;
 
 /** A provenance record, with only the fields that have a value. */
 export function provenance(source, extra = {}) {

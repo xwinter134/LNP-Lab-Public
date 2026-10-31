@@ -9,6 +9,8 @@
     "test": "node --test",
     "smoke": "node tests/smoke.mjs",
     "scale": "node tests/usability/scale.mjs",
+    "scale:data": "node tests/usability/scale.mjs --formulations 10000",
+    "back": "node tests/usability/back.mjs",
     "campaign": "node tests/usability/campaign.mjs --seeds 5 --rounds 4",
     "history": "node tests/usability/history.mjs",
     "dist": "node scripts/dist.mjs",

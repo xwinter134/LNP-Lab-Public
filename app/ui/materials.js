@@ -16,7 +16,7 @@
 // for a shipped entry) says where it is used and offers to archive it instead. Where a component is used is asked
 // of one helper for every tab, calc/usage.js whereUsed(); the sentences that say it stay here, in each tab's words.
 // Archived components leave these tables and every picker, and are listed in the Archived card with Restore.
-import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask, raw, table, redrawSoon } from './kit.js';
+import { esc, fmt, field, readForm, chip, toast, header, todayISO, fmtDate, uid, ask, raw, table, redrawSoon, registerDirty, fieldsChanged } from './kit.js';
 import { DESCRIPTORS } from '../calc/ml/lipidmode.js';
 import { getRef, getSettings } from '../refdata.js';
 import { archive, unarchive, archivedSet, whereUsed, usesBy, KINDS } from '../calc/usage.js';
@@ -50,6 +50,10 @@ export async function render(el, ctx) {
     window.dispatchEvent(new HashChangeEvent('hashchange')); // drawn again from the address as it is now
   });
   PANELS[tab](el.querySelector('#tabBody'), ctx);
+  // An editor open with a field changed and not saved is asked about before leaving (spec 9.1). Each editor is
+  // drawn from its record and drawn again on Save and Cancel, so "changed" is a field that differs from its markup.
+  const tabBody = el.querySelector('#tabBody');
+  registerDirty(tabBody, 'changes in the open editor', () => [...tabBody.querySelectorAll('.mat-editor')].some((ed) => fieldsChanged(ed)));
   // The optimizer's lipid descriptors (spec 7.3.2), only with the descriptor mode switched on in Settings.
   if (tab === 'lipids' && getSettings(ctx).mlDescriptors) {
     el.querySelector('#tabBody').insertAdjacentHTML('beforeend', descriptorCard(getRef(ctx)));

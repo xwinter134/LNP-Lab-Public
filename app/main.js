@@ -2,7 +2,7 @@
 // Each screen lives in app/ui/<name>.js and exports render(el, ctx).
 import { Store, storageProblem, describeFailure } from './store.js';
 import { loadReferenceData, describeId, orphanedResults } from './schema.js';
-import { toast, dropOldToasts, todayISO, esc, ask, savePending, listDrafts } from './ui/kit.js';
+import { toast, dropOldToasts, todayISO, esc, ask, savePending, listDrafts, unsavedWork, leaveQuestion } from './ui/kit.js';
 import { ICONS } from './ui/icons.js';
 import { experimentProgress, TYPES } from './calc/experiment.js';
 import { demoOn, setDemo, storeNamespace, seedDemo, demoSeeded, wipeDemo, DEMO_NS } from './demo.js';
@@ -10,7 +10,7 @@ import { migrate } from './migrate.js';
 import { keepRetiredTffModules, getSettings } from './refdata.js';
 import { mountSearch } from './ui/searchbox.js';
 import { feedbackUrl, feedbackMail, openExternal, FEEDBACK_EMAIL } from './ui/feedback.js';
-import { mountCrumbs, countStep, wireBackKeys, setTrail } from './ui/crumbs.js';
+import { mountCrumbs, countStep, wireBackKeys, setTrail, stayStep, currentDepth } from './ui/crumbs.js';
 import { anyLayerOn } from './calc/bio.js';
 
 /** Shown in the sidebar footer so the running copy can be matched against the repository (bump on each push). */
@@ -403,7 +403,32 @@ window.lnpDb = {
   engine: () => store.engine,
 };
 
-window.addEventListener('hashchange', route);
+// Spec 9.1: a form holding typed, unsaved input (kit.js registerDirty) is asked about before the next screen is
+// drawn, whichever way the user is leaving: a link, the sidebar, a crumb, Back. Staying puts the address back
+// the way it came (crumbs.js stayStep), and that hash change is not routed: the screen never left.
+let stayingAt = null, askingLeave = false;
+window.addEventListener('hashchange', async (e) => {
+  if (stayingAt != null && location.hash === stayingAt) { stayingAt = null; return; }
+  stayingAt = null;
+  if (askingLeave) return;
+  const was = (() => { try { return new URL(e.oldURL).hash; } catch { return ''; } })();
+  const unsaved = booted && e.oldURL && was !== location.hash ? unsavedWork() : []; // a redraw dispatched by a screen has no oldURL
+  if (unsaved.length) {
+    const entry = (() => { try { return history.state; } catch { return null; } })();
+    askingLeave = true;
+    let leave = false;
+    try { leave = await ask(leaveQuestion(unsaved)); } finally { askingLeave = false; }
+    if (!leave) {
+      stayingAt = was || '#/overview';
+      if (stayStep(entry, currentDepth()) === 'forward') history.forward(); else history.back();
+      // Should the browser not move (no entry that way), the address is put back in place.
+      setTimeout(() => { if (stayingAt != null && location.hash !== stayingAt) { try { history.replaceState(history.state, '', stayingAt); } catch {} stayingAt = null; } }, 400);
+      return;
+    }
+  }
+  route();
+});
+if (!globalThis.__TAURI__) window.addEventListener('beforeunload', (e) => { if (unsavedWork().length) { e.preventDefault(); e.returnValue = ''; } });
 // A draft started or discarded while a screen stays open (the first keystroke into the wizard, a Discard) is
 // shown in the sidebar at once, not only after the next navigation.
 window.addEventListener('lnp:drafts', () => { if (booted) { try { renderNav(...navArgs); } catch (err) { console.error(err); } } });

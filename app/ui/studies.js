@@ -6,7 +6,7 @@
 //
 // The calculations are all in app/calc/bio.js (normalisation, statistics), app/calc/parsers.js (plates),
 // app/calc/ivis.js and app/calc/bli.js (images); this file draws and stores.
-import { esc, raw, table, header, chip, toast, field, autoSaver, todayISO } from './kit.js';
+import { esc, raw, table, header, chip, toast, field, autoSaver, todayISO, registerDirty, fieldsChanged } from './kit.js';
 import { getSettings, getRef } from '../refdata.js';
 import {
   LAYERS, layerById, activeLayers, CATALOGS, catalog, catalogRecord, nextStudyId, newStudy, nextGroupId, studyWarnings,
@@ -311,6 +311,8 @@ function enterPart(body, ctx, st, on, redraw) {
     <p style="display:flex;gap:8px"><button type="button" id="addRow">Add row</button><button type="button" class="primary" id="saveValues">Save values</button></p></div>`;
   wireSeriesPicker(body, ctx, st, 'enter');
   const grid = body.querySelector('#enterGrid tbody');
+  // Values typed or pasted and not saved are asked about before leaving (spec 9.1); Save draws the grid again.
+  registerDirty(grid, 'values typed into the study grid', () => fieldsChanged(grid, '[name=e_value], [name=e_subject], [name=e_group]'));
   // A pasted column (from Excel) fills the value boxes from the one pasted into, downwards.
   grid.addEventListener('paste', (e) => {
     const t = e.target;
