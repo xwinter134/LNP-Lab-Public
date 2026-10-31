@@ -137,6 +137,6 @@ test("a finding of Claude's report opens its formulations in Data, together", ()
   const report = { id: 'r1', createdAt: '2026-10-01T10:00:00.000Z', dataState: { formulations: 4 }, findings: [{ text: 'Higher FRR, smaller particles', analysis: 'correlation', formulationIds: ['E1-F1', 'E1-F2', 'E1-F1'] }] };
   const store = { get: (col, id) => (col === 'settings' && id === 'default' ? { id: 'default', personalBuild: true } : null), all: (col) => (col === 'insightReports' ? [report] : col === 'batches' ? src.batches : []) };
   const html = claudeReportCard({ store });
-  assert.match(html, /<a class="reportIds" href="#\/data\?ids=E1-F1%2CE1-F2"[^>]*>E1-F1, E1-F2<\/a>/);
+  assert.match(html, /<a class="reportIds" data-report-link href="#\/data\?ids=E1-F1%2CE1-F2"[^>]*>E1-F1, E1-F2<\/a>/);
   assert.doesNotMatch(html, /#\/formulation\?batch=/);
 });

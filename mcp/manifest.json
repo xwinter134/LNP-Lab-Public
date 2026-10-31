@@ -17,7 +17,8 @@
       "env": {
         "LNP_LAB_DB": "${user_config.db_path}",
         "LNP_LAB_OUT": "${user_config.out_dir}",
-        "LNP_LAB_PERSONAL": "${user_config.personal}"
+        "LNP_LAB_PERSONAL": "${user_config.personal}",
+        "LNP_LAB_BACKUP": "${user_config.backup_path}"
       }
     }
   },
@@ -26,7 +27,7 @@
     { "name": "list_catalog", "description": "The lab's lipids, buffers, compositions, experiments and mixers" },
     { "name": "read_file", "description": "Read an .xlsx or .csv file: every sheet, raw rows" },
     { "name": "dry_run_import", "description": "Check mapped rows and return the quality report, writing nothing" },
-    { "name": "commit_import", "description": "Write an approved import (needs the dry run's token)" },
+    { "name": "commit_import", "description": "Write an approved import (needs the dry run's token and your confirmation)" },
     { "name": "quality_report", "description": "Quality of one import or the whole lab" },
     { "name": "rollback_import", "description": "Move an import whole into the lab's trash" },
     { "name": "list_imports", "description": "The import history with counts" }
@@ -49,6 +50,12 @@
       "title": "Folder for import files",
       "description": "Where import files for the browser version of LNP Lab are written.",
       "default": "${DOWNLOADS}",
+      "required": false
+    },
+    "backup_path": {
+      "type": "file",
+      "title": "Backup file (browser version)",
+      "description": "Only for the browser version: a file saved with Settings › Export everything, read as your lab (numbers, duplicates, import history). Leave empty for the macOS app.",
       "required": false
     },
     "personal": {

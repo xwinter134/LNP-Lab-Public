@@ -78,6 +78,21 @@ export function readLab(dbPath, ns = 'lnp-lab') {
 }
 export const emptyLab = (ns = 'lnp-lab') => ({ ns, all: () => [], get: () => null, count: () => 0 });
 
+/**
+ * A backup file of the browser version (Settings › Export everything: {exportedAt, ns, collections}) as a
+ * read-only lab, the same {ns, all, get, count} as readLab. The browser keeps its lab where nothing outside it can
+ * read, so for quality_report and list_imports a fresh backup is the browser version's lab (spec 6.2). Read once
+ * per call, never written: a backup is evidence, and the import file goes beside it.
+ */
+export function readBackup(path, ns = 'lnp-lab') {
+  let obj;
+  try { obj = JSON.parse(readFileSync(path, 'utf8')); } catch (err) { throw new Error(`cannot read the backup file ${path}: ${err.message}`); }
+  const cols = obj && typeof obj.collections === 'object' && obj.collections ? obj.collections : null;
+  if (!cols) throw new Error(`${path} is not an LNP Lab backup (Settings › Export everything writes one)`);
+  const all = (col) => (Array.isArray(cols[col]) ? cols[col].filter((r) => r && typeof r === 'object').map((r) => r) : []);
+  return { ns: obj.ns || ns, all, get: (col, id) => all(col).find((r) => r?.id === id) ?? null, count: (col) => all(col).length, exportedAt: obj.exportedAt || null };
+}
+
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } };
 
 /**

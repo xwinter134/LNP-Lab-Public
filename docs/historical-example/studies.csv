@@ -1,0 +1,5 @@
+study_key,name,type,layers,date,licence,subtract_background,group,group_name,role,exp_key,form_key,formulation_id,n,species,strain,sex,route,dose_mg_kg,timepoint_h,organs
+GH-IV-01,Liver expression FRR 2 vs 3,in vivo,invivo;biodist,2024-03-20,EXAMPLE-0001,yes,Ref,FRR 3 (lab standard),reference,GH-2024-03,F2,,3,mouse,C57BL/6,female,i.v.,0.5,6,liver;spleen
+GH-IV-01,,,,,,,T1,FRR 2,test,GH-2024-03,F1,,3,,,,,,,
+GH-IV-01,,,,,,,PBS,PBS,negative,,,,2,,,,,,,
+GH-IV-01,,,,,,,T2,acetate,control,GH-2024-05,A,,3,,,,,,,

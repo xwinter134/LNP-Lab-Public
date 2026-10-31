@@ -26,7 +26,7 @@ test('the example tables: five formulations in, one refused for an unknown lipid
   assert.equal(b.provenance.row, 2, 'each record names the row it came from');
   const q = readFileSync(join(out, 'quarantine.csv'), 'utf8');
   assert.match(q, /Lipid-X/);
-  assert.match(q, /pdi 8\.5 is outside 0–1, probably a typing slip/);
+  assert.match(q, /PDI 8\.5 is outside 0–1, probably a typing slip/);
   assert.match(q, /no formulation GH-2024-05\/C/);
   assert.match(readFileSync(join(out, 'quality-report.md'), 'utf8'), /\| Formulations \| 6 \| 5 \| 1 \|/);
 });

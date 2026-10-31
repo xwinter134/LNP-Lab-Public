@@ -1,0 +1,14 @@
+study_key,group,subject,layer,quantity,value,unit,organ,population,timepoint_h,view,notes
+GH-IV-01,Ref,M1,invivo,total_flux,1.2e8,p/s,,,6,ventral,
+GH-IV-01,Ref,M2,invivo,total_flux,0.9e8,p/s,,,6,ventral,
+GH-IV-01,Ref,M3,invivo,total_flux,1.1e8,p/s,,,6,ventral,
+GH-IV-01,T1,M4,invivo,total_flux,3.4e8,p/s,,,6,ventral,
+GH-IV-01,T1,M5,invivo,total_flux,2.8e8,p/s,,,6,ventral,
+GH-IV-01,T1,M6,invivo,total_flux,3.1e8,RLU,,,6,ventral,unit typed wrong in the sheet
+GH-IV-01,PBS,M7,invivo,total_flux,2.1e5,p/s,,,6,ventral,
+GH-IV-01,PBS,M8,invivo,total_flux,1.9e5,p/s,,,6,ventral,
+GH-IV-01,Ref,M1,biodist,organ_flux,8.0e7,p/s,liver,,6,,ex vivo
+GH-IV-01,Ref,M2,biodist,organ_flux,6.5e7,p/s,liver,,6,,ex vivo
+GH-IV-01,T1,M4,biodist,organ_flux,2.2e8,p/s,liver,,6,,ex vivo
+GH-IV-01,T1,M5,biodist,organ_flux,1.9e8,p/s,liver,,6,,ex vivo
+GH-IV-01,Ref,M1,biodist,organ_flux,4.0e6,p/s,spleen,,6,,ex vivo

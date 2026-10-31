@@ -6,11 +6,19 @@
 // app's web view offers as its file dialog). Nothing is uploaded anywhere. The images themselves are not copied
 // into the database, which would grow by a megabyte per acquisition: each file is recorded by its path inside
 // the picked folder and its SHA-256, so the original can be found and proven unchanged; the record keeps what
-// the spec asks to keep per mouse (crop, mask, ROI values, algorithm version) and every correction made here.
+// the spec asks to keep per mouse (standardised crops, mask, ROI values, algorithm version) and every correction
+// made here.
+//
+// Review (spec 8.7, "every value can be checked in the image, the ROI overlay clickable, and corrected by hand"):
+// a saved image is opened again by picking its export folder once more; the files are matched to the record by
+// SHA-256 (calc/bli.js matchFiles) and anything else is refused, so a record is never shown over other pictures.
+// On the overlay a click picks a mouse, moves its liver ROI, or paints its mask (add or erase with a round
+// brush); each change is logged with the algorithm version it corrected, the material later training data are
+// made from.
 import { esc, raw, table, toast, chip, field } from './kit.js';
 import { readTiff } from '../calc/tiff.js';
 import { clickMeta, parseCalibration, groupClickFolders, animalIdsFromComment, viewFrom } from '../calc/ivis.js';
-import { analyseClick, METHODS, DEFAULT_METHOD, moveLiver, logCorrection, decodeMask } from '../calc/bli.js';
+import { analyseClick, METHODS, DEFAULT_METHOD, moveLiver, logCorrection, decodeMask, mouseAt, editMask, matchFiles, restoreMice } from '../calc/bli.js';
 import { suggestAnimals, bliToMeasurements } from '../calc/bio.js';
 import { sha256 } from '../calc/sha256.js';
 import { provenance } from '../calc/provenance.js';
@@ -19,6 +27,16 @@ import { getSettings } from '../refdata.js';
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const sci = (x) => (Number.isFinite(x) ? x.toExponential(2) : '–');
 const latin1 = (bytes) => new TextDecoder('windows-1252').decode(bytes);
+
+/** The SHA-256 of each image and text file of a click folder: [{name, sha256}], to match a saved record by. */
+export async function hashClick(files) {
+  const out = [];
+  for (const [name, f] of Object.entries(files)) {
+    if (!/\.(tif|tiff|txt)$/i.test(name)) continue;
+    out.push({ name: f.name || name, sha256: hex(sha256(new Uint8Array(await f.arrayBuffer()))) });
+  }
+  return out;
+}
 
 /** Read and analyse one click folder: {folder, files: {name: File}} → everything the card needs. */
 export async function readClick({ folder, files }, { method = DEFAULT_METHOD, expected = null } = {}) {
@@ -108,9 +126,43 @@ export function mountBli(body, ctx, st, redraw) {
       ${field({ id: 'bliCount', label: 'Mice per image', type: 'number', value: '', placeholder: 'from the comment', hint: 'Blank: the ids in the Living Image comment, or an estimate from size.' })}
     </div>
     <div id="bliItems"></div></div>
-    <div class="card"><h2>Images saved in this study</h2>${table(['Folder', 'Acquired', 'View', { label: 'Mice', right: true }, 'Algorithm', { label: 'Corrections', right: true }],
-      saved.map((b) => ({ cells: [b.folder, b.meta?.date || '–', b.view || '–', (b.mice || []).length, b.algorithm ? `${b.algorithm.version} ${b.algorithm.method}` : '–', (b.corrections || []).length] })), { empty: 'None yet.' })}</div>`;
+    <div class="card" id="bliSaved"><h2>Images saved in this study</h2>${table(['Folder', 'Acquired', 'View', { label: 'Mice', right: true }, 'Algorithm', { label: 'Corrections', right: true }, ''],
+      saved.map((b) => ({ attrs: `data-bli-image="${esc(b.id)}"`, cells: [b.folder, b.meta?.date || '–', b.view || '–', (b.mice || []).length, b.algorithm ? `${b.algorithm.version} ${b.algorithm.method}` : '–', (b.corrections || []).length,
+        raw(`<button type="button" data-bli-review="${esc(b.id)}">Review</button>`)] })), { empty: 'None yet.' })}
+      <div id="bliReview"></div></div>`;
   const itemsBox = body.querySelector('#bliItems');
+  // Review a saved image: its export folder is picked again, and opened only when every file is the one saved.
+  body.querySelectorAll('[data-bli-review]').forEach((btn) => btn.addEventListener('click', () => {
+    const rec = ctx.store.get('bliImages', btn.dataset.bliReview);
+    if (!rec) return;
+    const box = body.querySelector('#bliReview');
+    box.innerHTML = `<div class="note" style="margin-top:10px"><b>Review ${esc(rec.folder)}</b>: pick its export folder again. The files are matched to the record by SHA-256; other files are refused.
+      <div class="grid g2" style="margin-top:6px"><div><label for="bliReviewDir">Export folder</label><input type="file" id="bliReviewDir" webkitdirectory directory multiple></div>
+      <div><label for="bliReviewFiles">or its files</label><input type="file" id="bliReviewFiles" multiple accept=".tif,.TIF,.txt"></div></div><div id="bliReviewSay"></div></div>`;
+    const pick = async (fileList) => {
+      const say = box.querySelector('#bliReviewSay');
+      const all = [...fileList].map((f) => ({ path: f.webkitRelativePath || f.name, name: f.name, file: f }));
+      const groups = groupClickFolders(all).map((g) => ({ folder: g.folder || '(files)', files: Object.fromEntries(Object.entries(g.files).map(([k, v]) => [k, v.file])) }));
+      const gr = groups.find((g) => g.folder === rec.folder) || (groups.length === 1 ? groups[0] : null);
+      if (!gr) { say.innerHTML = `<p class="warn" id="bliReviewRefused">No acquisition ${esc(rec.folder)} among the files picked.</p>`; return; }
+      const check = matchFiles(rec.files || [], await hashClick(gr.files));
+      if (!check.ok) { say.innerHTML = `<p class="warn" id="bliReviewRefused">${esc(check.message)}</p>`; return; }
+      say.innerHTML = '<p class="muted">The files match. Opening …</p>';
+      let it;
+      try { it = await readClick(gr, { method: rec.algorithm?.method || DEFAULT_METHOD, expected: (rec.mice || []).length || null }); } catch (err) { say.innerHTML = `<p class="warn">${esc(err.message)}</p>`; return; }
+      it.folder = rec.folder;
+      it.analysis = restoreMice(it.analysis, rec);
+      it.view = rec.view || it.view;
+      it.review = rec;
+      if (rec.timepoint_h != null) body.querySelector('#bliTp').value = rec.timepoint_h;
+      say.innerHTML = '';
+      itemsBox.innerHTML = '';
+      itemCard(itemsBox, ctx, st, it, 0, () => body.querySelector('#bliTp').value, redraw);
+      itemsBox.scrollIntoView?.({ block: 'nearest' });
+    };
+    box.querySelector('#bliReviewDir').addEventListener('change', (e) => e.target.files?.length && pick(e.target.files));
+    box.querySelector('#bliReviewFiles').addEventListener('change', (e) => e.target.files?.length && pick(e.target.files));
+  }));
   const load = async (fileList) => {
     const files = [...fileList].map((f) => ({ path: f.webkitRelativePath || f.name, name: f.name, file: f }));
     const groups = groupClickFolders(files).map((g) => ({ folder: g.folder || '(files)', files: Object.fromEntries(Object.entries(g.files).map(([k, v]) => [k, v.file])) }));
@@ -140,20 +192,30 @@ function itemCard(box, ctx, st, it, k, timepoint, redraw) {
   const corrections = [];
   const operator = getSettings(ctx).operator || '';
   // Suggestions: the comment's ids left to right, else the next animals of the plan without a value yet.
-  const ms = ctx.store.all('bioMeasurements').filter((m) => m.studyId === st.id);
-  const known = new Map(ms.filter((m) => m.subject).map((m) => [m.subject, m.group]));
-  const taken = new Set(ms.filter((m) => m.quantity === 'total_flux').map((m) => m.subject));
-  const sugg = suggestAnimals(st, a.mice.length, { ids: it.ids, taken, known });
-  a.mice.forEach((m, i) => { m.subject = sugg[i].subject; m.group = sugg[i].group; m.suggested = { ...sugg[i] }; });
+  // A saved image under review keeps the animals it was saved with; a new one gets suggestions.
+  if (!it.review) {
+    const ms = ctx.store.all('bioMeasurements').filter((m) => m.studyId === st.id);
+    const known = new Map(ms.filter((m) => m.subject).map((m) => [m.subject, m.group]));
+    const taken = new Set(ms.filter((m) => m.quantity === 'total_flux').map((m) => m.subject));
+    const sugg = suggestAnimals(st, a.mice.length, { ids: it.ids, taken, known });
+    a.mice.forEach((m, i) => { m.subject = sugg[i].subject; m.group = sugg[i].group; m.suggested = { ...sugg[i] }; });
+  }
+  a.mice.forEach((m) => { m.suggested ||= { from: 'saved' }; });
   let view = it.view || '';
   let selected = a.mice[0]?.n ?? null;
+  // What a click on the image does: pick a mouse, move the picked mouse's liver ROI, or paint its mask.
+  let tool = 'select';
+  let brushCm = 0.3;
   const groupOpts = (cur) => `<option value="">–</option>` + (st.groups || []).map((g) => `<option value="${esc(g.id)}" ${g.id === cur ? 'selected' : ''}>${esc(g.name || g.id)}</option>`).join('');
   const draw = () => {
     const L = it.meta.luminescent || {};
     const warns = a.mice.flatMap((m) => m.warnings.map((w) => `Mouse ${m.n}: ${w}`));
     wrap.innerHTML = `<h3 style="margin:0 0 6px">${esc(it.folder)} <span class="muted" style="font-weight:400">· ${esc(L.date || '')} ${esc(L.time || '')} · ${a.mice.length} mice · exposure ${esc(L.exposure_s ?? '–')} s, binning ${esc(L.binning ?? '–')}, f/${esc(L.fNumber ?? '–')}, FOV ${esc(L.fov_cm ?? '–')} cm${it.meta.version ? ` · Living Image ${esc(it.meta.version.split(' ')[0])}` : ''}</span></h3>
       <div class="grid g2"><div><canvas class="bliCanvas" style="width:100%;max-width:480px;cursor:crosshair;border-radius:8px;display:block" aria-label="Photograph with the mice found, numbered left to right"></canvas>
-        <p class="muted" style="font-size:12px">Outlines: the masks the flux is summed over. Ellipses: liver ROIs (dashed as found, solid when moved). Warm tint: luminescence. Click a row, then the image, to move that mouse's liver ROI.</p></div>
+        <div class="bliTools" role="radiogroup" aria-label="What a click on the image does" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px">
+          ${[['select', 'Pick a mouse'], ['liver', 'Move liver ROI'], ['add', 'Add to mask'], ['erase', 'Erase from mask']].map(([v, l]) => `<label style="display:flex;gap:4px;align-items:center"><input type="radio" name="bliTool${k}" value="${v}" ${v === tool ? 'checked' : ''} style="width:auto">${l}</label>`).join('')}
+          <label style="display:flex;gap:4px;align-items:center">Brush <input type="number" name="bliBrush${k}" value="${brushCm}" min="0.05" max="2" step="0.05" style="width:64px" aria-label="Brush radius (cm)"> cm</label></div>
+        <p class="muted" style="font-size:12px">Outlines: the masks the flux is summed over. Ellipses: liver ROIs (dashed as found, solid when moved). Warm tint: luminescence. Click a mouse to pick it; with "Move liver ROI" a click places the picked mouse's liver ROI, with the brush it adds to or erases from its mask, and the mouse is measured again.</p></div>
       <div>
         <div class="grid g2">${field({ id: `bliView${k}`, label: 'View', type: 'select', value: view, options: [{ value: '', label: 'not stated' }, 'dorsal', 'ventral'] })}
           <div><label>Found by</label><div class="muted">${esc(a.algorithm.name)} ${esc(a.algorithm.version)}, ${esc(a.algorithm.method)}; ${esc(a.conversion.dark)}; flat field ${esc(a.conversion.flatField)}</div></div></div>
@@ -170,21 +232,39 @@ function itemCard(box, ctx, st, it, k, timepoint, redraw) {
             raw(`<input type="checkbox" data-f="excluded" ${m.excluded ? 'checked' : ''} aria-label="Leave mouse ${m.n} out" style="width:auto">`),
           ] })))}
         ${warns.length || a.notes.length ? `<div class="note ${warns.length ? 'warn' : ''}" style="margin-top:8px">${[...warns, ...a.notes].map((w) => `<div>${esc(w)}</div>`).join('')}</div>` : ''}
-        <p style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="primary" data-bli-save>Confirm and save</button><span class="muted">${corrections.length ? `${corrections.length} correction${corrections.length === 1 ? '' : 's'} logged` : 'Suggested from ' + (it.ids.length === a.mice.length ? 'the comment in Living Image' : 'the study plan, by position')}</span></p>
+        <p style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="primary" data-bli-save>${it.review ? 'Save the review' : 'Confirm and save'}</button><span class="muted" data-bli-say>${corrections.length ? `${corrections.length} correction${corrections.length === 1 ? '' : 's'} logged` : it.review ? `Saved ${esc(String(it.review.updatedAt || it.review.createdAt || '').slice(0, 10))}, opened over the same files` : 'Suggested from ' + (it.ids.length === a.mice.length ? 'the comment in Living Image' : 'the study plan, by position')}</span></p>
       </div></div>`;
     const canvas = wrap.querySelector('canvas');
     drawOverlay(canvas, it, selected);
     canvas.addEventListener('click', (e) => {
-      if (selected == null) return;
       const r = canvas.getBoundingClientRect();
       const x = (e.clientX - r.left) * canvas.width / r.width, y = (e.clientY - r.top) * canvas.height / r.height;
+      if (tool === 'select') {
+        const n = mouseAt(a, x, y);
+        if (n != null && n !== selected) { selected = n; draw(); }
+        return;
+      }
+      if (selected == null) return;
       const m = a.mice.find((q) => q.n === selected);
-      const moved = moveLiver(a, selected, x, y);
-      if (!m || !moved) return;
-      corrections.push(logCorrection({ mouse: m.n, field: 'liver', from: { cx: Math.round(m.liver.cx), cy: Math.round(m.liver.cy), flux: m.liver.flux }, to: { cx: Math.round(x), cy: Math.round(y), flux: moved.flux }, by: operator, algorithm: a.algorithm }));
-      m.liver = moved;
+      if (!m) return;
+      if (tool === 'liver') {
+        const moved = moveLiver(a, selected, x, y);
+        if (!moved) return;
+        corrections.push(logCorrection({ mouse: m.n, field: 'liver', from: { cx: Math.round(m.liver.cx), cy: Math.round(m.liver.cy), flux: m.liver.flux }, to: { cx: Math.round(x), cy: Math.round(y), flux: moved.flux }, by: operator, algorithm: a.algorithm }));
+        m.liver = moved;
+        draw();
+        return;
+      }
+      const next = editMask(a, selected, { x, y, r: Math.max(1, brushCm / a.photo.cmPerPixel), mode: tool });
+      if (!next) { toast(tool === 'add' ? 'Nothing added: the brush is inside the mask already, or on another mouse' : 'Nothing erased there (a mask cannot be erased to nothing: leave the mouse out instead)', 'warn'); return; }
+      corrections.push(logCorrection({ mouse: m.n, field: 'mask', from: { areaCm2: m.areaCm2, totalFlux: m.totalFlux, liverFlux: m.liver.flux }, to: { areaCm2: next.areaCm2, totalFlux: next.totalFlux, liverFlux: next.liver.flux, mode: tool, x: Math.round(x), y: Math.round(y), rCm: brushCm }, by: operator, algorithm: a.algorithm }));
+      const { maskEdit, ...rest } = next;
+      Object.assign(m, rest);
       draw();
     });
+    wrap.querySelectorAll(`[name="bliTool${k}"]`).forEach((r) => r.addEventListener('change', () => { tool = r.value; canvas.style.cursor = tool === 'select' ? 'pointer' : 'crosshair'; }));
+    canvas.style.cursor = tool === 'select' ? 'pointer' : 'crosshair';
+    wrap.querySelector(`[name="bliBrush${k}"]`).addEventListener('change', (e) => { const v = Number(e.target.value); if (v > 0) brushCm = v; });
     wrap.querySelectorAll(`[name="bliSel${k}"]`).forEach((r) => r.addEventListener('change', () => { selected = Number(r.value); draw(); }));
     wrap.querySelector(`[name="bliView${k}"]`).addEventListener('change', (e) => { view = e.target.value; });
     wrap.querySelectorAll('tr[data-mouse]').forEach((tr) => tr.addEventListener('change', (e) => {
@@ -203,15 +283,19 @@ function itemCard(box, ctx, st, it, k, timepoint, redraw) {
     const tpv = timepoint();
     const lumFile = it.files.find((f) => /^luminescent\.tif$/i.test(f.name));
     const image = {
-      id: `bli:${st.id}:${it.meta.clickNumber || it.folder}`, studyId: st.id, folder: it.folder, clickNumber: it.meta.clickNumber,
+      id: it.review?.id || `bli:${st.id}:${it.meta.clickNumber || it.folder}`, studyId: st.id, folder: it.folder, clickNumber: it.meta.clickNumber,
       files: it.files, view, timepoint_h: tpv === '' || tpv == null ? null : Number(tpv),
       meta: { date: it.meta.luminescent?.date || '', time: it.meta.luminescent?.time || '', exposure_s: it.meta.luminescent?.exposure_s, binning: it.meta.luminescent?.binning, fNumber: it.meta.luminescent?.fNumber, fov_cm: it.meta.luminescent?.fov_cm, version: it.meta.version, instrument: it.cal.instrument, comment: it.meta.comment },
       algorithm: a.algorithm, conversion: a.conversion, background: a.background, threshold: a.threshold, notes: a.notes,
       photo: a.photo,
-      mice: a.mice.map((m) => ({ n: m.n, bbox: m.bbox, areaCm2: m.areaCm2, mask: m.mask, crop: m.crop, axis: { angle: m.axis.angle, lengthCm: m.axis.lengthCm, widthCm: m.axis.widthCm, headFrom: m.axis.headFrom }, totalFlux: m.totalFlux, grossFlux: m.grossFlux, totalFluxManual: m.totalFluxManual ?? null, liver: m.liver, backgroundOverMouse: m.backgroundOverMouse, saturatedPixels: m.saturatedPixels, warnings: m.warnings, subject: m.subject, group: m.group, suggested: m.suggested, excluded: !!m.excluded })),
+      // The axis with its ends and centre, so a review can correct the mask and keep the head where it was.
+      mice: a.mice.map((m) => ({ n: m.n, bbox: m.bbox, areaCm2: m.areaCm2, mask: m.mask, crop: m.crop, lumCrop: m.lumCrop || null,
+        axis: { angle: m.axis.angle, lengthCm: m.axis.lengthCm, widthCm: m.axis.widthCm, headFrom: m.axis.headFrom, head: m.axis.head, tail: m.axis.tail, cx: m.axis.cx, cy: m.axis.cy, length: m.axis.length, width: m.axis.width },
+        totalFlux: m.totalFlux, grossFlux: m.grossFlux, totalFluxManual: m.totalFluxManual ?? null, liver: m.liver, backgroundOverMouse: m.backgroundOverMouse, saturatedPixels: m.saturatedPixels, warnings: m.warnings, subject: m.subject, group: m.group, suggested: m.suggested, excluded: !!m.excluded, ...(m.edited ? { edited: true } : {}) })),
       // Every correction made here, with the algorithm version it corrected, kept for later training data.
-      corrections: [...(ctx.store.get('bliImages', `bli:${st.id}:${it.meta.clickNumber || it.folder}`)?.corrections || []), ...corrections],
-      provenance: provenance('instrument-import', lumFile ? { file: { name: `${it.folder}/${lumFile.name}`, sha256: lumFile.sha256 } } : {}),
+      corrections: [...(ctx.store.get('bliImages', it.review?.id || `bli:${st.id}:${it.meta.clickNumber || it.folder}`)?.corrections || []), ...corrections],
+      provenance: it.review?.provenance || provenance('instrument-import', lumFile ? { file: { name: `${it.folder}/${lumFile.name}`, sha256: lumFile.sha256 } } : {}),
+      ...(it.review ? { reviewedAt: new Date().toISOString(), createdAt: it.review.createdAt } : {}),
     };
     const missing = image.mice.filter((m) => !m.excluded && (!m.subject || !m.group));
     if (missing.length) { toast(`Mouse ${missing.map((m) => m.n).join(', ')}: give an animal and a group, or leave it out`, 'warn'); return; }

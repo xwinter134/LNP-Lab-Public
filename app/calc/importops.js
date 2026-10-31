@@ -15,7 +15,7 @@ import { usedIds, raiseCounter } from '../schema.js';
 import { dataRows, completeness } from './facets.js';
 
 /** The collections an import writes records into, in the order a rollback lists them. */
-export const IMPORT_COLLECTIONS = ['experiments', 'batches', 'measurements', 'compositions', 'quarantine'];
+export const IMPORT_COLLECTIONS = ['experiments', 'batches', 'measurements', 'compositions', 'studies', 'bioMeasurements', 'quarantine'];
 
 const highestE = (ids) => Math.max(0, ...ids.map((id) => Number(/^E(\d+)$/.exec(String(id))?.[1] || 0)));
 
@@ -74,7 +74,9 @@ const stamp = (rows, now) => rows.map((r) => ({ ...r, createdAt: r.createdAt || 
 export function applyImport(store, result, meta = {}) {
   const now = new Date().toISOString();
   const quarantine = meta.fixedFrom ? [] : quarantineRecords(result, { at: now });
-  const keys = new Set([...result.quarantine.map((q) => q.originKey), ...[...result.batches, ...result.measurements, ...result.experiments].map((r) => r.provenance?.originKey)].filter(Boolean));
+  const studies = result.studies || [], bio = result.bioMeasurements || [], studyUpdates = result.studyUpdates || [];
+  const keys = new Set([...result.quarantine.map((q) => q.originKey), ...[...result.batches, ...result.measurements, ...result.experiments, ...bio].map((r) => r.provenance?.originKey), ...studies.flatMap((r) => r.provenance?.originKeys || []),
+    ...studyUpdates.flatMap((u) => u.groups.filter((g) => u.added.includes(g.id)).map((g) => g.provenance?.originKey))].filter(Boolean));
   let done = null;
   store.transaction(() => {
     const add = (col, rows) => {
@@ -95,25 +97,41 @@ export function applyImport(store, result, meta = {}) {
     add('measurements', result.measurements);
     add('compositions', result.compositions);
     add('mixers', result.mixers);
+    add('studies', studies);
+    if (studyUpdates.length) {
+      // Groups fixed from quarantine join their study; the group carries the provenance of its own row, so a
+      // later import of the same row is recognised.
+      const up = new Map(studyUpdates.map((u) => [u.id, u]));
+      store.replace('studies', store.all('studies').map((x) => {
+        const u = up.get(x.id);
+        if (!u) return x;
+        const groups = u.groups;
+        const ref = groups.find((g) => g.role === 'reference')?.batchId || x.referenceBatchId || null;
+        return { ...x, groups, referenceBatchId: ref, provenance: { ...x.provenance, originKeys: [...(x.provenance?.originKeys || []), ...groups.filter((g) => u.added.includes(g.id)).map((g) => g.provenance?.originKey).filter(Boolean)] }, updatedAt: now };
+      }));
+    }
+    add('bioMeasurements', bio);
     // Older open entries of the same source rows: this import has decided them, one way or the other.
     const q = store.all('quarantine').map((e) => (e.status === 'open' && keys.has(e.originKey) && e.id !== meta.fixedFrom ? { ...e, status: 'superseded', supersededBy: result.importId, updatedAt: now } : e));
     store.replace('quarantine', [...q, ...quarantine]);
     const ids = {
       experimentIds: result.experiments.map((e) => e.id), batchIds: result.batches.map((b) => b.id), measurementIds: result.measurements.map((m) => m.id),
       compositionIds: result.compositions.map((c) => c.id), quarantineIds: quarantine.map((x) => x.id),
+      studyIds: studies.map((x) => x.id), bioMeasurementIds: bio.map((m) => m.id),
     };
     const imp = store.get('imports', result.importId);
     if (imp) {
       const merged = Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, [...(imp[k] || []), ...v]]));
-      store.put('imports', { ...imp, ...merged, imported: (imp.imported || 0) + result.batches.length + result.measurements.length });
+      store.put('imports', { ...imp, ...merged, imported: (imp.imported || 0) + result.batches.length + result.measurements.length + bio.length });
     } else {
       const files = meta.files || [];
       store.put('imports', { id: result.importId, kind: meta.kind || 'mcp', source: meta.source || 'mcp-import', fileName: files.map((f) => f.name).join(', '), sha256: files[0]?.sha256 || null, files,
-        importedAt: result.importedAt, imported: result.batches.length + result.measurements.length, ...ids, duplicates: result.duplicates.length });
+        importedAt: result.importedAt, imported: result.batches.length + result.measurements.length + bio.length, ...ids, duplicates: result.duplicates.length });
     }
     const last = result.experiments[result.experiments.length - 1];
     if (last) raiseCounter(store, 'experiment', last.id);
-    done = { experiments: result.experiments.length, batches: result.batches.length, measurements: result.measurements.length, compositions: result.compositions.length, mixers: result.mixers.length, quarantine: quarantine.length };
+    done = { experiments: result.experiments.length, batches: result.batches.length, measurements: result.measurements.length, compositions: result.compositions.length, mixers: result.mixers.length,
+      studies: studies.length, bioMeasurements: bio.length, quarantine: quarantine.length };
   }, { what: `the import ${result.importId}` });
   if (store.readOnly) return { ok: false, importId: result.importId, reason: 'LNP Lab is open in another window, and this one only shows your records' };
   return { ok: true, importId: result.importId, written: done };
@@ -136,10 +154,17 @@ export function importRecords(lab, importId) {
   const ms = lab.all('measurements').filter((m) => ofImport(m, importId) || batchIds.has(m.batchId));
   const comps = lab.all('compositions').filter((c) => ofImport(c, importId))
     .filter((c) => !lab.all('batches').some((b) => b.compositionId === c.id && !batchIds.has(b.id)));
+  // A study the import made goes with every value in it (one typed in later, an IVIS image read into it); a value
+  // the import brought into a study of other origin goes alone.
+  const studies = lab.all('studies').filter((x) => ofImport(x, importId));
+  const studyIds = new Set(studies.map((x) => x.id));
+  const bio = lab.all('bioMeasurements').filter((m) => ofImport(m, importId) || studyIds.has(m.studyId));
+  const images = lab.all('bliImages').filter((b) => studyIds.has(b.studyId));
   const q = lab.all('quarantine').filter((e) => e.importId === importId);
-  const refs = [...exps.map((r) => ['experiments', r.id]), ...batches.map((r) => ['batches', r.id]), ...ms.map((r) => ['measurements', r.id]), ...comps.map((r) => ['compositions', r.id]), ...q.map((r) => ['quarantine', r.id])];
-  const others = [...batches, ...ms].filter((r) => !ofImport(r, importId)).length;
-  return { refs, others, counts: { experiments: exps.length, batches: batches.length, measurements: ms.length, compositions: comps.length, quarantine: q.length } };
+  const refs = [...exps.map((r) => ['experiments', r.id]), ...batches.map((r) => ['batches', r.id]), ...ms.map((r) => ['measurements', r.id]), ...comps.map((r) => ['compositions', r.id]),
+    ...studies.map((r) => ['studies', r.id]), ...bio.map((r) => ['bioMeasurements', r.id]), ...images.map((r) => ['bliImages', r.id]), ...q.map((r) => ['quarantine', r.id])];
+  const others = [...batches, ...ms, ...bio].filter((r) => !ofImport(r, importId)).length + images.length;
+  return { refs, others, counts: { experiments: exps.length, batches: batches.length, measurements: ms.length, compositions: comps.length, studies: studies.length, bioMeasurements: bio.length, quarantine: q.length } };
 }
 
 /**
@@ -158,7 +183,7 @@ export function rollbackImport(store, importId) {
 /** Where an import's records are now: in the lab, in the trash (with the entry to restore), or both. */
 export function importState(lab, importId) {
   const live = importRecords(lab, importId).counts;
-  const nLive = live.experiments + live.batches + live.measurements;
+  const nLive = live.experiments + live.batches + live.measurements + live.studies + live.bioMeasurements;
   const trash = lab.all('trash').filter((t) => t?.kind === 'import' && (t.records || []).some((r) => r.rec?.provenance?.importId === importId || r.rec?.importId === importId));
   return { live, inLab: nLive > 0, trash: trash.map((t) => ({ id: t.id, deletedAt: t.deletedAt, records: t.records.length })) };
 }
@@ -188,7 +213,7 @@ export function labQuality(lab, data, importId = null) {
   const open = lab.all('quarantine').filter((e) => e.status === 'open' && (!importId || e.importId === importId));
   return {
     scope: importId || 'the whole lab',
-    counts: { experiments: pick('experiments').length, formulations: batches.length, measurements: pick('measurements').length, quarantineOpen: open.length },
+    counts: { experiments: pick('experiments').length, formulations: batches.length, measurements: pick('measurements').length, studies: pick('studies').length, bioMeasurements: pick('bioMeasurements').length, quarantineOpen: open.length },
     completeness: completeness(rows).map((c) => ({ key: c.key, label: c.label, n: c.n, share: Math.round(c.share * 100), level: c.level })),
     quarantine: groupReasons(open.map((e) => ({ file: e.file || e.table, reason: e.reason || '' }))),
     sources: Object.entries(rows.reduce((m, r) => { m[r.source] = (m[r.source] || 0) + 1; return m; }, {})).map(([source, n]) => ({ source, n })),
@@ -223,11 +248,12 @@ export function recheckQuarantine(store, data, qid, mapping) {
     return { ok: false, reason: result.quarantine[0].reason };
   }
   // The records keep the original row's origin; the provenance says they were fixed by hand from quarantine.
-  for (const col of ['experiments', 'batches', 'measurements', 'compositions']) for (const r of result[col]) r.provenance = { ...r.provenance, fixedFrom: qid };
+  for (const col of ['experiments', 'batches', 'measurements', 'compositions', 'studies', 'bioMeasurements']) for (const r of result[col] || []) r.provenance = { ...r.provenance, fixedFrom: qid };
+  for (const u of result.studyUpdates || []) for (const g of u.groups) if (u.added.includes(g.id)) g.provenance = { ...g.provenance, fixedFrom: qid };
   // The origin key goes with the entry's own, so the same row imported again later is recognised.
   const written = applyImport(store, result, { fixedFrom: qid });
   if (!written.ok) return written;
-  const ids = [...result.experiments, ...result.batches, ...result.measurements].map((r) => r.id);
+  const ids = [...result.experiments, ...result.batches, ...result.measurements, ...(result.studies || []), ...(result.bioMeasurements || [])].map((r) => r.id).concat((result.studyUpdates || []).map((u) => u.id));
   store.put('quarantine', { ...store.get('quarantine', qid), mapping, status: 'fixed', reason: '', fixedAt: now, recordIds: ids });
   return { ok: true, written: written.written, ids };
 }

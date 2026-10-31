@@ -3,7 +3,8 @@
 //
 //   node scripts/import-tidy.mjs <folder> [--db path/to/lnp-lab.db] [--first 100] [--out <folder>]
 //
-// <folder> holds experiments.csv, formulations.csv and measurements.csv (see the guide for the columns). The
+// <folder> holds experiments.csv, formulations.csv and measurements.csv, and for biological data studies.csv and
+// bioMeasurements.csv (see the guide for the columns). The
 // script checks every row with the app's own rules and writes:
 //   import.json        a backup-format file: Settings › Restore, "merge", adds it to the lab
 //   quality-report.md  counts, what was refused and why, completeness per column
@@ -42,6 +43,7 @@ if (dbPath) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const col = (k) => { const r = db.prepare('SELECT json FROM collections WHERE key = ?').get(`lnp-lab.${k}`); return r?.json ? JSON.parse(r.json) : []; };
   for (const l of col('lipids')) if (!lipids.some((x) => x.key === l.key)) lipids.push(l);
+  // A study is numbered after the lab's (Study-004 …), an experiment after its experiments; ids in the trash count.
   compositions = [...compositions, ...col('compositions').filter((c) => !compositions.some((x) => x.id === c.id))];
   const used = [...col('experiments'), ...col('counters').filter((c) => c.id === 'experiment').map((c) => ({ id: `E${c.top}` }))]
     .map((e) => Number(/^E(\d+)$/.exec(String(e.id))?.[1] || 0));
@@ -51,22 +53,25 @@ if (dbPath) {
   mixers = col('mixers');
 }
 if (topExperiment < 0) topExperiment = 99; // without --db or --first: start at E100, far from a new lab's numbers
+const topStudy = dbPath ? undefined : 99; // without --db: Study-100 on, far from the lab's own studies (a restore merges by id)
 
-const exF = read('experiments.csv'), foF = read('formulations.csv'), meF = read('measurements.csv');
-if (!foF) { console.error(`${dir}/formulations.csv is missing; it is the one table that is required`); process.exit(2); }
+const exF = read('experiments.csv'), foF = read('formulations.csv'), meF = read('measurements.csv'), stF = read('studies.csv'), bmF = read('bioMeasurements.csv');
+if (!foF && !stF) { console.error(`${dir}/formulations.csv is missing; it is the one table that is required (or studies.csv, for biological data alone)`); process.exit(2); }
 
 const importedAt = new Date().toISOString();
 const importId = `imp-${importedAt.slice(0, 10)}-${createHash('sha256').update(String(Date.now())).digest('hex').slice(0, 6)}`;
-const result = checkTidy({ experiments: exF, formulations: foF, measurements: meF }, { lipids, compositions, topExperiment, lab, mixers }, { importId, importedAt, source: 'restore' });
+const result = checkTidy({ experiments: exF, formulations: foF, measurements: meF, studies: stF, bioMeasurements: bmF }, { lipids, compositions, topExperiment, topStudy, lab, mixers }, { importId, importedAt, source: 'restore' });
 
 // ---- outputs
 mkdirSync(out, { recursive: true });
 const quarantine = quarantineRecords(result);
-const files = [exF, foF, meF].filter(Boolean);
-const collections = { experiments: result.experiments, batches: result.batches, measurements: result.measurements, compositions: result.compositions, mixers: result.mixers, quarantine,
-  imports: [{ id: importId, fileName: files.map((f) => f.name).join(', '), sha256: foF.sha256, importedAt, kind: 'historical', source: 'restore', imported: result.batches.length + result.measurements.length,
+const files = [exF, foF, meF, stF, bmF].filter(Boolean);
+const collections = { experiments: result.experiments, batches: result.batches, measurements: result.measurements, compositions: result.compositions, mixers: result.mixers,
+  studies: result.studies, bioMeasurements: result.bioMeasurements, quarantine,
+  imports: [{ id: importId, fileName: files.map((f) => f.name).join(', '), sha256: (foF || stF).sha256, importedAt, kind: 'historical', source: 'restore', imported: result.batches.length + result.measurements.length + result.bioMeasurements.length,
     files: files.map((f) => ({ name: f.name, sha256: f.sha256 })), measurementIds: result.measurements.map((m) => m.id), batchIds: result.batches.map((b) => b.id),
-    experimentIds: result.experiments.map((e) => e.id), compositionIds: result.compositions.map((c) => c.id), quarantineIds: quarantine.map((q) => q.id) }] };
+    experimentIds: result.experiments.map((e) => e.id), compositionIds: result.compositions.map((c) => c.id), studyIds: result.studies.map((x) => x.id),
+    bioMeasurementIds: result.bioMeasurements.map((m) => m.id), quarantineIds: quarantine.map((q) => q.id) }] };
 writeFileSync(join(out, 'import.json'), JSON.stringify({ exportedAt: importedAt, ns: 'lnp-lab', importId, collections }, null, 1));
 const csvCell = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
 writeFileSync(join(out, 'quarantine.csv'), ['file,row,reason,raw', ...result.quarantine.map((q) => [q.file, q.row, q.reason, JSON.stringify(q.raw)].map(csvCell).join(','))].join('\n'));

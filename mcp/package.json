@@ -1,8 +1,33 @@
 {
   "name": "lnp-lab-mcp",
   "version": "0.1.0",
-  "private": true,
+  "description": "LNP Lab's local MCP server: Claude reads and maps old lab spreadsheets, the server checks every row with the app's own rules and writes only after the person approves.",
+  "license": "MIT",
   "type": "module",
+  "bin": {
+    "lnp-lab-mcp": "server.js"
+  },
+  "files": [
+    "server.js",
+    "tools.js",
+    "lab.js",
+    "xlsx.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "pack:npm": "node build-npm.mjs",
+    "prepack": "node build-npm.mjs --refuse"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xwinter134/LNP-LAB",
+    "directory": "mcp"
+  },
+  "keywords": ["mcp", "lab", "LNP", "lipid nanoparticles", "import", "spreadsheet"],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2"
   }

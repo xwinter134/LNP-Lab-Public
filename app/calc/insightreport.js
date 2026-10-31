@@ -24,6 +24,16 @@ export const ANALYSES = {
   quarantine: 'Rows waiting in quarantine, by reason (quality_report)',
 };
 
+/**
+ * The address of the Data overview showing exactly these formulations (spec 10.2: "clickable into the data
+ * overview"): `#/data?ids=E1-F1,E1-F2`. The overview reads `ids` as a filter of its own; ids are kept as given,
+ * in order, each once, and only the comma between them is a separator.
+ */
+export function dataLink(ids = []) {
+  const list = [...new Set((ids || []).map((x) => String(x).trim()).filter(Boolean))];
+  return list.length ? `#/data?ids=${list.map((x) => encodeURIComponent(x)).join(',')}` : null;
+}
+
 /** How many new formulations make a report out of date. */
 export const STALE_AFTER = 20;
 
@@ -51,14 +61,16 @@ export function reportStatus(report, lab) {
 
 /**
  * A report as save_insight_report receives it, checked and made into the record that is stored:
- * {id, createdAt, title, dataState, findings: [{text, analysis, formulationIds, value?, response?}], drivers?,
- * anomalies?, openQuestions?, model?}. The data state is the server's, never the caller's. Returns
- * {ok, record} or {ok: false, problems}.
+ * {id, createdAt, title, dataState, findings: [{text, analysis, formulationIds, value, link, response?}], drivers?,
+ * anomalies?, openQuestions?, model?}. A finding must carry its number (`value`, spec 10.2: "each with a number"),
+ * as the analysis gave it; drivers, anomalies and open questions may. Every item that names formulations gets the
+ * link into the Data overview that shows them (dataLink). The data state is the server's, never the caller's.
+ * Returns {ok, record} or {ok: false, problems}.
  */
 export function buildReport(input = {}, lab, now = new Date()) {
   const problems = [];
   const ids = new Set(lab.all('batches').map((b) => b.id));
-  const clean = (list, kind, { needIds = false } = {}) => (Array.isArray(list) ? list : []).map((f, i) => {
+  const clean = (list, kind, { needIds = false, needValue = false } = {}) => (Array.isArray(list) ? list : []).map((f, i) => {
     const where = `${kind} ${i + 1}`;
     const text = String(f?.text || '').trim();
     if (!text) problems.push(`${where} has no text`);
@@ -69,11 +81,13 @@ export function buildReport(input = {}, lab, now = new Date()) {
     if (unknown.length) problems.push(`${where} names formulations that are not in the lab: ${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ' …' : ''}`);
     if (needIds && !fids.length) problems.push(`${where} names no formulation it rests on`);
     const out = { text, analysis, formulationIds: fids };
-    if (f?.value != null && f.value !== '') out.value = String(f.value);
+    if (f?.value != null && String(f.value).trim() !== '') out.value = String(f.value).trim();
+    else if (needValue) problems.push(`${where} has no value: give the number it rests on, as the analysis gave it (e.g. "r = -0.82, n = 24")`);
+    if (fids.length) out.link = dataLink(fids);
     if (f?.response) out.response = String(f.response);
     return out;
   });
-  const findings = clean(input.findings, 'finding', { needIds: true });
+  const findings = clean(input.findings, 'finding', { needIds: true, needValue: true });
   if (!findings.length) problems.push('a report needs at least one finding');
   if (findings.length > 5) problems.push(`${findings.length} findings; the report holds the five most important (spec 10.2)`);
   const record = {

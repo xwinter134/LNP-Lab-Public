@@ -5966,21 +5966,23 @@ export async function claudeImportAndQuarantine({ page, open }) {
     if (await page.$('#privacyNote')) throw new Error('the privacy note shows with both modules off');
     const out = mkdtempSync(join(tmpdir(), 'lnp-scn-'));
     execFileSync(process.execPath, ['scripts/import-tidy.mjs', 'docs/historical-example', '--first', '900', '--out', out], { stdio: 'pipe' });
+    // The example folder also holds a study (studies.csv, bioMeasurements.csv) with two planted mistakes of its
+    // own: five rows wait in quarantine, three of the physicochemistry and two of the study.
     const file = readFileSync(join(out, 'import.json'));
     const importId = JSON.parse(file).importId;
     await page.setInputFiles('#importFile', { name: 'import.json', mimeType: 'application/json', buffer: file });
     await page.waitForSelector('#importsCard', { timeout: 5000 }).catch(() => { throw new Error('the imports card did not appear after the import'); });
-    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*3 open`), 'the import is listed with what it brought');
+    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*5 open`), 'the import is listed with what it brought');
     await open('overview');
     if (!(await page.$('#nav a[href="#/quarantine"]'))) throw new Error('Quarantine is not in the sidebar while rows wait there');
 
     await open('quarantine');
-    await expectText(page, '#quarantineSay', /3 rows an import refused/, 'the quarantine list');
+    await expectText(page, '#quarantineSay', /5 rows an import refused/, 'the quarantine list');
     await page.locator('#main tr', { hasText: 'Lipid-X' }).locator('a', { hasText: 'Open' }).click();
     await page.waitForSelector('#qCheck');
     await page.fill('[name=qf_ionizable_lipid]', 'DLin-MC3-DMA');
     await page.click('#qCheck');
-    await page.waitForFunction(() => /2 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
+    await page.waitForFunction(() => /4 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
       .catch(() => { throw new Error('the fixed row is still listed'); });
     const fixed = (await readCol(page, 'batches')).find((b) => b.provenance?.fixedFrom);
     if (!fixed || fixed.provenance.importId !== importId || fixed.experimentId !== 'E901') throw new Error(`the fixed formulation: ${JSON.stringify(fixed?.provenance)} in ${fixed?.experimentId}`);
@@ -6628,3 +6630,87 @@ export async function claudeReportOpensInData({ page, open }) {
   }
 }
 scenarios.push(claudeReportOpensInData);
+
+/**
+ * Spec 8.7, review: the image the biological-layers scenario saved is opened again from its export folder.
+ * Other files (a luminescent image changed by one byte) are refused, with the reason; the same files open it with
+ * its saved mice. A click on a mouse picks it, the brush erases from its mask and the mouse is measured again,
+ * and the save keeps the correction with the algorithm version, the standardised crops and the luminescence crop.
+ */
+export async function bliReviewAndCorrect({ page, open }) {
+  const { readFileSync } = await import('node:fs');
+  const rec0 = (await readCol(page, 'bliImages'))[0];
+  if (!rec0) throw new Error('the biological-layers scenario should have saved an image');
+  await open('settings');
+  await page.check('input[name=bio_invivo]');
+  try {
+    await open(`studies?id=${rec0.studyId}&part=ivis`);
+    await page.click(`[data-bli-review="${rec0.id}"]`);
+    const dir = new URL('./fixtures/ivis/BMD20230209123405/', import.meta.url).pathname;
+    const names = ['AnalyzedClickInfo.txt', 'ClickInfo.txt', 'luminescent.TIF', 'photograph.TIF', 'readbias.TIF', 'background.TIF'];
+    const changed = names.map((n) => { const b = Buffer.from(readFileSync(dir + n)); if (n === 'luminescent.TIF') b[b.length - 1] ^= 1; return { name: n, mimeType: 'application/octet-stream', buffer: b }; });
+    await page.setInputFiles('#bliReviewFiles', changed);
+    await page.waitForSelector('#bliReviewRefused', { timeout: 10000 }).catch(() => { throw new Error('other files were not refused'); });
+    await expectText(page, '#bliReviewRefused', /not the files the record was made from[\s\S]*luminescent\.TIF differs/, 'the refusal');
+    if (await page.$('.bliItem canvas')) throw new Error('the record was opened over other files');
+    await page.setInputFiles('#bliReviewFiles', names.map((n) => dir + n));
+    await page.waitForSelector('.bliItem canvas', { timeout: 20000 }).catch(() => { throw new Error('the saved image did not open'); });
+    const ids = await page.$$eval('.bliItem input[data-f=subject]', (xs) => xs.map((x) => x.value));
+    if (ids.join(' ') !== rec0.mice.map((m) => m.subject).join(' ')) throw new Error(`the saved animals were not kept: ${ids.join(' ')}`);
+    // A click on mouse 2 (on its liver ROI, which lies on it) picks it.
+    const m2 = rec0.mice.find((m) => m.n === 2);
+    const at = async (x, y) => {
+      const box = await page.locator('.bliItem canvas').boundingBox();
+      const size = await page.$eval('.bliItem canvas', (c) => [c.width, c.height]);
+      await page.mouse.click(box.x + x * box.width / size[0], box.y + y * box.height / size[1]);
+    };
+    await at(m2.liver.cx, m2.liver.cy);
+    await page.waitForFunction(() => document.querySelector('.bliItem [name=bliSel0][value="2"]')?.checked, null, { timeout: 3000 }).catch(() => { throw new Error('a click on the mouse did not pick it'); });
+    // Erase from its mask where it was clicked: one correction, logged.
+    await page.check('.bliItem [name=bliTool0][value=erase]');
+    await at(m2.liver.cx, m2.liver.cy);
+    await expectText(page, '.bliItem [data-bli-say]', /1 correction logged/, 'the mask correction');
+    await page.click('.bliItem [data-bli-save]');
+    await page.waitForFunction((id) => window.lnpDb.read('bliImages').then((bs) => { const b = bs.find((x) => x.id === id); return b && b.reviewedAt && b.corrections.some((c) => c.field === 'mask'); }), rec0.id, { timeout: 5000 })
+      .catch(() => { throw new Error('the review was not stored'); });
+    const rec = (await readCol(page, 'bliImages')).find((b) => b.id === rec0.id);
+    const c = rec.corrections.find((x) => x.field === 'mask');
+    if (c.mouse !== 2 || !/^lnp-lab-bli \d+\.\d+\.\d+ /.test(c.algorithm) || !(c.to.areaCm2 < c.from.areaCm2)) throw new Error(`the correction: ${JSON.stringify(c)}`);
+    const e2 = rec.mice.find((m) => m.n === 2);
+    if (!e2.edited || e2.totalFlux === m2.totalFlux) throw new Error('the corrected mouse was not measured again');
+    if (!rec.mice.every((m) => m.crop?.width === 40 && m.crop.height === 88 && m.lumCrop?.width === 40 && m.lumCrop.max > 0)) throw new Error('standardised crops missing');
+    const v = (await readCol(page, 'bioMeasurements')).find((m) => m.imageId === rec.id && m.mouse === 2 && m.quantity === 'total_flux');
+    if (!v || Math.abs(v.value - e2.totalFlux) > 1e-6 * Math.abs(e2.totalFlux)) throw new Error('the study value did not follow the corrected mask');
+    if (rec.mice.length !== rec0.mice.length || rec.files.length !== rec0.files.length) throw new Error('the review changed what the record holds');
+  } finally {
+    await open('settings');
+    await page.uncheck('input[name=bio_invivo]');
+  }
+}
+scenarios.push(bliReviewAndCorrect);
+
+/** Spec 10.2: a finding of Claude's report links into the Data overview with exactly its formulations. */
+export async function insightFindingLinksToData({ page, open }) {
+  const batches = (await readCol(page, 'batches')).filter((b) => b.plan).slice(0, 2);
+  await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+  const settings0 = await readCol(page, 'settings');
+  try {
+    await open('settings');
+    // Switched on in the stored settings, not through the box: its first use asks to read the privacy notice, which
+    // the scenario of the import has done; this one must also run alone (SMOKE_ONLY).
+    await writeCol(page, 'settings', settings0.some((x) => x.id === 'default') ? settings0.map((x) => (x.id === 'default' ? { ...x, personalBuild: true } : x)) : [...settings0, { id: 'default', personalBuild: true }]);
+    await writeCol(page, 'insightReports', [{ id: 'report-links', createdAt: '2026-10-01T10:00:00.000Z', title: 'Link report', dataState: { formulations: (await readCol(page, 'batches')).length, lastDate: '2026-09-30' },
+      findings: [{ text: 'Two formulations alike', analysis: 'summary', formulationIds: batches.map((b) => b.id), value: 'n = 2', link: `#/data?ids=${batches.map((b) => b.id).join(',')}` }] }]);
+    await open('insights');
+    const href = await page.getAttribute('#claudeReport [data-report-link]', 'href');
+    if (href !== `#/data?ids=${batches.map((b) => b.id).join(',')}`) throw new Error(`the finding links to ${href}`);
+    await page.click('#claudeReport [data-report-link]');
+    await page.waitForFunction(() => location.hash.startsWith('#/data'), null, { timeout: 3000 }).catch(() => { throw new Error('the link does not open the Data overview'); });
+  } finally {
+    await writeCol(page, 'insightReports', []);
+    await open('settings');
+    await writeCol(page, 'settings', settings0);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(insightFindingLinksToData);

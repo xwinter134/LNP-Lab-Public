@@ -10,12 +10,16 @@
 //
 // Pure: no DOM, no store, no file system. The callers read the tables and the lab, and write what comes out.
 //
-// The tables are the ones docs/HISTORICAL-DATA.md describes: experiments, formulations, measurements, one object
+// The tables are the ones docs/HISTORICAL-DATA.md describes: experiments, formulations, measurements, and for the
+// biological layers (spec 8.3) studies (one row per group of a study) and bioMeasurements; one object
 // per row keyed by the column names, plus `__row` (its row number in the file it came from) and, optionally,
 // `__origin` = {file: {name, sha256}, sheet, row}, the cell range in the original spreadsheet the row was read
 // from. The origin is what an import is deduplicated by (file hash plus row, spec 6.5).
 import { VARIABLES, VARIABLE_BY_KEY, checkVariable } from './variables.js';
 import { dataRows, completeness } from './facets.js';
+import { LIMITS, checkValues } from './qc.js';
+import { GRID_COLUMNS } from './gridentry.js';
+import { LAYERS, layerById, DEFAULT_ORGANS, nextStudyId, studyWarnings, measurementId as bioMeasurementId } from './bio.js';
 
 /** RFC 4180 CSV, with ; or , as separator (whichever the header uses), and a decimal comma read as a point. */
 export function parseCsv(text) {
@@ -46,15 +50,58 @@ export function parseCsvRows(text) {
 export const num = (v) => { if (v == null || v === '') return null; if (typeof v === 'number') return Number.isFinite(v) ? v : NaN; const n = Number(String(v).trim().replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
 
 export const EXPERIMENT_TYPES = ['single', 'reference', 'comparison', 'ofat', 'doe', 'stability'];
+/** A study's type and its groups' roles, as app/calc/bio.js keeps them. */
+export const STUDY_TYPES = ['in vitro', 'in vivo'];
+export const GROUP_ROLES = ['reference', 'test', 'negative'];
+/** The tables an import takes, in the order they are checked (a table may only name what an earlier one made). */
+export const TABLES = ['experiments', 'formulations', 'measurements', 'studies', 'bioMeasurements'];
 
-/** The tests a measurement row may name, with each value's sense limits. */
-export const TESTS = {
-  dls: { zave_nm: [10, 5000], pdi: [0, 1], zave_sd: [0, 2000], countRate_kcps: [0, 1e6] },
-  zeta: { zeta_mV: [-200, 200] },
-  ee: { ee_pct: [0, 100], total_mg_mL: [0, 20], free_mg_mL: [0, 20] },
-  content: { total_mg_mL: [0, 20] },
-  ph: { ph: [0, 14] }, osmolality: { mOsm_kg: [0, 3000] }, endotoxin: { eu_mL: [0, 1e5] },
-};
+/**
+ * The tests a measurement row may name, and the value columns of each, with their sense limits: {test: {key:
+ * [min, max]}} (null where a field has no limit). Not a list of its own (spec 6.1/6.2: "app and import never run
+ * apart"): the fields and limits are the app's, the ones a result typed into the Measurements screen is checked
+ * by (app/calc/qc.js LIMITS, checkValues), plus the further fields the results grid stores per test
+ * (app/calc/gridentry.js GRID_COLUMNS: the count rate, and the SD of replicates under its `spread` key). So a
+ * value the app would refuse is refused here, and a value it takes is taken, with the same words.
+ */
+export const TESTS = (() => {
+  const out = {};
+  for (const [test, rules] of Object.entries(LIMITS)) out[test] = Object.fromEntries(rules.map((r) => [r.key, [r.min ?? null, r.max ?? null]]));
+  for (const c of GRID_COLUMNS) {
+    out[c.test] ||= {};
+    if (!(c.key in out[c.test])) out[c.test][c.key] = [null, null];
+    if (c.spread && !(c.spread in out[c.test])) out[c.test][c.spread] = [0, null];
+  }
+  return out;
+})();
+const VALUE_LABEL = Object.fromEntries([...Object.values(LIMITS).flat().map((r) => [r.key, r.label]), ...GRID_COLUMNS.map((c) => [c.key, c.label])]);
+const SPREAD_KEYS = new Set(GRID_COLUMNS.map((c) => c.spread).filter(Boolean));
+
+/**
+ * One measurement row's values checked as the app checks a result: {values, problems, warnings}. A problem refuses
+ * the row; a warning (a probable unit slip, checkValues' second list) is kept on the result as a flag, as the app
+ * shows it beside a typed one. The app's own sentence is used ("PDI 8.5 is outside 0–1"), with "probably a typing
+ * slip" said of a PDI over 1, which can only be one, and the app's guess at what was meant in brackets.
+ */
+export function checkMeasurementValues(test, row) {
+  const values = {}, problems = [];
+  for (const k of Object.keys(TESTS[test] || {})) {
+    const v = num(row[k]);
+    if (v == null) continue;
+    if (Number.isNaN(v)) problems.push(`${VALUE_LABEL[k] || k} "${row[k]}" is not a number`);
+    else values[k] = v;
+  }
+  const { errors, warnings } = checkValues(test, values);
+  for (const e of errors) {
+    const [base, meant] = e.text.split(/\s+\u2014\s+/);
+    const slip = e.key === 'pdi' && values.pdi > 1 ? ', probably a typing slip' : '';
+    problems.push(`${base}${slip}${meant ? ` (${meant})` : ''}`);
+    delete values[e.key];
+  }
+  // The SD of replicates is worked out by the app, never typed there; imported, it cannot be negative.
+  for (const k of Object.keys(values)) if (SPREAD_KEYS.has(k) && values[k] < 0) { problems.push(`${k} ${values[k]} cannot be negative`); delete values[k]; }
+  return { values, problems, warnings: warnings.map((w) => w.text.replace(/\s+\u2014\s+/, ': ')) };
+}
 
 /** The plan's numbers a formulation row may carry: [column, low, high, label, unit]. */
 export const PLAN_COLUMNS = [
@@ -69,6 +116,8 @@ export const PROCESS_COLS = VARIABLES.filter((v) => v.kind !== 'derived').map((v
  * unit, options, lo, hi, note}]}. Built from the same constants the check uses, so it cannot describe a
  * different import from the one that runs.
  */
+const unitOf = (key) => (Object.values(LIMITS).flat().find((r) => r.key === key) || GRID_COLUMNS.find((c) => c.key === key))?.unit || undefined;
+
 export function tidySchema() {
   const req = (key, note = '') => ({ key, required: true, kind: 'text', note });
   const txt = (key, note = '') => ({ key, required: false, kind: 'text', note });
@@ -86,12 +135,40 @@ export function tidySchema() {
     { key: 'stage', required: false, kind: 'text', note: 'final (default), or an in-process stage such as IPC4' },
     { key: 'date', required: false, kind: 'date' }, txt('operator'), txt('replicate', 'number the replicates of one test and stage'), txt('notes'),
     txt('condition', 'for stability pulls, e.g. 4C'), { key: 'timepoint_days', required: false, kind: 'number', unit: 'days' },
-    ...Object.entries(TESTS).flatMap(([test, vals]) => Object.entries(vals).map(([key, [lo, hi]]) => ({ key, required: false, kind: 'number', lo, hi, note: `for ${test}` })))
-      .filter((f, i, a) => a.findIndex((g) => g.key === f.key) === i),
+    // One column per value key; a key two tests share (total_mg_mL: EE's total RNA and the total lipid of
+    // lipid_content) is listed once, naming both.
+    ...Object.entries(TESTS).flatMap(([test, vals]) => Object.entries(vals).map(([key, [lo, hi]]) => ({ key, required: false, kind: 'number', lo: lo ?? undefined, hi: hi ?? undefined, unit: unitOf(key), note: `for ${test}` })))
+      .reduce((acc, f) => { const g = acc.find((x) => x.key === f.key); if (g) g.note += `, ${f.note.slice(4)}`; else acc.push(f); return acc; }, []),
     txt('source_file'), txt('sheet'),
   ];
   const experiments = [req('exp_key', 'your own name for it, unique; the app gives it an E number'), txt('name'), { key: 'type', required: false, kind: 'category', options: EXPERIMENT_TYPES }, { key: 'date', required: false, kind: 'date' }, txt('notes')];
-  return { experiments, formulations, measurements };
+  const studyContext = [...new Map(LAYERS.flatMap((l) => l.context.map(([key, label, kind]) => [key, { key, required: false, kind: kind === 'number' ? 'number' : 'text', options: kind.startsWith('select:') ? kind.slice(7).split(',') : undefined,
+    note: `${label}${kind === 'organs' ? ', separated by ";" (liver if empty)' : kind.startsWith('catalog:') ? ', free text, joins the lab\'s catalogue' : ''}; for ${LAYERS.filter((x) => x.context.some(([k]) => k === key)).map((x) => x.id).join(', ')}` }]))).values()];
+  const studies = [
+    req('study_key', 'your own name for the study, unique; the app gives it a Study number. One row per group: the rows of one study share it'),
+    txt('name'), { key: 'type', required: false, kind: 'category', options: STUDY_TYPES, note: 'in vivo unless the only layer is invitro' },
+    { key: 'layers', required: false, kind: 'text', note: `the layers it records, separated by ";": ${LAYERS.map((l) => l.id).join(', ')} (from its bioMeasurements if empty)` },
+    { key: 'date', required: false, kind: 'date' }, txt('licence', 'animal licence or ethics approval number'), txt('notes'),
+    { key: 'subtract_background', required: false, kind: 'bool', note: 'yes (default) or no: subtract the negative control before normalising' },
+    req('group', 'the group\'s key inside the study (G1, Ref …), unique there'), txt('group_name'),
+    { key: 'role', required: true, kind: 'category', options: GROUP_ROLES, note: 'one reference group per study (the lab standard running alongside); negative = PBS, empty LNP' },
+    txt('exp_key', 'with form_key: the group\'s formulation, of this import or an earlier one'), txt('form_key'),
+    txt('formulation_id', 'or the id of a formulation in the lab (E12-F3)'),
+    { key: 'n', required: false, kind: 'number', lo: 0, note: 'animals or wells in the group' },
+    ...studyContext,
+  ];
+  const bioMeasurements = [
+    req('study_key'), req('group', 'a group of the study'), req('subject', 'the animal or well id (M1, B3 …): one value per subject and read-out'),
+    { key: 'layer', required: true, kind: 'category', options: LAYERS.map((l) => l.id) },
+    { key: 'quantity', required: true, kind: 'category', options: [...new Set(LAYERS.flatMap((l) => l.quantities.map((q) => q.key)))], note: LAYERS.map((l) => `${l.id}: ${l.quantities.map((q) => `${q.key} (${q.unit})`).join(', ')}`).join('; ') },
+    { key: 'value', required: true, kind: 'number', note: 'the raw value; the app normalises to the reference itself' },
+    { key: 'unit', required: false, kind: 'text', note: 'the quantity\'s unit, as above; convert before, never mixed' },
+    txt('organ', 'required for biodist; the organ for tropism'), txt('population', 'required for tropism'),
+    { key: 'timepoint_h', required: false, kind: 'number', unit: 'h' }, { key: 'view', required: false, kind: 'category', options: ['dorsal', 'ventral'] },
+    { key: 'date', required: false, kind: 'date' }, txt('notes'),
+    txt('image_file', 'the raw image (IVIS) the value was read from, its path'), txt('image_sha256', 'and its SHA-256'),
+  ];
+  return { experiments, formulations, measurements, studies, bioMeasurements };
 }
 
 const squash = (s) => String(s || '').toLowerCase().replace(/[\s\-_0]/g, '');
@@ -126,7 +203,7 @@ export const historicalKey = (rec) => /Historical key: (.+)/.exec(String(rec?.no
  * historical keys, the origin keys already imported, and the ids already used.
  */
 export function labIndex(lab) {
-  const experimentsByKey = new Map(), batchesByKey = new Map(), origins = new Map();
+  const experimentsByKey = new Map(), batchesByKey = new Map(), origins = new Map(), studiesByKey = new Map();
   const exps = lab.all('experiments');
   for (const e of exps) { const k = historicalKey(e); if (k) experimentsByKey.set(k, e); }
   const keyOfExp = new Map([...experimentsByKey].map(([k, e]) => [e.id, k]));
@@ -134,14 +211,21 @@ export function labIndex(lab) {
     const ek = keyOfExp.get(b.experimentId), fk = historicalKey(b);
     if (ek && fk) batchesByKey.set(`${ek}/${fk}`, b);
   }
-  for (const col of ['experiments', 'batches', 'measurements', 'compositions']) for (const r of lab.all(col)) if (r?.provenance?.originKey) origins.set(r.provenance.originKey, r.provenance.importId || null);
-  return { experimentsByKey, batchesByKey, origins };
+  for (const st of lab.all('studies')) { const k = historicalKey(st); if (k) studiesByKey.set(k, st); }
+  // A study is made of several rows (one per group), so it keeps every row's origin key.
+  for (const col of ['experiments', 'batches', 'measurements', 'compositions', 'studies', 'bioMeasurements']) for (const r of lab.all(col)) {
+    for (const k of [r?.provenance?.originKey, ...(r?.provenance?.originKeys || [])]) if (k) origins.set(k, r.provenance.importId || null);
+  }
+  const batchIds = new Set(lab.all('batches').map((b) => b?.id));
+  const bioIds = new Set(lab.all('bioMeasurements').map((m) => m?.id));
+  const studyIds = [...lab.all('studies'), ...lab.all('trash').flatMap((t) => (t?.records || []).filter((r) => r?.col === 'studies').map((r) => r.rec))].map((x) => x?.id).filter(Boolean);
+  return { experimentsByKey, batchesByKey, origins, studiesByKey, batchIds, bioIds, studyIds };
 }
 
 /**
  * Check tidy tables and build the records they become.
  *
- * @param {{experiments?: {name, sha256?, rows}, formulations: {name, sha256?, rows}, measurements?: {name, sha256?, rows}}} tables
+ * @param {{experiments?, formulations?, measurements?, studies?, bioMeasurements?}} tables  each {name, sha256?, rows}
  * @param {object} ref
  *   lipids, compositions: the catalogue (shipped plus the lab's own); mixers: the lab's mixer list;
  *   topExperiment: the highest E number in use; takenFormulations: formulation ids in use (usedIds);
@@ -156,19 +240,20 @@ export function labIndex(lab) {
  *     origin, so it is safe where every row has one: the MCP server, the Quarantine screen);
  *   dedupe: refuse rows whose origin key the lab already holds (they are listed as duplicates, not quarantined).
  * @returns {{importId, importedAt, experiments, experimentUpdates, batches, measurements, compositions, mixers,
- *   quarantine, duplicates, read}}
+ *   studies, studyUpdates, bioMeasurements, warnings, quarantine, duplicates, read}}
  */
 export function checkTidy(tables, ref = {}, opts = {}) {
   const { importId = 'imp', importedAt = new Date().toISOString(), source = 'restore', attachTo = () => false, attachMeasurements = false, dedupe = false } = opts;
   const lipids = ref.lipids || [];
   const compositions = ref.compositions || [];
-  const lab = ref.lab || { experimentsByKey: new Map(), batchesByKey: new Map(), origins: new Map() };
+  const lab = { experimentsByKey: new Map(), batchesByKey: new Map(), origins: new Map(), studiesByKey: new Map(), batchIds: new Set(), bioIds: new Set(), studyIds: [], ...(ref.lab || {}) };
   const lipidKey = lipidMatcher(lipids);
   let topExperiment = Number.isFinite(ref.topExperiment) ? ref.topExperiment : 99;
-  const exT = tables.experiments || null, foT = tables.formulations || null, meT = tables.measurements || null;
+  const exT = tables.experiments || null, foT = tables.formulations || null, meT = tables.measurements || null, stT = tables.studies || null, bmT = tables.bioMeasurements || null;
 
   const quarantine = [], duplicates = [];
-  const tableOf = { experiments: exT, formulations: foT, measurements: meT };
+  const tableOf = { experiments: exT, formulations: foT, measurements: meT, studies: stT, bioMeasurements: bmT };
+  const warnings = [];
   const fileOf = (t) => tableOf[t]?.name || `${t}.csv`;
   const prov = (t, row) => {
     const tb = tableOf[t] || {};
@@ -302,13 +387,7 @@ export function checkTidy(tables, ref = {}, opts = {}) {
     if (!b) { refuse(T, r, `no formulation ${r.exp_key}/${r.form_key} (or it was refused itself)`); continue; }
     const test = String(r.test || '').toLowerCase();
     if (!TESTS[test]) { refuse(T, r, `test "${r.test}" is not one of ${Object.keys(TESTS).join(', ')}`); continue; }
-    const values = {}, problems = [];
-    for (const [k, [lo, hi]] of Object.entries(TESTS[test])) {
-      const v = num(r[k]); if (v == null) continue;
-      if (!Number.isFinite(v)) problems.push(`${k} "${r[k]}" is not a number`);
-      else if (v < lo || v > hi) problems.push(`${k} ${v} is outside ${lo}–${hi}${k === 'pdi' && v > 1 ? ', probably a typing slip' : ''}`);
-      else values[k] = v;
-    }
+    const { values, problems, warnings } = checkMeasurementValues(test, r);
     if (!Object.keys(values).length && !problems.length) problems.push(`no value for ${test} (columns: ${Object.keys(TESTS[test]).join(', ')})`);
     const stage = r.stage || 'final';
     const dup = `${b.id}|${test}|${stage}|${r.timepoint_days || ''}|${r.condition || ''}|${r.replicate || ''}`;
@@ -320,7 +399,153 @@ export function checkTidy(tables, ref = {}, opts = {}) {
     const p = prov(T, r);
     measurements.push({ id: `${importId}-m${(ref.measurementStart || 0) + measurements.length + 1}`, batchId: b.id, experimentId: b.experimentId, stage, test, values, date: r.date || b.plannedDate, operator: r.operator || '',
       sampleName: sample, remarks: r.notes || '', raw: r.source_file ? { fileName: r.source_file } : null, condition: r.condition || undefined, timepoint: r.timepoint_days ? num(r.timepoint_days) : undefined,
-      flags: [], provenance: { ...p, ...(r.source_file && !r.__origin ? { file: { name: r.source_file } } : {}), ...(r.sheet && !r.__origin ? { sheet: r.sheet } : {}) } });
+      flags: warnings.map((text) => ({ level: 'warn', text })), provenance: { ...p, ...(r.source_file && !r.__origin ? { file: { name: r.source_file } } : {}), ...(r.sheet && !r.__origin ? { sheet: r.sheet } : {}) } });
+  }
+
+  // ---- studies (spec 8.3): one row per group; the rows of one study_key make one study
+  const studies = new Map(); // study_key → {rec, rows: [first row], fields}
+  const studyInLab = new Map(); // study_key → the lab's record, for a group fixed from quarantine
+  // Numbered past every study of the lab (and its trash), or past ref.topStudy when the lab cannot be read.
+  const takenStudies = [...lab.studyIds, ...(Number.isFinite(ref.topStudy) ? [`Study-${ref.topStudy}`] : [])];
+  const STUDY_FIELDS = ['name', 'type', 'layers', 'date', 'licence', 'notes', 'subtract_background'];
+  const CONTEXT_KEYS = [...new Set(LAYERS.flatMap((l) => l.context.map(([k]) => k)))];
+  const contextKind = Object.fromEntries(LAYERS.flatMap((l) => l.context.map(([k, , kind]) => [k, kind])));
+  const yesNo = (v) => (typeof v === 'boolean' ? v : /^(yes|ja|true|1|y)$/i.test(v) ? true : /^(no|nein|false|0|n)$/i.test(v) ? false : undefined);
+  const layerOf = (x) => { const t = String(x).trim().toLowerCase().replace(/[\s_-]/g, ''); return LAYERS.find((l) => l.id === t || String(l.no) === t || l.name.toLowerCase().replace(/[\s_-]/g, '') === t)?.id; };
+  const groupBatch = (r, problems) => {
+    if (r.formulation_id) {
+      const id = String(r.formulation_id).trim();
+      if (lab.batchIds.has(id) || [...batches.values()].some((b) => b.id === id)) return id;
+      problems.push(`formulation_id ${id} is not in the lab`); return null;
+    }
+    if (r.exp_key || r.form_key) {
+      const b = batches.get(`${r.exp_key}/${r.form_key}`) || lab.batchesByKey.get(`${r.exp_key}/${r.form_key}`);
+      if (b) return b.id;
+      problems.push(`no formulation ${r.exp_key}/${r.form_key} (or it was refused itself)`); return null;
+    }
+    return null;
+  };
+  for (const r of stT?.rows || []) {
+    const T = 'studies';
+    if (duplicate(T, r)) continue;
+    if (!r.study_key || !r.group) { refuse(T, r, 'study_key and group are both required'); continue; }
+    const problems = [];
+    const role = String(r.role || '').trim().toLowerCase();
+    if (!GROUP_ROLES.includes(role)) problems.push(`role "${r.role || ''}" is not one of ${GROUP_ROLES.join(', ')}`);
+    const batchId = groupBatch(r, problems);
+    const n = num(r.n);
+    if (Number.isNaN(n) || (n != null && (n < 0 || !Number.isInteger(n)))) problems.push(`n "${r.n}" is not a whole number of animals or wells`);
+    // The study's own fields, read from this row; a later row of the same study must not say otherwise.
+    const own = {};
+    if (r.type) { const t = String(r.type).trim().toLowerCase().replace(/^in[\s_-]?/, 'in '); if (!STUDY_TYPES.includes(t)) problems.push(`type "${r.type}" is not one of ${STUDY_TYPES.join(', ')}`); else own.type = t; }
+    if (r.layers) { const ls = String(r.layers).split(/[;,|]/).map((x) => x.trim()).filter(Boolean); const bad = ls.filter((x) => !layerOf(x)); if (bad.length) problems.push(`layer "${bad[0]}" is not one of ${LAYERS.map((l) => l.id).join(', ')}`); else own.layers = [...new Set(ls.map(layerOf))]; }
+    if (r.subtract_background != null && r.subtract_background !== '') { const v = yesNo(r.subtract_background); if (v === undefined) problems.push(`subtract_background "${r.subtract_background}" is not yes or no`); else own.subtract_background = v; }
+    for (const k of ['name', 'date', 'licence', 'notes']) if (r[k]) own[k] = String(r[k]);
+    for (const k of CONTEXT_KEYS) {
+      if (r[k] == null || r[k] === '') continue;
+      const kind = contextKind[k];
+      if (kind === 'number') { const v = num(r[k]); if (!Number.isFinite(v) || v < 0) problems.push(`${k} "${r[k]}" is not a number`); else own[`ctx:${k}`] = v; }
+      else if (kind === 'organs') own[`ctx:${k}`] = String(r[k]).split(/[;,|]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+      else if (kind.startsWith('select:')) { const o = kind.slice(7).split(',').find((x) => x.toLowerCase() === String(r[k]).trim().toLowerCase()); if (!o) problems.push(`${k} "${r[k]}" is not one of ${kind.slice(7).split(',').join(', ')}`); else own[`ctx:${k}`] = o; }
+      else own[`ctx:${k}`] = String(r[k]).trim();
+    }
+    let st = studies.get(r.study_key);
+    if (!st) {
+      const there = lab.studiesByKey.get(r.study_key);
+      if (there) {
+        if (attachTo(there)) { st = { rec: { ...there, groups: [...(there.groups || [])] }, fields: {}, lab: true }; studies.set(r.study_key, st); studyInLab.set(r.study_key, there); }
+        else { refuse(T, r, `already in the lab as ${there.id}`); continue; }
+      }
+    }
+    if (st && !st.lab) for (const [k, v] of Object.entries(own)) {
+      if (k in st.fields && JSON.stringify(st.fields[k]) !== JSON.stringify(v)) problems.push(`${k.replace('ctx:', '')} "${Array.isArray(v) ? v.join('; ') : v}" differs from an earlier row of ${r.study_key} (${Array.isArray(st.fields[k]) ? st.fields[k].join('; ') : st.fields[k]})`);
+    }
+    if (st && st.rec.groups.some((g) => g.key === String(r.group) || g.id === String(r.group))) problems.push(`group ${r.group} appears twice in ${r.study_key}`);
+    if (problems.length) { refuse(T, r, problems.join('; ')); continue; }
+    if (!st) {
+      const id = nextStudyId(takenStudies.map((x) => ({ id: x })));
+      takenStudies.push(id);
+      st = { rec: { id, name: r.study_key, type: null, layers: [], date: '', licence: '', notes: `Historical key: ${r.study_key}`, context: {}, groups: [], referenceBatchId: null, subtractBackground: true, experimentIds: [], provenance: { ...prov(T, r), ...(dedupe ? { originKeys: [] } : {}) } }, fields: {} };
+      studies.set(r.study_key, st);
+    }
+    for (const [k, v] of Object.entries(own)) if (!(k in st.fields)) st.fields[k] = v;
+    if (dedupe && st.rec.provenance?.originKeys && !st.lab) st.rec.provenance.originKeys.push(originKey(T, r, tableOf[T]?.sha256));
+    // The group's id is the sheet's key when it is a plain G number, so a sheet's "G2" stays G2; else G1, G2 … in order.
+    const gid = /^G\d+$/.test(String(r.group)) && !st.rec.groups.some((g) => g.id === String(r.group)) ? String(r.group) : `G${Math.max(0, ...st.rec.groups.map((g) => Number(/^G(\d+)$/.exec(g.id)?.[1] || 0))) + 1}`;
+    st.rec.groups.push({ id: gid, key: String(r.group), name: r.group_name || String(r.group), batchId, role, n: n ?? null, ...(st.lab ? { provenance: prov(T, r) } : {}) });
+  }
+
+  // ---- bioMeasurements: one raw value per subject and read-out
+  const bioMeasurements = [];
+  const seenBio = new Set();
+  for (const r of bmT?.rows || []) {
+    const T = 'bioMeasurements';
+    if (duplicate(T, r)) continue;
+    let st = studies.get(r.study_key);
+    if (!st && attachMeasurements && lab.studiesByKey.get(r.study_key)) { const there = lab.studiesByKey.get(r.study_key); st = { rec: there, fields: {}, lab: true, noUpdate: true }; }
+    if (!st) { refuse(T, r, `no study ${r.study_key} (or it was refused itself)`); continue; }
+    const problems = [];
+    const g = (st.rec.groups || []).find((x) => x.key === String(r.group ?? '') || x.id === String(r.group ?? '') || (x.name && x.name === String(r.group ?? '')));
+    if (!g) problems.push(`group ${r.group ?? ''} is not a group of ${r.study_key}`);
+    if (!r.subject) problems.push('subject is empty: name the animal or well');
+    const layer = r.layer ? layerOf(r.layer) : undefined;
+    const L = layerById[layer];
+    if (!L) problems.push(`layer "${r.layer || ''}" is not one of ${LAYERS.map((l) => l.id).join(', ')}`);
+    const q = L?.quantities.find((x) => x.key === String(r.quantity || '').trim());
+    if (L && !q) problems.push(`quantity "${r.quantity || ''}" is not one of ${L.id}'s: ${L.quantities.map((x) => x.key).join(', ')}`);
+    const value = num(r.value);
+    if (value == null) problems.push('value is empty');
+    else if (Number.isNaN(value)) problems.push(`value "${r.value}" is not a number`);
+    if (q && r.unit && String(r.unit).trim().toLowerCase() !== q.unit.toLowerCase()) problems.push(`unit "${r.unit}": ${q.key} is stored in ${q.unit} (convert it first)`);
+    const organ = String(r.organ || '').trim().toLowerCase(), population = String(r.population || '').trim();
+    if (L?.byOrgan && !organ) problems.push(`organ is empty: ${L.id} values are per organ`);
+    if (L?.byPopulation && !population) problems.push(`population is empty: ${L.id} values are per cell population`);
+    const tp = num(r.timepoint_h);
+    if (Number.isNaN(tp) || tp < 0) problems.push(`timepoint_h "${r.timepoint_h}" is not a number of hours`);
+    const view = String(r.view || '').trim().toLowerCase();
+    if (view && !['dorsal', 'ventral'].includes(view)) problems.push(`view "${r.view}" is not dorsal or ventral`);
+    if (r.image_sha256 && !/^[0-9a-f]{64}$/i.test(String(r.image_sha256).trim())) problems.push('image_sha256 is not a SHA-256 (64 hex digits)');
+    if (problems.length) { refuse(T, r, problems.join('; ')); continue; }
+    const m = { studyId: st.rec.id, batchId: g.batchId || null, group: g.id, subject: String(r.subject).trim(), layer, organ, population, quantity: q.key, value, unit: q.unit, timepoint_h: tp ?? null, view,
+      ...(r.date ? { date: r.date } : {}), ...(r.notes ? { notes: r.notes } : {}), ...(r.image_file ? { file: { path: String(r.image_file), ...(r.image_sha256 ? { sha256: String(r.image_sha256).trim().toLowerCase() } : {}) } } : {}) };
+    m.id = bioMeasurementId(st.rec.id, m);
+    if (seenBio.has(m.id)) { refuse(T, r, `the same study, group read-out and subject ${m.subject} appear twice`); continue; }
+    if (lab.bioIds.has(m.id)) { refuse(T, r, `${st.rec.id} has a value for ${m.subject} in this read-out already`); continue; }
+    seenBio.add(m.id);
+    bioMeasurements.push({ ...m, provenance: prov(T, r) });
+    if (!st.lab) st.layersSeen = new Set([...(st.layersSeen || []), layer]);
+  }
+
+  // The study's fields settled: layers (given, or those its values are in), type, context per layer, reference.
+  const newStudies = [], studyUpdates = [];
+  for (const [key, st] of studies) {
+    if (st.lab) {
+      const before = studyInLab.get(key);
+      if (before && st.rec.groups.length > (before.groups || []).length) studyUpdates.push({ id: st.rec.id, groups: st.rec.groups, added: st.rec.groups.slice((before.groups || []).length).map((g) => g.id) });
+      continue;
+    }
+    const f = st.fields, rec = st.rec;
+    rec.layers = f.layers || [...(st.layersSeen || [])].sort((a, b) => layerById[a].no - layerById[b].no);
+    rec.type = f.type || (rec.layers.length === 1 && rec.layers[0] === 'invitro' ? 'in vitro' : 'in vivo');
+    if (f.name) rec.name = f.name;
+    if (f.date) rec.date = f.date;
+    if (f.licence) rec.licence = f.licence;
+    if (f.notes) rec.notes = `${f.notes}\n${rec.notes}`;
+    if (f.subtract_background != null) rec.subtractBackground = f.subtract_background;
+    for (const l of rec.layers) {
+      const c = {};
+      for (const [k] of layerById[l].context) if (f[`ctx:${k}`] != null) c[k] = f[`ctx:${k}`];
+      if (l === 'biodist' && !c.organs) c.organs = [...DEFAULT_ORGANS];
+      if (Object.keys(c).length) rec.context[l] = c;
+    }
+    rec.referenceBatchId = rec.groups.find((g) => g.role === 'reference')?.batchId || null;
+    // The experiments its formulations belong to: the link spec 8.3 asks for, worked out, never typed.
+    const expOf = new Map([...batches.values()].map((b) => [b.id, b.experimentId]));
+    rec.experimentIds = [...new Set(rec.groups.map((g) => expOf.get(g.batchId) || (/^(E\d+)-F\d+$/.exec(g.batchId || '')?.[1] ?? null)).filter(Boolean))];
+    // What bio.js would warn about on the Studies screen (no reference, no licence …) is said in the report too;
+    // it refuses nothing (8.2: without a reference the app warns, but saves).
+    for (const w of studyWarnings(rec)) warnings.push({ table: 'studies', study: rec.id, key, text: w });
+    newStudies.push(rec);
   }
 
   // A mixer named in the sheet stays on the formulation's conditions; the lab's mixer records (Materials ›
@@ -333,7 +558,8 @@ export function checkTidy(tables, ref = {}, opts = {}) {
   const experimentUpdates = all.filter(([k, e]) => inLab.has(k) && e.batchIds.length > (inLab.get(k).batchIds || []).length).map(([k, e]) => ({ id: e.id, batchIds: e.batchIds, added: e.batchIds.slice((inLab.get(k).batchIds || []).length) }));
   return {
     importId, importedAt, experiments: fresh, experimentUpdates, batches: [...batches.values()], measurements, compositions: newComps, mixers, quarantine, duplicates,
-    read: { experiments: exT ? exT.rows.length : null, formulations: foT ? foT.rows.length : null, measurements: meT ? meT.rows.length : null },
+    studies: newStudies, studyUpdates, bioMeasurements, warnings,
+    read: Object.fromEntries(TABLES.map((t) => [t, tableOf[t] ? tableOf[t].rows.length : null])),
   };
 }
 
@@ -370,8 +596,15 @@ export function qualityReport(result, ref = {}) {
     counts: {
       experiments: per('experiments', exps.length), formulations: per('formulations', result.batches.length), measurements: per('measurements', result.measurements.length),
       newCompositions: result.compositions.length, newMixers: result.mixers.length,
+      // Rows of the studies table are groups: importable counts the groups the new studies (or an earlier study
+      // of the same import) take in.
+      studies: per('studies', (result.studies || []).reduce((n, s) => n + s.groups.length, 0) + (result.studyUpdates || []).reduce((n, u) => n + u.added.length, 0)),
+      bioMeasurements: per('bioMeasurements', (result.bioMeasurements || []).length),
+      newStudies: (result.studies || []).length,
     },
     experimentIds: exps.length ? [exps[0].id, exps[exps.length - 1].id] : [],
+    studyIds: (result.studies || []).map((s) => s.id),
+    warnings: (result.warnings || []).map((w) => `${w.study} (${w.key}): ${w.text}`),
     reasons: groupReasons(result.quarantine),
     completeness: importCompleteness(result, ref),
   };
@@ -391,10 +624,10 @@ Import ${rep.importId}${from ? ` · ${from}` : ''}
 ${line('Experiments', 'experiments')}
 ${line('Formulations', 'formulations')}
 ${line('Measurements', 'measurements')}
-| New compositions | | ${c.newCompositions} | | |
+${c.studies?.read != null ? `${line('Study groups', 'studies')}\n` : ''}${c.bioMeasurements?.read != null ? `${line('Biological values', 'bioMeasurements')}\n` : ''}| New compositions | | ${c.newCompositions} | | |
 
-New experiment numbers: ${rep.experimentIds.length ? `${rep.experimentIds[0]} to ${rep.experimentIds[1]}` : 'none'}.
-
+New experiment numbers: ${rep.experimentIds.length ? `${rep.experimentIds[0]} to ${rep.experimentIds[1]}` : 'none'}.${rep.studyIds?.length ? ` New studies: ${rep.studyIds.join(', ')}.` : ''}
+${rep.warnings?.length ? `\n## Worth a look (imported all the same)\n${rep.warnings.map((w) => `- ${w}`).join('\n')}\n` : ''}
 ## Why rows were refused
 ${rep.reasons.length ? rep.reasons.map((r) => `- ${r.n} × ${r.reason}`).join('\n') : 'None.'}
 

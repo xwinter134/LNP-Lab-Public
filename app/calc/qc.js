@@ -33,7 +33,7 @@ export const sd = (xs) => { const v = xs.filter((x) => x != null && Number.isFin
  * handed to the optimizer as if someone had measured it. `typical` is where a real value of that field usually
  * lies, and serves only to guess which slip it was. Zeta keeps its sign in that guess; nothing else has one.
  */
-const LIMITS = {
+export const LIMITS = {
   dls: [
     { key: 'zave_nm', label: 'Z-ave', unit: 'nm', min: 0, minOpen: true, max: 10000, typical: [20, 500] },
     { key: 'pdi', label: 'PDI', unit: '', min: 0, max: 1, typical: [0.01, 0.5] },

@@ -9,8 +9,8 @@ import { esc, table, raw, chip, header, toast, field, fmtDate } from './kit.js';
 import { tidySchema } from '../calc/importcheck.js';
 import { openQuarantine, recheckQuarantine } from '../calc/importops.js';
 
-const TABLE_WORD = { formulations: 'formulation', measurements: 'measurement', experiments: 'experiment' };
-const OPEN_RECORD = (id) => (/^E\d+-F\d+$/.test(id) ? `#/formulation?batch=${encodeURIComponent(id)}` : /^E\d+$/.test(id) ? `#/experiments?id=${encodeURIComponent(id)}` : `#/measurements?id=${encodeURIComponent(id)}`);
+const TABLE_WORD = { formulations: 'formulation', measurements: 'measurement', experiments: 'experiment', studies: 'study group', bioMeasurements: 'biological value' };
+const OPEN_RECORD = (id) => (/^Study-\d+$/.test(id) ? `#/studies?id=${encodeURIComponent(id)}` : /^bm:/.test(id) ? `#/studies?id=${encodeURIComponent(id.split(':')[1])}` : /^E\d+-F\d+$/.test(id) ? `#/formulation?batch=${encodeURIComponent(id)}` : /^E\d+$/.test(id) ? `#/experiments?id=${encodeURIComponent(id)}` : `#/measurements?id=${encodeURIComponent(id)}`);
 
 export async function render(el, ctx) {
   const id = ctx.params.id;

@@ -909,6 +909,13 @@ corrected (move the liver region, override a flux, leave a mouse out); correctio
 image files stay where they are; the app records their path and checksum. How well the automatic values agree
 with hand-drawn regions is in [docs/BLI-BENCHMARK.md](BLI-BENCHMARK.md).
 
+**Reviewing a saved image.** Under **Images saved in this study**, **Review** opens a saved image again: pick its
+export folder once more. The files are matched to the record by their checksum, and a folder whose files differ
+is refused with the file that differs. On the overlay, a click picks a mouse; **Move liver ROI** places the picked
+mouse's liver region; **Add to mask** and **Erase from mask** paint its outline with a round brush (its size in cm),
+and the mouse is measured again. Every change is logged with the version of the analysis it corrected. Each mouse
+is stored with two standard crops, the photograph and the light, turned so the body points up, at one scale.
+
 **Animal study** in the design catalogue (with an in-vivo layer on) shows how a small animal study would be
 planned from the optimizer, but it is locked: it cannot be created. Its notice on animal welfare (3R, the licence
 obligation, the user's responsibility) is a placeholder for the lab's own text.
@@ -1059,6 +1066,12 @@ Claude reads your lab data, and it is sent to Anthropic; the server itself sends
   it into **Recently deleted**, from where **Restore** puts it back.
 - If the macOS app was open while the server wrote anyway, its next save is refused with a note to reload: reload,
   and make your last change again. Nothing of the import is lost.
+- **You approve, not Claude.** When Claude asks to write the import, your Claude app shows a question of its own
+  ("Write import … into LNP Lab?"); or, where it cannot, the server gives you a short code (in a notification on
+  a Mac) that you type to Claude. While **Import with Claude** is off here, the server refuses to write at all.
+- Studies and their biological values can come in the same way, as two more tables (see HISTORICAL-DATA.md).
+- With the browser version, a backup file (**Export everything**) lets the server list your imports and their
+  quality.
 
 ## 23. When something goes wrong
 

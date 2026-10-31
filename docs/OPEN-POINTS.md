@@ -46,6 +46,10 @@ What only Gholan can provide or decide, collected from all six phases. Each item
 | E16 | Em dashes: about 100 older UI texts use one, mostly "—" for an empty choice; the style rule says no em dashes. What should an empty choice show? | unchanged |
 | E19 | Reagents (`app/data/reagents.json`) are reference data with no screen to add or edit them, so they are not part of archiving (9.5). Should the lab manage its own reagents? They would then be archived like the other components | shipped only, not archivable |
 | E20 | A deleted experiment stays in the trash, past 30 days and through "Empty trash", while its results or a study still name its formulations (12.2). Should results alone keep it, or only studies? | results, studies and study values keep it |
+| E21 | Publish the MCP server to npm (`lnp-lab-mcp`), and under whose npm account | packed, not published (`npm run pack:npm` in `mcp/`) |
+| E22 | The approval code when the client cannot ask (no MCP elicitation, no Mac notification) travels in the tool result marked for the user: acceptable, or refuse to write without elicitation or a notification? | accepted, documented as the weaker path |
+| E23 | Biological values: refuse implausible ones (e.g. % positive over 100) in the import and the Studies grid alike? Today both take any number, and the unit must be the quantity's | any number |
+| E24 | The standard BLI crop: 5 × 11 cm at 8 px/cm, body axis up. Fine for training data later, or another size? | 5 × 11 cm, 8 px/cm |
 
 ## To check on a Mac
 
