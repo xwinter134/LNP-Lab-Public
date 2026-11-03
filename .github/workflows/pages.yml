@@ -1,0 +1,38 @@
+# Publishes the browser app at https://<owner>.github.io/lnp-lab-public/ , so it can be tried from a link with no
+# install and none of the "unverified developer" warnings the desktop app gets. Static files only, no build step:
+# the whole working tree (this is a plain ES-module app) is published as the site, same as `npm start` serves it
+# locally. Every lab stays in the visitor's own browser storage; nothing is shared between visitors or sent here.
+#
+# Runs on every push to next-stage, and by hand from Actions › "Publish the browser app" › Run workflow. GitHub
+# Pages for this repository is enabled once, under Settings › Pages › Source: GitHub Actions (first run on next-stage
+# does this automatically if Pages is unconfigured; otherwise set it there once).
+name: Publish the browser app
+
+on:
+  push:
+    branches: [next-stage]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
