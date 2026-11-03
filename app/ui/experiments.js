@@ -661,7 +661,7 @@ function wizard(el, ctx, ref, settings, type) {
     if (type === 'stability') {
       const st = state.stability;
       specific = `<h2 style="margin-top:14px">Stability design ${info('stability')}</h2>
-        <div><label>Formulations</label><div id="formList" style="display:flex;flex-direction:column;gap:6px">${st.formulations.map((f, i) => `<div style="display:flex;gap:8px;align-items:center"><span class="chip">F${i + 1}</span><select name="form_${i}" style="flex:1">${compOpts.map((o) => `<option value="${o.value}" ${String(o.value) === String(f.compositionId) ? 'selected' : ''}>${o.label}</option>`).join('')}</select><button data-rmform="${i}" class="ghost" style="padding:4px 8px">✕</button></div>`).join('')}</div>
+        <div><label>Formulations</label><div id="formList" style="display:flex;flex-direction:column;gap:6px">${st.formulations.map((f, i) => `<div style="display:flex;gap:8px;align-items:center"><span class="chip">F${i + 1}</span><select name="form_${i}" style="flex:1">${compOpts.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(f.compositionId) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select><button data-rmform="${i}" class="ghost" style="padding:4px 8px">✕</button></div>`).join('')}</div>
         <button id="addForm" style="margin-top:6px">+ Add formulation</button></div>
         <div class="grid g4" style="margin-top:10px">
           <div><label>Storage conditions</label><div style="display:flex;gap:10px;flex-wrap:wrap">${['4C', '25C', '-20C', '37C', 'RT'].map((c) => `<label style="display:flex;gap:4px;align-items:center;font-weight:400;color:var(--ink)"><input type="checkbox" name="cond_${c}" ${st.conditions.includes(c) ? 'checked' : ''} style="width:auto">${c.replace('C', ' °C')}</label>`).join('')}</div></div>
@@ -712,14 +712,14 @@ function wizard(el, ctx, ref, settings, type) {
         raw(`<input type="number" step="any" name="doe_f_low_${i}" value="${f.low ?? ''}" style="width:84px">`),
         raw(`<input type="number" step="any" name="doe_f_center_${i}" value="${f.center ?? ''}" placeholder="mid" style="width:84px" title="optional: asymmetric ranges are coded per side">`),
         raw(`<input type="number" step="any" name="doe_f_high_${i}" value="${f.high ?? ''}" style="width:84px">`),
-        raw(`<select name="doe_f_applyTo_${i}">${applyOpts.map((o) => `<option value="${o.value}" ${o.value === (f.applyTo || '') ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`),
+        raw(`<select name="doe_f_applyTo_${i}">${applyOpts.map((o) => `<option value="${esc(o.value)}" ${o.value === (f.applyTo || '') ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
         raw(`<button data-rmf="${i}" class="ghost" style="padding:4px 8px" title="remove">✕</button>`)] });
 
       const lipidOpts = ref.active.lipids.map((l) => ({ value: l.key, label: `${l.name} · ${l.class}` }));
       const cRow = (c, i) => {
         const lip = ref.lipidByKey?.[c.lipidKey];
         return { cells: [
-          raw(`<select name="doe_c_lipidKey_${i}" style="min-width:210px">${c.lipidKey ? '' : '<option value="">Choose a lipid…</option>'}${lipidOpts.map((o) => `<option value="${o.value}" ${o.value === c.lipidKey ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
+          raw(`<select name="doe_c_lipidKey_${i}" style="min-width:210px">${c.lipidKey ? '' : '<option value="">Choose a lipid…</option>'}${lipidOpts.map((o) => `<option value="${esc(o.value)}" ${o.value === c.lipidKey ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
           raw(lip ? `<span class="chip">${esc(lip.class)}</span>` : '<span class="muted">–</span>'),
           raw(`<input type="number" step="any" min="0" name="doe_c_lo_${i}" value="${c.lo ?? ''}" style="width:84px">`),
           raw(`<input type="number" step="any" min="0" name="doe_c_hi_${i}" value="${c.hi ?? ''}" style="width:84px">`),
@@ -782,7 +782,7 @@ function wizard(el, ctx, ref, settings, type) {
           raw(st.goal === 'target' ? `<input type="number" step="any" name="doe_r_target_${r.name}" value="${st.target ?? ''}" style="width:90px">` : '<span class="muted">–</span>')] }; }))}
         <div class="muted" style="margin-top:6px">Runs become formulations in the randomised order, and are numbered in it: F1 is the first run to make. The fit, the diagnostics and the optimum are on Design &amp; results once the measurements are in.</div>`;
     } else if (type === 'comparison') {
-      specific = `<h2 style="margin-top:14px">Compositions to compare</h2><div id="cmpList" style="display:flex;flex-direction:column;gap:6px">${state.comparison.compositionIds.map((cid, i) => `<div style="display:flex;gap:8px;align-items:center"><span class="chip">F${i + 1}</span><select name="cmp_${i}" style="flex:1">${compOpts.map((o) => `<option value="${o.value}" ${String(o.value) === String(cid) ? 'selected' : ''}>${o.label}</option>`).join('')}</select><button data-rmcmp="${i}" style="padding:4px 8px">✕</button></div>`).join('')}</div><button id="addCmp" style="margin-top:6px">+ Add composition</button>`;
+      specific = `<h2 style="margin-top:14px">Compositions to compare</h2><div id="cmpList" style="display:flex;flex-direction:column;gap:6px">${state.comparison.compositionIds.map((cid, i) => `<div style="display:flex;gap:8px;align-items:center"><span class="chip">F${i + 1}</span><select name="cmp_${i}" style="flex:1">${compOpts.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(cid) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select><button data-rmcmp="${i}" style="padding:4px 8px">✕</button></div>`).join('')}</div><button id="addCmp" style="margin-top:6px">+ Add composition</button>`;
     } else if (type === 'reference') {
       specific = `<h2 style="margin-top:14px">Repeats</h2><div class="grid g3">${field({ id: 'ref_n', label: 'Number of repeats', value: state.reference.n, step: 1 })}</div>`;
     }

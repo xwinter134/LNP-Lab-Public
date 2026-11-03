@@ -6722,7 +6722,11 @@ scenarios.push(insightFindingLinksToData);
  * backup or instrument file would otherwise run code in the lab of whoever opens it. Found five such places
  * at first (calendar, design and results, experiment, measurements, overview); this keeps them closed.
  */
-export async function recordTextIsNeverMarkup({ page, open }) {
+export async function recordTextIsNeverMarkup({ page, open, errors }) {
+  // What this scenario causes on purpose is not an error of the app: a value marked with text no longer plots
+  // (an SVG coordinate of NaN), and an <img src=x> that escaping failed to stop is fetched (a 404, and then the
+  // check below fails anyway). Everything else logged meanwhile still counts.
+  const errAt = errors?.length ?? 0;
   const COLS = ['experiments', 'batches', 'measurements', 'compositions', 'stocks', 'buffers', 'lipids', 'rnaLots', 'events', 'studies', 'bioMeasurements', 'inbox', 'quarantine', 'insightReports', 'views', 'devices', 'settings'];
   const was = {};
   for (const c of COLS) was[c] = await readCol(page, c);
@@ -6759,6 +6763,8 @@ export async function recordTextIsNeverMarkup({ page, open }) {
       insightReports: [{ id: 'rep-probe', createdAt: '2026-10-01T10:00:00.000Z', title: 'Probe report', dataState: { formulations: 3, lastDate: '2026-09-30' }, findings: [{ text: 'f', analysis: 'correlation', formulationIds: bats.slice(0, 2), value: 'r 0.9' }] }],
       lipids: [{ key: 'PROBE1', name: 'Probe lipid', class: 'ionizable', mw: 700, supplier: 's', notes: 'n' }],
       devices: [{ id: 'probe-rig', name: 'Probe rig', pumps: 2, quench: 'optional', mixers: ['t-mixer'], notes: 'n' }],
+      // a lot every formulation record offers as a dilution buffer (the first full run found it unescaped there)
+      buffers: [{ id: 'Buffer-901', name: 'Probe buffer', lot: 'PROBE-LOT', system: 'PBS', conc_mM: 10, targetPH: 7.4, volume_mL: 500, roles: ['dialysis', 'final'], notes: 'n', date: today }],
     };
     const def = was.settings.find((x) => x.id === 'default') || { id: 'default' };
     const settings = [...was.settings.filter((x) => x.id !== 'default'), { ...def, bio: { invitro: true, invivo: true, biodist: true, tropism: true }, personalBuild: true, resultsGrid: true, troubleshooter: true, mlDescriptors: true, operator: 'op' }];
@@ -6770,6 +6776,8 @@ export async function recordTextIsNeverMarkup({ page, open }) {
     const exps = base.experiments.map((e) => e.id);
     const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'calendar', 'stocks', 'buffers', 'data', 'measurements', 'quarantine', 'doe', 'insights', 'studies', 'ml', 'materials', 'settings',
       'materials?tab=lipids', 'materials?tab=compositions', 'materials?tab=rna', 'materials?tab=devices', 'studies?id=Study-901', 'quarantine?id=q-probe', 'stocks?id=Stock-901',
+      // the forms that list the lab's lipids, compositions and buffers in their pickers
+      'experiments?new=1&type=comparison', 'experiments?new=1&type=doe&mode=mixture', 'experiments?new=1&type=single', 'buffers?id=Buffer-901',
       ...exps.slice(-4).flatMap((e) => [`experiments?id=${e}`, `doe?id=${e}`]), ...bats.slice(0, 3).map((b) => `formulation?batch=${b}`),
       ...was.measurements.slice(0, 2).map((m) => `measurements?id=${m.id}`), `data?ids=${bats.slice(0, 3).join(',')}`];
     const hits = new Set();
@@ -6782,6 +6790,10 @@ export async function recordTextIsNeverMarkup({ page, open }) {
     if (hits.size) throw new Error(`text from a record ran as script: ${[...hits].slice(0, 6).join('; ')}`);
   } finally {
     for (const c of COLS) await writeCol(page, c, was[c]);
+    if (errors) {
+      const mine = errors.splice(errAt);
+      errors.push(...mine.filter((e) => !/attribute [xy]\d?: Expected length, "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
+    }
   }
 }
 scenarios.push(recordTextIsNeverMarkup);
