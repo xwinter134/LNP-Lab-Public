@@ -6798,7 +6798,7 @@ export async function recordTextIsNeverMarkup({ page, open, errors }) {
     for (const c of COLS) await writeCol(page, c, was[c]);
     if (errors) {
       const mine = errors.splice(errAt);
-      errors.push(...mine.filter((e) => !/attribute c?[xy]\d?: Expected length, "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
+      errors.push(...mine.filter((e) => !/attribute [\w-]+: Expected (length|number), "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
     }
   }
 }

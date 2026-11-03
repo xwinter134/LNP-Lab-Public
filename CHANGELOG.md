@@ -109,12 +109,13 @@ the app works as in 0.15. The decisions that are the lab's are listed in `docs/O
 **In the browser from a link, and safer for it**
 - The app is published at <https://xwinter134.github.io/LNP-Lab-Public/> on every push to `next-stage`: no install,
   no "unverified developer" warning. Each visitor's lab stays in their own browser.
-- **Text from a record is never read as markup.** A formulation's label, a sample name, an operator, a calendar
-  title or a sample name in an unassigned import was put into the page as HTML on six screens (the calendar, the
-  overview, an experiment, design & results, a result, the measurements' inbox), so a crafted backup or
-  instrument file could have run code in the lab of whoever opened it. All escaped now; a browser scenario
-  (`recordTextIsNeverMarkup`) puts a script into every free-text field of every kind of record and opens every
-  screen, and fails if any runs.
+- **Text from a record is never read as markup.** Names, labels, sample names, remarks, file names, operators, lot
+  codes and other free text were put into the page as HTML in many places (first found on the calendar, the overview,
+  experiments, design & results, results, the measurements' inbox, the formulation record's buffer pickers), so a
+  crafted backup or instrument file could have run code in the lab of whoever opened it. A line-by-line audit of
+  every screen escaped them all; links kept in records are followed only inside the app or to http(s). A browser
+  scenario (`recordTextIsNeverMarkup`) puts a script into every free-text field of every kind of record, opens every
+  screen and every record's own page, and fails if any runs.
 - The published copy runs under a Content-Security-Policy (`scripts/pages-csp.mjs`): only its own scripts, named by
   hash, and no other host. The Mac app and `npm start` load `index.html` unchanged.
 
