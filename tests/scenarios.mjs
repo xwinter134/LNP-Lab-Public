@@ -6714,3 +6714,72 @@ export async function insightFindingLinksToData({ page, open }) {
   }
 }
 scenarios.push(insightFindingLinksToData);
+
+/**
+ * Security: text a person typed or imported is never read as markup. Every free-text field of every record (a
+ * label, a sample name, an operator, a study's name, a calendar title, a row in quarantine) gets a harmless
+ * script appended, and every screen and a detail page of each kind is opened: none of it may run. A crafted
+ * backup or instrument file would otherwise run code in the lab of whoever opens it. Found five such places
+ * at first (calendar, design and results, experiment, measurements, overview); this keeps them closed.
+ */
+export async function recordTextIsNeverMarkup({ page, open }) {
+  const COLS = ['experiments', 'batches', 'measurements', 'compositions', 'stocks', 'buffers', 'lipids', 'rnaLots', 'events', 'studies', 'bioMeasurements', 'inbox', 'quarantine', 'insightReports', 'views', 'devices', 'settings'];
+  const was = {};
+  for (const c of COLS) was[c] = await readCol(page, c);
+  const SKIP = /^(id|.*Id|.*Ids|batchId|lotId|stockId|compositionId|experimentId|key|lipidKey|class|status|type|kind|role|unit|stage|test|date|.*Date|.*At|createdAt|updatedAt|ns|hash|sha256|source|mode|op|goal|cargo|layer|quantity|bucket|engine|version|schema|link|query|theme)$/;
+  const tag = (where) => `<img src=x onerror="(window.__xss=window.__xss||new Set()).add('${where}')">`;
+  const poison = (v, at) => (typeof v === 'string' ? v + tag(at)
+    : Array.isArray(v) ? v.map((x) => poison(x, `${at}[]`))
+      : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SKIP.test(k) ? x : poison(x, at ? `${at}.${k}` : k)])) : v);
+  try {
+    // Run alone (SMOKE_ONLY), the lab may be empty: an experiment of three formulations to open, then.
+    if (was.batches.length < 2) {
+      const built = await builtExperiment(page, 'E997', { type: 'comparison', compositionIds: [1, 1, 1] }).catch(() => null)
+        || await builtExperiment(page, 'E997');
+      was.experiments = [...was.experiments]; was.batches = [...was.batches];
+      await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+      await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    }
+    const base = { experiments: await readCol(page, 'experiments'), batches: await readCol(page, 'batches') };
+    const bats = base.batches.map((b) => b.id);
+    if (bats.length < 1) throw new Error('no formulation to open');
+    while (bats.length < 2) bats.push(bats[0]);
+    const today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+    const seed = {
+      compositions: [{ id: 9901, synonym: 'Probe comp', mol_pct: { MC3: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100, notes: 'n' }],
+      stocks: [{ id: 'Stock-901', compositionId: 9901, molarity_mM: 10, volume_mL: 5, status: 'available', date: today, operator: 'op', remarks: 'r' }],
+      studies: [{ id: 'Study-901', name: 'Probe study', layer: 'invitro', groups: [{ id: 'G1', name: 'ref', batchId: bats[0], role: 'reference', n: 3 }, { id: 'G2', name: 'test', batchId: bats[1], role: 'test', n: 3 }], referenceBatchId: bats[0], experimentIds: [], notes: 'n' }],
+      bioMeasurements: ['G1', 'G2'].flatMap((g, gi) => [1, 2, 3].map((k) => ({ id: `bm-${g}-${k}`, studyId: 'Study-901', batchId: bats[gi], group: g, subject: `w${k}`, layer: 'invitro', quantity: 'luminescence', value: 1000 * (gi + 1) + k, unit: 'RLU', timepoint_h: 24 }))),
+      inbox: [{ id: 'ib-probe', sampleName: 'stray_final', test: 'dls', values: { zave_nm: 77.7, pdi: 0.12 }, date: today, operator: 'op', raw: { fileName: 'run.csv' } }],
+      quarantine: [{ id: 'q-probe', importId: 'imp-probe', table: 'measurements', status: 'open', reason: 'why', origin: { file: { name: 'probe.xlsx' }, sheet: 'Sheet1', row: 3 }, raw: { sample: 's', pdi: '8.5' } }],
+      events: [{ id: 'ev-probe', date: today, title: 'Probe event', link: '' }],
+      views: [{ id: 'v-probe', name: 'Probe view', query: `ids=${bats[0]}`, createdAt: '2026-10-12T10:00:00.000Z' }],
+      insightReports: [{ id: 'rep-probe', createdAt: '2026-10-01T10:00:00.000Z', title: 'Probe report', dataState: { formulations: 3, lastDate: '2026-09-30' }, findings: [{ text: 'f', analysis: 'correlation', formulationIds: bats.slice(0, 2), value: 'r 0.9' }] }],
+      lipids: [{ key: 'PROBE1', name: 'Probe lipid', class: 'ionizable', mw: 700, supplier: 's', notes: 'n' }],
+      devices: [{ id: 'probe-rig', name: 'Probe rig', pumps: 2, quench: 'optional', mixers: ['t-mixer'], notes: 'n' }],
+    };
+    const def = was.settings.find((x) => x.id === 'default') || { id: 'default' };
+    const settings = [...was.settings.filter((x) => x.id !== 'default'), { ...def, bio: { invitro: true, invivo: true, biodist: true, tropism: true }, personalBuild: true, resultsGrid: true, troubleshooter: true, mlDescriptors: true, operator: 'op' }];
+    for (const c of COLS) {
+      const rows = c === 'settings' ? settings : [...(base[c] || was[c]), ...(seed[c] || [])];
+      await writeCol(page, c, c === 'settings' ? rows.map((x) => (x.id === 'default' ? { ...x, operator: x.operator + tag('settings.operator') } : x)) : rows.map((r) => poison(r, c)));
+    }
+    await page.evaluate(() => { window.__xss = new Set(); });
+    const exps = base.experiments.map((e) => e.id);
+    const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'calendar', 'stocks', 'buffers', 'data', 'measurements', 'quarantine', 'doe', 'insights', 'studies', 'ml', 'materials', 'settings',
+      'materials?tab=lipids', 'materials?tab=compositions', 'materials?tab=rna', 'materials?tab=devices', 'studies?id=Study-901', 'quarantine?id=q-probe', 'stocks?id=Stock-901',
+      ...exps.slice(-4).flatMap((e) => [`experiments?id=${e}`, `doe?id=${e}`]), ...bats.slice(0, 3).map((b) => `formulation?batch=${b}`),
+      ...was.measurements.slice(0, 2).map((m) => `measurements?id=${m.id}`), `data?ids=${bats.slice(0, 3).join(',')}`];
+    const hits = new Set();
+    for (const s of screens) {
+      await open(s);
+      await page.evaluate(() => document.querySelectorAll('details:not([open])').forEach((d) => { d.open = true; d.dispatchEvent(new Event('toggle')); }));
+      await page.waitForTimeout(400);
+      for (const h of await page.evaluate(() => { const x = [...(window.__xss || [])]; window.__xss = new Set(); return x; })) hits.add(`${h} on ${s}`);
+    }
+    if (hits.size) throw new Error(`text from a record ran as script: ${[...hits].slice(0, 6).join('; ')}`);
+  } finally {
+    for (const c of COLS) await writeCol(page, c, was[c]);
+  }
+}
+scenarios.push(recordTextIsNeverMarkup);

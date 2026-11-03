@@ -1,5 +1,5 @@
 // Screen: Calendar — month view of generated events (batch days, timepoints, buffer prep, stock expiry) and manual events.
-import { html, raw, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, download, uid } from './kit.js';
+import { html, raw, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, download, uid, esc } from './kit.js';
 import { getSettings } from '../refdata.js';
 import { toICS } from '../calc/ics.js';
 
@@ -52,7 +52,7 @@ export async function render(el, ctx) {
     const evs = byDate[date] || [];
     cells += `<div style="min-height:88px;border:1px solid var(--line);border-radius:8px;padding:6px;background:${date === today ? 'var(--accent-soft)' : 'var(--card)'}">
       <div style="font-size:12px;font-weight:600;color:${date === today ? 'var(--accent)' : 'var(--ink2)'}">${d}</div>
-      ${evs.map((e) => `<a href="${e.link || '#/calendar'}" class="chip ${colors[e.kind] || ''}" style="display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:${e.done ? 'line-through' : 'none'};opacity:${e.done ? 0.6 : 1}" title="${e.title}">${e.title}</a>`).join('')}
+      ${evs.map((e) => `<a href="${esc(e.link || '#/calendar')}" class="chip ${colors[e.kind] || ''}" style="display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:${e.done ? 'line-through' : 'none'};opacity:${e.done ? 0.6 : 1}" title="${esc(e.title)}">${esc(e.title)}</a>`).join('')}
     </div>`;
   }
   const upcoming = events.filter((e) => !e.done && e.date >= today).slice(0, 12);
@@ -65,12 +65,12 @@ export async function render(el, ctx) {
       <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px">${cells}</div>
       <div class="muted" style="margin-top:8px">${chip('measurement day', 'info')} ${chip('production', 'ok')} ${chip('preparation')} ${chip('stock expiry', 'warn')} · struck through = done</div></div>
      <div class="grid g2">
-      <div class="card"><h2>Upcoming</h2>${table(['Date', 'Event'], upcoming.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${e.link || '#/calendar'}">${e.title}</a>`)] })), { empty: 'Nothing scheduled.' })}</div>
-      <div class="card"><h2>Overdue (${overdue.length})</h2>${table(['Date', 'Event'], overdue.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${e.link || '#/calendar'}">${e.title}</a>`)] })), { empty: 'Nothing overdue.' })}</div>
+      <div class="card"><h2>Upcoming</h2>${table(['Date', 'Event'], upcoming.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(e.link || '#/calendar')}">${esc(e.title)}</a>`)] })), { empty: 'Nothing scheduled.' })}</div>
+      <div class="card"><h2>Overdue (${overdue.length})</h2>${table(['Date', 'Event'], overdue.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(e.link || '#/calendar')}">${esc(e.title)}</a>`)] })), { empty: 'Nothing overdue.' })}</div>
      </div>
      <div class="card"><h2>Add manual event</h2><div class="grid g4" id="evForm">${field({ id: 'date', label: 'Date', type: 'date', value: today })}${field({ id: 'title', label: 'Title', type: 'text' })}${field({ id: 'link', label: 'Link (optional, e.g. #/experiments?id=E1)', type: 'text', advanced: true })}</div>
       <div style="margin-top:10px"><button class="primary" id="addEv">Add</button></div>
-      ${ctx.store.count('events') ? `<div style="margin-top:10px">${table(['Date', 'Title', ''], ctx.store.all('events').map((e) => ({ cells: [fmtDate(e.date), e.title, raw(`<button data-rm="${e.id}" style="padding:3px 8px">✕</button>`)] })))}</div>` : ''}</div>`;
+      ${ctx.store.count('events') ? `<div style="margin-top:10px">${table(['Date', 'Title', ''], ctx.store.all('events').map((e) => ({ cells: [fmtDate(e.date), e.title, raw(`<button data-rm="${esc(e.id)}" style="padding:3px 8px">✕</button>`)] })))}</div>` : ''}</div>`;
 
   el.querySelector('#addEv').addEventListener('click', () => {
     const f = readForm(el.querySelector('#evForm'));

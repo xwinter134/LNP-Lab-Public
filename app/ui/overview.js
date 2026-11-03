@@ -193,7 +193,7 @@ export async function render(el, ctx) {
       <p class="muted" style="margin-top:8px">Every term in the app carries a <button type="button" class="learn" disabled>?</button> that explains it in a paragraph, with the numbers worth knowing and the mistake that costs a batch. They are all collected under <a href="#/learn">Reference</a>.</p>
       <p class="muted">Data stays on this computer until you export it (Settings).</p></div>` : ''}
     <div class="grid g2">
-      <div class="card"><h2>Due today</h2>${table(['Item', ''], dueToday.map((e) => ({ cells: [raw(`<span class="chip ${e.kind === 'batch' ? 'ok' : e.kind === 'measurement' ? 'info' : ''}">${e.kind}</span> ${e.title}`), raw(`<a href="${e.link || '#/calendar'}">Open</a>`)] })), { empty: 'Nothing due today.' })}
+      <div class="card"><h2>Due today</h2>${table(['Item', ''], dueToday.map((e) => ({ cells: [raw(`<span class="chip ${e.kind === 'batch' ? 'ok' : e.kind === 'measurement' ? 'info' : ''}">${esc(e.kind)}</span> ${esc(e.title)}`), raw(`<a href="${esc(e.link || '#/calendar')}">Open</a>`)] })), { empty: 'Nothing due today.' })}
         ${overdue.length ? `<p class="muted"><a href="#/calendar">${overdue.length} overdue on the calendar</a></p>` : ''}</div>
       <div class="card"><h2>Needs attention</h2>${attention.length ? attention.map((a) => `<div class="note ${a.level}"${a.id ? ` id="${a.id}"` : ''}>${a.html}</div>`).join('') : '<p class="muted">All clear.</p>'}</div>
     </div>

@@ -215,7 +215,7 @@ export function designSvgFromRuns(runs, factorNames, o = {}) {
 
 /** One sentence saying what the picture shows, so the drawing is not left to speak for itself. */
 export function designCaption(k, byType, o = {}) {
-  const parts = Object.entries(byType || {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`);
+  const parts = Object.entries(byType || {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${esc(t)}`);
   const form = k === 2 ? 'The square is the space your two factors span.'
     : k === 3 ? 'The cube is the space your three factors span; the wireframe is the box your ranges define.'
       : o.grid ? 'One row per run, one column per factor. The pattern down a column is how that factor is balanced against the others.'
@@ -353,7 +353,7 @@ export function blendSvgFromRuns(runs, components, o = {}) {
 
 /** One sentence on what the blend picture shows. */
 export function blendCaption(q, byType, o = {}) {
-  const parts = Object.entries(byType || {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`);
+  const parts = Object.entries(byType || {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${esc(t)}`);
   const form = q === 3
     ? (o.pseudo === false
       ? 'The triangle is every possible blend of the three lipids; each corner is one lipid alone. The dashed outline is the region your mol% bounds leave, and the design sits inside it.'

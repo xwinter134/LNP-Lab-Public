@@ -685,7 +685,7 @@ function ofatBody(ctx, sel) {
   const lv = (v) => (categorical ? levelText(k, v, sel.design.labels) : fmt(v, 2));
   const measured = categorical ? [] : rows.filter((r) => r[resp] != null);
   const runTable = table(['Formulation', fname, 'Planned', 'Status', { label: 'Z-ave', right: true }, { label: 'PDI', right: true }, { label: 'EE %', right: true }],
-    rows.map((r) => ({ cells: [raw(`<a href="#/formulation?batch=${r.batchId}"><b>${r.batchId}</b></a> <span class="muted">${r.label}</span>`), lv(r['factor_' + k]), fmtDate(r.plannedDate), raw(chip(r.status, r.status === 'planned' ? '' : 'info')), fmt(r.zave_nm, 1), fmt(r.pdi, 3), fmt(r.ee_pct, 1)] })));
+    rows.map((r) => ({ cells: [raw(`<a href="#/formulation?batch=${esc(r.batchId)}"><b>${esc(r.batchId)}</b></a> <span class="muted">${esc(r.label)}</span>`), lv(r['factor_' + k]), fmtDate(r.plannedDate), raw(chip(r.status, r.status === 'planned' ? '' : 'info')), fmt(r.zave_nm, 1), fmt(r.pdi, 3), fmt(r.ee_pct, 1)] })));
   let chart = '';
   if (measured.length >= 2) {
     const pts = measured.slice().sort((a, b) => a['factor_' + k] - b['factor_' + k]);
@@ -693,9 +693,9 @@ function ofatBody(ctx, sel) {
     const xs = pts.map((r) => r['factor_' + k]), ys = pts.map((r) => r[resp]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), py = (y1 - y0) * 0.15 || 1;
     const sx = (x) => L + (x1 > x0 ? (x - x0) / (x1 - x0) : 0.5) * (W - L - R), sy = (y) => T + (1 - (y - (y0 - py)) / ((y1 + py) - (y0 - py))) * (H - T - B);
-    chart = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${RESP[resp]} versus ${fname}" style="width:100%;max-width:560px;height:auto;display:block"><line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" class="ax"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="ax"/>
-      <polyline points="${pts.map((r) => `${sx(r['factor_' + k])},${sy(r[resp])}`).join(' ')}" fill="none" class="ac" stroke-width="2"/>${pts.map((r) => `<circle cx="${sx(r['factor_' + k])}" cy="${sy(r[resp])}" r="4.5" class="af"><title>${r.batchId}: ${fmt(r[resp], 2)}</title></circle>`).join('')}
-      ${pts.map((r) => `<text x="${sx(r['factor_' + k])}" y="${H - B + 16}" class="lb" text-anchor="middle">${fmt(r['factor_' + k], 1)}</text>`).join('')}<text x="${W - R}" y="${H - 4}" class="lb" text-anchor="end">${fname}</text>
+    chart = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(RESP[resp])} versus ${esc(fname)}" style="width:100%;max-width:560px;height:auto;display:block"><line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" class="ax"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="ax"/>
+      <polyline points="${pts.map((r) => `${sx(r['factor_' + k])},${sy(r[resp])}`).join(' ')}" fill="none" class="ac" stroke-width="2"/>${pts.map((r) => `<circle cx="${sx(r['factor_' + k])}" cy="${sy(r[resp])}" r="4.5" class="af"><title>${esc(r.batchId)}: ${fmt(r[resp], 2)}</title></circle>`).join('')}
+      ${pts.map((r) => `<text x="${sx(r['factor_' + k])}" y="${H - B + 16}" class="lb" text-anchor="middle">${fmt(r['factor_' + k], 1)}</text>`).join('')}<text x="${W - R}" y="${H - 4}" class="lb" text-anchor="end">${esc(fname)}</text>
       <text x="${L - 6}" y="${sy(y1) + 4}" class="lb" text-anchor="end">${fmt(y1, 1)}</text><text x="${L - 6}" y="${sy(y0) + 4}" class="lb" text-anchor="end">${fmt(y0, 1)}</text></svg>`;
   }
   return `<div class="card"><div class="grid g4">${kpi('Type', TYPES.find((t) => t.id === sel.type)?.name || sel.type, `${fname} at ${sel.design.levels?.length} levels`)}${kpi('Runs', rows.length, `${measured.length} with ${RESP[resp]}`)}${kpi('Levels', (sel.design.levels || []).map(lv).join(', '))}${kpi('Fixed', 'other parameters', 'as set in the wizard')}</div></div>

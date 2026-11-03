@@ -26,7 +26,13 @@ lab** on the first screen.
   right-click the app › **Open** › **Open** (it is not notarised by Apple).
 - **Windows 10 and 11** (64-bit): the `_x64-setup.exe`. It installs for your user, no administrator rights needed.
   If SmartScreen says it protected your PC: **More info** › **Run anyway** (the installer is not code-signed).
-- **In the browser** (any system, Linux too): see Run, below.
+- **In the browser, nothing to install:** <https://xwinter134.github.io/LNP-Lab-Public/>, the latest `next-stage`,
+  published on every push (`.github/workflows/pages.yml`). Each person's lab lives in their own browser, on their
+  own computer: nothing is shared between visitors or sent anywhere. **Export everything** (Settings) to keep a copy
+  or hand a lab to someone. The published page runs under a Content-Security-Policy that lets only its own scripts
+  run and talk to no other host (`scripts/pages-csp.mjs`). Every page on `xwinter134.github.io` shares one browser
+  storage, so do not publish another site there that loads scripts from elsewhere.
+- **In the browser, from a copy of the code** (any system, Linux too): see Run, below.
 
 ## Run
 

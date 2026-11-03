@@ -30,6 +30,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # The published copy only: a Content-Security-Policy so that only the page's own scripts run and it talks
+      # to no other host (scripts/pages-csp.mjs). The Mac app and npm start keep index.html as it is.
+      - run: node scripts/pages-csp.mjs .
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

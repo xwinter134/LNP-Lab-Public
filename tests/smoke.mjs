@@ -12,7 +12,8 @@ const { chromium } = loadPlaywright();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { serve } = await import('../scripts/serve.mjs');
-const srv = await serve(root, 0, '127.0.0.1'); // the app's own dev server (no-cache headers), random free port
+// SMOKE_ROOT serves another copy of the app, e.g. the one GitHub Pages publishes (scripts/pages-csp.mjs).
+const srv = await serve(process.env.SMOKE_ROOT ? path.resolve(process.env.SMOKE_ROOT) : root, 0, '127.0.0.1'); // the app's own dev server (no-cache headers), random free port
 const port = srv.address().port;
 
 const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'stocks', 'buffers', 'measurements', 'data', 'calendar', 'doe', 'ml', 'insights', 'materials', 'learn', 'settings', 'quarantine', 'studies'];

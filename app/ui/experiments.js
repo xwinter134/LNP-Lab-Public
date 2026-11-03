@@ -1100,7 +1100,7 @@ function detail(el, ctx, ref, settings, id) {
   };
   const batchRows = batches.map((b) => {
     const d = latest(b.id, 'dls'), e = latest(b.id, 'ee');
-    return { cells: [raw(`<a href="#/formulation?batch=${b.id}"><b>${b.id}</b></a>`), b.doe ? raw(`${b.label}${b.doe.well ? ` <span class="chip">${b.doe.well}</span>` : ''}`) : b.label, factorCell(b.plan.factors), fmtDate(b.plannedDate), raw(chip(b.status, b.status === 'planned' ? '' : b.status === 'produced' ? 'info' : 'ok')),
+    return { cells: [raw(`<a href="#/formulation?batch=${esc(b.id)}"><b>${esc(b.id)}</b></a>`), b.doe ? raw(`${esc(b.label)}${b.doe.well ? ` <span class="chip">${esc(b.doe.well)}</span>` : ''}`) : b.label, factorCell(b.plan.factors), fmtDate(b.plannedDate), raw(chip(b.status, b.status === 'planned' ? '' : b.status === 'produced' ? 'info' : 'ok')),
       d ? `${fmt(d.values.zave_nm, 1)} / ${fmt(d.values.pdi, 2)}` : '–', e ? fmt(e.values.ee_pct, 1) : '–', raw(`<a href="#/formulation?batch=${b.id}">Record</a> · <a href="#/measurements?batch=${b.id}">Measure</a>`)] };
   });
 
@@ -1113,7 +1113,7 @@ function detail(el, ctx, ref, settings, id) {
     const RESP = [['dls', 'zave_nm', 'particle_size_nm', 'Particle size (nm)', 1, 'Z-ave'], ['dls', 'pdi', 'PDI', 'PDI', 3, 'PDI'], ['ee', 'ee_pct', 'encapsulation_efficiency', 'EE (%)', 1, 'EE']];
     const scored = [];
     const rows = batches.filter((b) => b.ml?.predicted).map((b) => {
-      const cells = [raw(`<a href="#/formulation?batch=${b.id}"><b>${b.id}</b></a> <span class="muted">${b.label}</span>`)];
+      const cells = [raw(`<a href="#/formulation?batch=${esc(b.id)}"><b>${esc(b.id)}</b></a> <span class="muted">${esc(b.label)}</span>`)];
       for (const [test, key, name, , dp, short] of RESP) {
         const p = b.ml.predicted[name];
         const m = latest(b.id, test)?.values?.[key];
@@ -1143,7 +1143,7 @@ function detail(el, ctx, ref, settings, id) {
   const slotSummary = [`${p.total} expected`, `${p.done} done`, `${p.open} open${p.nextDue ? `, next due ${shortDate(p.nextDue, today)}` : ''}`, p.overdue ? `${p.overdue} overdue` : ''].filter(Boolean).join(' · ');
   const slotsTable = `<div class="card advanced" id="expectedCard"><details id="expectedDetails"><summary><h2>Expected measurements</h2> <span class="muted" id="expectedSummary">${esc(slotSummary)}</span></summary>
     ${table(['Sample name', 'Formulation', 'Stage', 'Test', 'Due', 'Status'],
-    exp.expected.slice().sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((s) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${s.sampleName}</span>`), s.batchId, s.stage, s.test, fmtDate(s.dueDate), raw(chip(s.status, s.status === 'done' ? 'ok' : s.dueDate < today ? 'warn' : ''))] })))}</details></div>`;
+    exp.expected.slice().sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((s) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(s.sampleName)}</span>`), s.batchId, s.stage, s.test, fmtDate(s.dueDate), raw(chip(s.status, s.status === 'done' ? 'ok' : s.dueDate < today ? 'warn' : ''))] })))}</details></div>`;
 
   // Bench day: one choice for every formulation of the experiment, instead of one record visit each. Stocks
   // of the experiment's own composition come first, as on the record. A select opens on the choice the

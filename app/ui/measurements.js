@@ -143,7 +143,7 @@ export async function render(el, ctx) {
     // stays for what a grid cell cannot hold (potency with its cell line, remarks, a file reference).
     (settings.entryGrid ? entryCard(ctx, settings, experiments, batches, stored) : '') +
     manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today) +
-    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${r.sampleName}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">–</option>${openSlots.map((s) => `<option value="${s.id}">${s.sampleName} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
+    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">–</option>${openSlots.map((s) => `<option value="${esc(s.id)}">${esc(s.sampleName)} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
     resultsCard(measurements, experiments, filters, filterBatch, added);
   // The "?" marks in the title. wireLearn guards against wiring the same element twice.
   wireLearn(el);
@@ -493,7 +493,7 @@ function detail(el, ctx, settings, id) {
   const m = ctx.store.get('measurements', id);
   if (!m) { el.innerHTML = header('Measurements', 'Not found'); return; }
   el.innerHTML = header(raw(`<a href="#/measurements">Measurements</a> › ${esc(m.sampleName || m.batchId)}`), `${m.test.toUpperCase()} · ${m.sampleName || m.batchId}`, `${provenanceBadge(m, { id: 'provMeasurement' })}${m.batchId ? `<a class="btn" href="#/formulation?batch=${esc(m.batchId)}">The formulation</a>` : ''}${m.experimentId ? `<a class="btn" href="#/experiments?id=${esc(m.experimentId)}">The plan</a>` : ''}<button id="editResult">Edit</button><button id="del" style="color:var(--warn)">Delete</button>`) +
-    `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', m.operator || '–'], ['Stage', m.stage || '–'], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
+    `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', esc(m.operator || '–')], ['Stage', esc(m.stage || '–')], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
       ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${f.text}</div>`).join('')}
       <div id="resultValues">${valuesView(m)}</div>
       <p class="muted">Source: ${esc(provenanceLine(m))}</p>
