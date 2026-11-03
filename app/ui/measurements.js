@@ -497,8 +497,8 @@ function detail(el, ctx, settings, id) {
       ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${f.text}</div>`).join('')}
       <div id="resultValues">${valuesView(m)}</div>
       <p class="muted">Source: ${esc(provenanceLine(m))}</p>
-      ${m.raw ? `<p class="muted">Raw: ${m.raw.fileName || ''} ${m.raw.sha256 ? '· SHA-256 ' + m.raw.sha256.slice(0, 16) + '…' : ''} ${m.raw.parser ? '· parser ' + m.raw.parser + ' v' + m.raw.parserVersion : ''}</p>` : ''}
-      ${m.remarks ? `<p>${m.remarks}</p>` : ''}</div>`;
+      ${m.raw ? `<p class="muted">Raw: ${esc(m.raw.fileName || '')} ${m.raw.sha256 ? '· SHA-256 ' + esc(String(m.raw.sha256).slice(0, 16)) + '…' : ''} ${m.raw.parser ? '· parser ' + esc(m.raw.parser) + ' v' + esc(m.raw.parserVersion ?? '') : ''}</p>` : ''}
+      ${m.remarks ? `<p>${esc(m.remarks)}</p>` : ''}</div>`;
   el.querySelector('#editResult').addEventListener('click', () => {
     el.querySelector('#editResult').disabled = true;
     el.querySelector('#resultValues').innerHTML = editForm(m);

@@ -6778,21 +6778,27 @@ export async function recordTextIsNeverMarkup({ page, open, errors }) {
       'materials?tab=lipids', 'materials?tab=compositions', 'materials?tab=rna', 'materials?tab=devices', 'studies?id=Study-901', 'quarantine?id=q-probe', 'stocks?id=Stock-901',
       // the forms that list the lab's lipids, compositions and buffers in their pickers
       'experiments?new=1&type=comparison', 'experiments?new=1&type=doe&mode=mixture', 'experiments?new=1&type=single', 'buffers?id=Buffer-901',
-      ...exps.slice(-4).flatMap((e) => [`experiments?id=${e}`, `doe?id=${e}`]), ...bats.slice(0, 3).map((b) => `formulation?batch=${b}`),
-      ...was.measurements.slice(0, 2).map((m) => `measurements?id=${m.id}`), `data?ids=${bats.slice(0, 3).join(',')}`];
+      // every record of a kind with a page of its own: each kind of text appears where some record has it, and a
+      // sample of them missed a remark and an instrument file name on the third run
+      ...exps.flatMap((e) => [`experiments?id=${e}`, `doe?id=${e}`]), ...bats.map((b) => `formulation?batch=${b}`),
+      ...was.measurements.map((m) => `measurements?id=${m.id}`), ...was.stocks.map((x) => `stocks?id=${x.id}`), ...was.buffers.map((x) => `buffers?id=${x.id}`),
+      ...was.studies.map((x) => `studies?id=${x.id}`), `data?ids=${bats.slice(0, 3).join(',')}`];
     const hits = new Set();
     for (const s of screens) {
       await open(s);
       await page.evaluate(() => document.querySelectorAll('details:not([open])').forEach((d) => { d.open = true; d.dispatchEvent(new Event('toggle')); }));
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(s.includes('?id=') || s.includes('?batch=') ? 150 : 400);
       for (const h of await page.evaluate(() => { const x = [...(window.__xss || [])]; window.__xss = new Set(); return x; })) hits.add(`${h} on ${s}`);
     }
-    if (hits.size) throw new Error(`text from a record ran as script: ${[...hits].slice(0, 6).join('; ')}`);
+    // an image that failed late, after the last screen
+    await page.waitForTimeout(800);
+    for (const h of await page.evaluate(() => [...(window.__xss || [])])) hits.add(`${h} (late)`);
+    if (hits.size) throw new Error(`text from a record ran as script: ${[...hits].slice(0, 8).join('; ')}`);
   } finally {
     for (const c of COLS) await writeCol(page, c, was[c]);
     if (errors) {
       const mine = errors.splice(errAt);
-      errors.push(...mine.filter((e) => !/attribute [xy]\d?: Expected length, "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
+      errors.push(...mine.filter((e) => !/attribute c?[xy]\d?: Expected length, "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
     }
   }
 }
