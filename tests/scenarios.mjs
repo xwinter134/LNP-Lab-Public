@@ -6728,7 +6728,9 @@ export async function recordTextIsNeverMarkup({ page, open }) {
   for (const c of COLS) was[c] = await readCol(page, c);
   const SKIP = /^(id|.*Id|.*Ids|batchId|lotId|stockId|compositionId|experimentId|key|lipidKey|class|status|type|kind|role|unit|stage|test|date|.*Date|.*At|createdAt|updatedAt|ns|hash|sha256|source|mode|op|goal|cargo|layer|quantity|bucket|engine|version|schema|link|query|theme)$/;
   const tag = (where) => `<img src=x onerror="(window.__xss=window.__xss||new Set()).add('${where}')">`;
-  const poison = (v, at) => (typeof v === 'string' ? v + tag(at)
+  // A number or a date kept as text is a value, not free text: marked, it would only stop a chart from plotting.
+  const valueLike = (v) => /^\s*-?\d+(\.\d+)?\s*$|^\d{4}-\d\d-\d\d/.test(v);
+  const poison = (v, at) => (typeof v === 'string' ? (valueLike(v) ? v : v + tag(at))
     : Array.isArray(v) ? v.map((x) => poison(x, `${at}[]`))
       : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SKIP.test(k) ? x : poison(x, at ? `${at}.${k}` : k)])) : v);
   try {
