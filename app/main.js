@@ -245,7 +245,7 @@ async function route() {
     if (seq === routeSeq && main.isConnected) setTrail(mountCrumbs(main, id, params, SCREENS));
   } catch (err) {
     if (seq !== routeSeq) return;
-    main.innerHTML = `<div class="note warn"><b>Screen "${id}" failed:</b> ${err.message}<br><span class="muted">${(err.stack || '').split('\n').slice(0, 3).join(' · ')}</span></div>`;
+    main.innerHTML = `<div class="note warn"><b>Screen "${esc(id)}" failed:</b> ${esc(err.message)}<br><span class="muted">${esc((err.stack || '').split('\n').slice(0, 3).join(' · '))}</span></div>`;
     console.error(err);
   }
 }

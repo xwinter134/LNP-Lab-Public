@@ -163,7 +163,7 @@ export async function render(el, ctx) {
     function draw() {
       const { res, autoName, sucroseG, naclG } = derive();
       const reagents2 = state.system2 ? ref.reagents.filter((x) => x.system === state.system2) : [];
-      const result = res.err ? `<div class="note warn">${res.err}</div>` : `
+      const result = res.err ? `<div class="note warn">${esc(res.err)}</div>` : `
         <div id="bufferResult">
           <div class="weighGrid">
             ${[
@@ -372,9 +372,9 @@ export async function render(el, ctx) {
     function print(res, autoName, naclG, sucroseG) {
       if (res.err) return;
       const f = readForm(box);
-      const body = `<h1>Buffer preparation · ${f.name || autoName}</h1><div class="muted">${esc(state.lot || lotNameFor())} · ${fmt(state.volume_mL, 0)} mL · target pH ${fmt(state.targetPH, 2)} · ${f.date} · ${f.operator}</div>
+      const body = `<h1>Buffer preparation · ${esc(f.name || autoName)}</h1><div class="muted">${esc(state.lot || lotNameFor())} · ${fmt(state.volume_mL, 0)} mL · target pH ${fmt(state.targetPH, 2)} · ${esc(f.date)} · ${esc(f.operator)}</div>
         <h2>Reagents</h2><table><tr><th>Reagent</th><th class="r">Amount</th><th>Lot</th><th>Weighed</th></tr>
-        ${res.reagents.map((r) => `<tr><td>${r.name}</td><td class="r">${r.grams != null ? fmt(r.grams, 3) + ' g' : fmt(r.mL, 2) + ' mL'}</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>`).join('')}
+        ${res.reagents.map((r) => `<tr><td>${esc(r.name)}</td><td class="r">${r.grams != null ? fmt(r.grams, 3) + ' g' : fmt(r.mL, 2) + ' mL'}</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>`).join('')}
         ${naclG ? `<tr><td>Sodium chloride</td><td class="r">${fmt(naclG, 3)} g</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>` : ''}
         ${sucroseG ? `<tr><td>Sucrose</td><td class="r">${fmt(sucroseG, 2)} g</td><td><span class="blank"></span></td><td><span class="blank"></span></td></tr>` : ''}
         <tr><td>Water for injection</td><td class="r">ad ${fmt(state.volume_mL, 0)} mL</td><td><span class="blank"></span></td><td></td></tr></table>

@@ -39,7 +39,9 @@ let dateFormat = null;
 export function fmtDate(iso) {
   if (!iso) return '–';
   const d = iso.length === 10 ? parseISO(iso) : new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
+  // A date that does not parse is shown as stored, minus the characters no date has: it comes from a record (an
+  // import, a backup), and many screens put this function's text straight into their markup.
+  if (Number.isNaN(d.getTime())) return String(iso).replace(/[<>&"']/g, '');
   dateFormat ||= new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return dateFormat.format(d);
 }

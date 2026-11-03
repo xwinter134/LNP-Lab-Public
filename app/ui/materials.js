@@ -1098,7 +1098,7 @@ function descriptorCard(ref) {
     const v = l.descriptors?.[f.key];
     return f.kind === 'category'
       ? raw(`<select data-desc="${esc(l.key)}" name="${esc(f.key)}" style="width:auto"><option value=""></option>${f.options.map((o) => `<option ${v === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`)
-      : raw(`<input type="number" data-desc="${esc(l.key)}" name="${esc(f.key)}" step="${f.step}" value="${v ?? ''}" style="width:78px">`);
+      : raw(`<input type="number" data-desc="${esc(l.key)}" name="${esc(f.key)}" step="${f.step}" value="${esc(v ?? '')}" style="width:78px">`);
   };
   return `<div class="card" id="descriptorCard"><h2>Lipid descriptors for the optimizer</h2>
     <p class="muted">The descriptor mode describes each ionizable lipid by these numbers. It opens from about 20 lipids with descriptors and runs. The structure is kept once per lipid as a SMILES string, for the record and for a later version that computes the descriptors from it; computing them needs RDKit.js, which is not part of this version, so enter the numbers from the literature or the supplier.</p>

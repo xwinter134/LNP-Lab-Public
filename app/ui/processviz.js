@@ -171,7 +171,7 @@ function bufferList(id, role, ref) {
   return `<datalist id="${id}">${[...made, ...cat].map(([v, l]) => `<option value="${esc(v)}">${esc(l || '')}</option>`).join('')}</datalist>`;
 }
 
-const numIn = (name, v, label, step = 'any', w = '') => `<label class="prNum">${esc(label)}<input type="number" step="${step}" name="${name}" value="${v ?? ''}"${w ? ` style="width:${w}"` : ''}></label>`;
+const numIn = (name, v, label, step = 'any', w = '') => `<label class="prNum">${esc(label)}<input type="number" step="${step}" name="${name}" value="${esc(v ?? '')}"${w ? ` style="width:${w}"` : ''}></label>`;
 
 /** One buffer: its name (with the list to pick from), pH, concentration and ionic strength. */
 function bufferFields(key, b, role, ref, uid) {

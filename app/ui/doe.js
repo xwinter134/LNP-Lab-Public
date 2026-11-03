@@ -357,10 +357,10 @@ function doeBody(el, ctx, sel) {
     `${sm.runs} runs, ${complete === sm.runs ? 'all measured' : `${complete} of ${sm.runs} measured`} · the table and the design diagram, as PDF, CSV or to paste`,
     `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px"><span style="flex:1"></span>
         <div class="seg" id="orderSeg" role="group" aria-label="Row order"><button type="button" data-order="std" class="${order === 'std' ? 'on' : ''}">Standard order</button><button type="button" data-order="run" class="${order === 'run' ? 'on' : ''}">Run order</button></div>
-        <a class="btn" href="#/experiments?id=${sel.id}">The plan</a><a class="btn" href="#/formulation">Formulations</a></div>
+        <a class="btn" href="#/experiments?id=${esc(sel.id)}">The plan</a><a class="btn" href="#/formulation">Formulations</a></div>
       <div style="display:grid;grid-template-columns:minmax(0,2.3fr) minmax(220px,1fr);gap:18px;align-items:start">
         <div>${runTable}
-          ${mode === 'process' ? '' : `<div class="muted" style="margin-top:2px">Lipids: ${comps.map((c) => `${c.name} ${sigfig(c.lo)}–${sigfig(c.hi)} mol%`).join(' · ')}, every run adds up to ${fmt(Number(spec.total) || 100, 0)}</div>`}
+          ${mode === 'process' ? '' : `<div class="muted" style="margin-top:2px">Lipids: ${comps.map((c) => `${esc(c.name)} ${sigfig(c.lo)}–${sigfig(c.hi)} mol%`).join(' · ')}, every run adds up to ${fmt(Number(spec.total) || 100, 0)}</div>`}
           ${!spec.factors?.length ? '' : `<div class="muted" style="margin-top:2px">${mode === 'process' ? 'Factors' : 'Process factors'}: ${spec.factors.map((f) => `${esc(factorLabel(f))} ${isCategorical(f) ? `${esc(categoricalName(f, -1))} / ${esc(categoricalName(f, 1))}` : `${sigfig(Number(f.low))} / ${sigfig(toReal(f, 0))} / ${sigfig(Number(f.high))}`}${f.applyTo ? (FACTORS.find((x) => x.key === f.applyTo)?.doeName === f.name ? '' : ` → ${FACTORS.find((x) => x.key === f.applyTo)?.name}`) : ' (record only)'}`).join(' · ')}${balance ? `. ${esc(balance.note)}` : ''}</div>`}
         </div>
         <div>${mode === 'process'
@@ -626,7 +626,7 @@ function optimum(fit, terms, spec, goal) {
   return {
     say: `on its own, ${what} at ${esc(at)} (${sigfig(best.y)})`,
     html: `<h2 style="margin-top:10px">Predicted ${what} (grid on the fitted model, inside the box)</h2>
-    <p>${SHORT[goal.name] || goal.name}: <b>${sigfig(best.y)}</b></p>${table(['Factor', { label: 'Setting', right: true }, { label: 'coded', right: true }], spec.factors.map((f) => ({ cells: [factorLabel(f), `${setting(f, toReal(f, best.c[f.name]))}${f.unit ? ' ' + f.unit : ''}`, sigfig(best.c[f.name], 2)] })))}<p class="muted">This response alone, inside the ranges you ran: where the fitted surface peaks, not where one batch will land.</p>`,
+    <p>${esc(SHORT[goal.name] || goal.name)}: <b>${sigfig(best.y)}</b></p>${table(['Factor', { label: 'Setting', right: true }, { label: 'coded', right: true }], spec.factors.map((f) => ({ cells: [factorLabel(f), `${setting(f, toReal(f, best.c[f.name]))}${f.unit ? ' ' + f.unit : ''}`, sigfig(best.c[f.name], 2)] })))}<p class="muted">This response alone, inside the ranges you ran: where the fitted surface peaks, not where one batch will land.</p>`,
   };
 }
 
@@ -699,7 +699,7 @@ function ofatBody(ctx, sel) {
       <text x="${L - 6}" y="${sy(y1) + 4}" class="lb" text-anchor="end">${fmt(y1, 1)}</text><text x="${L - 6}" y="${sy(y0) + 4}" class="lb" text-anchor="end">${fmt(y0, 1)}</text></svg>`;
   }
   return `<div class="card"><div class="grid g4">${kpi('Type', TYPES.find((t) => t.id === sel.type)?.name || sel.type, `${fname} at ${sel.design.levels?.length} levels`)}${kpi('Runs', rows.length, `${measured.length} with ${RESP[resp]}`)}${kpi('Levels', (sel.design.levels || []).map(lv).join(', '))}${kpi('Fixed', 'other parameters', 'as set in the wizard')}</div></div>
-    <div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Run table</h2><a class="btn" href="#/experiments?id=${sel.id}">Experiment</a></div>${runTable}</div>
+    <div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Run table</h2><a class="btn" href="#/experiments?id=${esc(sel.id)}">Experiment</a></div>${runTable}</div>
     <div class="card"><h2>Dose response</h2><div class="grid g3" id="modelForm">${field({ id: 'response', label: 'Response', type: 'select', value: resp, options: Object.entries(RESP).map(([k2, v]) => ({ value: k2, label: v })) })}<input type="hidden" name="model" value="linear"></div>${chart || `<p class="muted">${categorical ? `The ${esc(fname.toLowerCase())}s are compared side by side, as bars, in Results below: nothing lies between two of them to draw a line through.` : 'Needs two measured levels.'}</p>`}</div>`;
 }
 
@@ -739,7 +739,7 @@ function blendOptimum(fit, terms, spec, goal, comps, procNames) {
   return {
     say: `on its own, ${label} at ${esc(blendText)} mol%${procNames.length ? `, ${esc(spec.factors.map((f) => `${factorLabel(f)} ${setting(f, toReal(f, best.coded[f.name]))}`).join(', '))}` : ''} (${sigfig(best.y)})`,
     html: `<h2 style="margin-top:10px">Predicted ${label} (over the blends this design could have used)</h2>
-    <p>${SHORT[goal.name] || goal.name}: <b>${sigfig(best.y)}</b></p>
+    <p>${esc(SHORT[goal.name] || goal.name)}: <b>${sigfig(best.y)}</b></p>
     ${table(['Lipid', { label: 'mol%', right: true }], comps.map((c, i) => ({ cells: [raw(mono(esc(c.name))), sigfig(best.mol[i])] })))}
     ${procRows}
     <p class="muted">A first look only, and only over the ${pool.length} candidate blends in the region you set, not a continuous optimum, and it uses one response rather than balancing them all.</p>`,

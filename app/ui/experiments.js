@@ -196,7 +196,7 @@ function list(el, ctx, ref) {
         const items = exps.filter((e) => where.get(e.id).group === g.id);
         if (!items.length) return '';
         const { shown, total } = pageOf(items, limits.get(g.id) || PAGE_ROWS);
-        return `<details class="xgroup" data-group="${g.id}"${groupOpen(g.id) ? ' open' : ''}>
+        return `<details class="xgroup" data-group="${esc(g.id)}"${groupOpen(g.id) ? ' open' : ''}>
           <summary><h2>${esc(g.title)}</h2><span class="chip">${items.length}</span></summary>
           <div class="xg-rows">${shown.map(line).join('')}</div>
           ${moreLine({ id: `expMore-${g.id}`, shown: shown.length, total, noun: 'experiments' })}
@@ -526,7 +526,7 @@ function wizard(el, ctx, ref, settings, type) {
   }
 
   function previewHtml(pv) {
-    if (pv.err) return `<div class="note warn">${pv.err}</div>`;
+    if (pv.err) return `<div class="note warn">${esc(pv.err)}</div>`;
     const { experiment, batches } = pv.ok;
     const dates = [...new Set(batches.map((b) => b.plannedDate))].sort();
     const dueDates = [...new Set(experiment.expected.map((s) => s.dueDate))].sort();
@@ -534,7 +534,7 @@ function wizard(el, ctx, ref, settings, type) {
       ${kpi(`${cargoLabel(state.cargo)} per formulation`, mrnaKpi(batches), state.mode === 'quick' ? `in ${fmt(state.volume_mL, 2)} mL each, from the volume` : 'full process, by RNA input')}
       ${kpi('Expected measurements', experiment.expected.length)}
       ${kpi('Measurement days', dueDates.length, dueDates.length ? `last ${fmtDate(dueDates[dueDates.length - 1])}` : '')}
-      ${kpi('Sample name example', raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">${experiment.expected[0]?.sampleName || '–'}</span>`))}</div>
+      ${kpi('Sample name example', raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:13px">${esc(experiment.expected[0]?.sampleName || '–')}</span>`))}</div>
       ${type === 'stability' ? `<div class="muted" style="margin-top:6px">${batches.length} formulation${batches.length === 1 ? '' : 's'} × ${experiment.design.stability.conditions.length} conditions = ${batches.length * experiment.design.stability.conditions.length} storage samples.</div>` : ''}`;
   }
   /**
@@ -579,7 +579,7 @@ function wizard(el, ctx, ref, settings, type) {
   function doeSummaryHtml() {
     const d = state.doe, ds = doeSpec();
     const errs = validateSpec(ds);
-    if (errs.length) return `<div class="note warn" style="margin-top:8px">${errs.join('<br>')}</div>`;
+    if (errs.length) return `<div class="note warn" style="margin-top:8px">${errs.map(esc).join('<br>')}</div>`;
     let sm;
     try { sm = designSummary(ds, buildDesign(ds)); }
     catch (err) { return `<div class="note warn" style="margin-top:8px">${esc(err.message)}</div>`; }
@@ -587,7 +587,7 @@ function wizard(el, ctx, ref, settings, type) {
     const blends = mix ? ` over <b>${sm.distinctBlends}</b> distinct blend${sm.distinctBlends === 1 ? '' : 's'}` : '';
     const chosen = mix && sm.selected ? ` chosen from ${sm.poolSize} candidates` : '';
     const modelName = mix ? `${MIXTURE_ORDERS[ds.mixtureOrder].replace(/:.*/, '')}${specMode(ds) === 'crossed' ? ` × ${MODEL_TYPES[ds.model].toLowerCase()}` : ''}` : MODEL_TYPES[ds.model];
-    return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${k}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''}, model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
+    return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${esc(k)}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''}, model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
       ${mix && sm.note ? `<div class="muted" style="margin-top:4px">${esc(sm.note)}</div>` : ''}
       ${sm.residualDf < 3 ? `<div class="note warn">Fewer than 3 residual degrees of freedom: ${mix ? 'raise the run budget, add centre replicates, or drop to a linear blending model' : 'add centre points or replicates'} before running.</div>` : ''}
       ${mix && sm.distinctBlends < sm.mixTerms ? `<div class="note warn">Only ${sm.distinctBlends} distinct blends, and the blending model has ${sm.mixTerms} terms. The blend effects cannot be separated: widen the mol% ranges, raise the budget, or drop to a linear blending model.</div>`
@@ -707,11 +707,11 @@ function wizard(el, ctx, ref, settings, type) {
         raw(mixSel(f, i, 1)),
         raw('<span>Mixer</span>'),
         raw(`<button data-rmf="${i}" class="ghost" style="padding:4px 8px" title="remove">✕</button>`)] } : ({ cells: [
-        raw(`<input type="text" name="doe_f_name_${i}" value="${f.name ?? ''}" placeholder="identifier" style="width:130px;font-family:ui-monospace,Menlo,monospace" ${f.name && !IDENT.test(f.name) ? 'class="invalid" title="letters, digits and underscore only"' : ''}>`),
-        raw(`<input type="text" name="doe_f_unit_${i}" value="${f.unit ?? ''}" style="width:70px">`),
-        raw(`<input type="number" step="any" name="doe_f_low_${i}" value="${f.low ?? ''}" style="width:84px">`),
-        raw(`<input type="number" step="any" name="doe_f_center_${i}" value="${f.center ?? ''}" placeholder="mid" style="width:84px" title="optional: asymmetric ranges are coded per side">`),
-        raw(`<input type="number" step="any" name="doe_f_high_${i}" value="${f.high ?? ''}" style="width:84px">`),
+        raw(`<input type="text" name="doe_f_name_${i}" value="${esc(f.name ?? '')}" placeholder="identifier" style="width:130px;font-family:ui-monospace,Menlo,monospace" ${f.name && !IDENT.test(f.name) ? 'class="invalid" title="letters, digits and underscore only"' : ''}>`),
+        raw(`<input type="text" name="doe_f_unit_${i}" value="${esc(f.unit ?? '')}" style="width:70px">`),
+        raw(`<input type="number" step="any" name="doe_f_low_${i}" value="${esc(f.low ?? '')}" style="width:84px">`),
+        raw(`<input type="number" step="any" name="doe_f_center_${i}" value="${esc(f.center ?? '')}" placeholder="mid" style="width:84px" title="optional: asymmetric ranges are coded per side">`),
+        raw(`<input type="number" step="any" name="doe_f_high_${i}" value="${esc(f.high ?? '')}" style="width:84px">`),
         raw(`<select name="doe_f_applyTo_${i}">${applyOpts.map((o) => `<option value="${esc(o.value)}" ${o.value === (f.applyTo || '') ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
         raw(`<button data-rmf="${i}" class="ghost" style="padding:4px 8px" title="remove">✕</button>`)] });
 
@@ -721,8 +721,8 @@ function wizard(el, ctx, ref, settings, type) {
         return { cells: [
           raw(`<select name="doe_c_lipidKey_${i}" style="min-width:210px">${c.lipidKey ? '' : '<option value="">Choose a lipid…</option>'}${lipidOpts.map((o) => `<option value="${esc(o.value)}" ${o.value === c.lipidKey ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`),
           raw(lip ? `<span class="chip">${esc(lip.class)}</span>` : '<span class="muted">–</span>'),
-          raw(`<input type="number" step="any" min="0" name="doe_c_lo_${i}" value="${c.lo ?? ''}" style="width:84px">`),
-          raw(`<input type="number" step="any" min="0" name="doe_c_hi_${i}" value="${c.hi ?? ''}" style="width:84px">`),
+          raw(`<input type="number" step="any" min="0" name="doe_c_lo_${i}" value="${esc(c.lo ?? '')}" style="width:84px">`),
+          raw(`<input type="number" step="any" min="0" name="doe_c_hi_${i}" value="${esc(c.hi ?? '')}" style="width:84px">`),
           raw(`<button data-rmc="${i}" class="ghost" style="padding:4px 8px" title="remove">✕</button>`)] };
       };
       const sumLo = d.components.reduce((a, c) => a + (Number(c.lo) || 0), 0);
@@ -742,7 +742,7 @@ function wizard(el, ctx, ref, settings, type) {
         ${table(['Lipid', 'Class', `Lowest (mol%)`, 'Highest (mol%)', ''], d.components.map(cRow), { empty: 'Add at least two lipids.' })}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <button id="addComp" style="padding:4px 10px">+ Add lipid</button>
-          <button id="fromComposition" style="padding:4px 10px" title="take the lipids and ±30 % ranges from the composition chosen above">From composition #${state.compositionId}</button>
+          <button id="fromComposition" style="padding:4px 10px" title="take the lipids and ±30 % ranges from the composition chosen above">From composition #${esc(state.compositionId)}</button>
           <span class="muted">Lower bounds add to <b>${fmt(sumLo, 1)}</b>, upper to <b>${fmt(sumHi, 1)}</b>${straddles ? '' : `, they must straddle ${fmt(total, 0)}`}</span>
         </div>
         <div class="grid g4" style="margin-top:10px">
@@ -1101,7 +1101,7 @@ function detail(el, ctx, ref, settings, id) {
   const batchRows = batches.map((b) => {
     const d = latest(b.id, 'dls'), e = latest(b.id, 'ee');
     return { cells: [raw(`<a href="#/formulation?batch=${esc(b.id)}"><b>${esc(b.id)}</b></a>`), b.doe ? raw(`${esc(b.label)}${b.doe.well ? ` <span class="chip">${esc(b.doe.well)}</span>` : ''}`) : b.label, factorCell(b.plan.factors), fmtDate(b.plannedDate), raw(chip(b.status, b.status === 'planned' ? '' : b.status === 'produced' ? 'info' : 'ok')),
-      d ? `${fmt(d.values.zave_nm, 1)} / ${fmt(d.values.pdi, 2)}` : '–', e ? fmt(e.values.ee_pct, 1) : '–', raw(`<a href="#/formulation?batch=${b.id}">Record</a> · <a href="#/measurements?batch=${b.id}">Measure</a>`)] };
+      d ? `${fmt(d.values.zave_nm, 1)} / ${fmt(d.values.pdi, 2)}` : '–', e ? fmt(e.values.ee_pct, 1) : '–', raw(`<a href="#/formulation?batch=${esc(b.id)}">Record</a> · <a href="#/measurements?batch=${esc(b.id)}">Measure</a>`)] };
   });
 
   // An experiment the ML optimizer proposed carries what the model expected from each run. Showing that next
@@ -1123,7 +1123,7 @@ function detail(el, ctx, ref, settings, id) {
         cells.push(raw(`${fmt(p.mean, dp)} <span class="muted">± ${fmt(1.96 * p.sd, dp)}</span>`
           + (Number.isFinite(m) ? `<br><b>${fmt(m, dp)}</b> ${chip(within ? 'as predicted' : 'outside the interval', within ? 'ok' : 'warn')}` : '<br><span class="muted">not measured yet</span>')));
       }
-      cells.push(raw(`<span class="muted">${b.ml.rationale || ''}</span>`));
+      cells.push(raw(`<span class="muted">${esc(b.ml.rationale || '')}</span>`));
       return { cells };
     });
     const verdict = predictionSummary(scored);
@@ -1170,8 +1170,8 @@ function detail(el, ctx, ref, settings, id) {
   const shownStatus = exp.status === 'done' ? 'done' : stage.stage;
   const statusKind = shownStatus === 'done' || shownStatus === 'all measured' ? 'ok' : shownStatus === 'planned' ? '' : 'info';
   el.innerHTML = header(raw(`<a href="#/experiments">Experiments</a> › ${esc(describeId(exp.id))}`), exp.name,
-      `<span class="chip info">${T?.name || exp.type}</span><span class="chip cargoChip" id="expCargo" title="The cargo the formulations carry">${esc(cargo)}</span><span class="chip ${statusKind}" id="expStage" title="${exp.status === 'done' ? 'Marked done' : 'From the formulations and results on record'}">${esc(shownStatus)}</span>${repeatLink}
-      ${['doe', 'ofat'].includes(exp.type) ? `<a class="btn" href="#/doe?id=${exp.id}">Design &amp; results</a>` : ''}<button id="reportExp" title="A page for the lab notebook: the plan, the data table, the statistics and the figures, to print or save as PDF">Report</button><a class="btn" href="#/calendar?month=${exp.startDate.slice(0, 7)}">Calendar</a><button id="setStatus">${exp.status === 'done' ? 'Reopen' : 'Mark done'}</button><button id="delExp" style="color:var(--warn)">Delete</button>`) +
+      `<span class="chip info">${esc(T?.name || exp.type)}</span><span class="chip cargoChip" id="expCargo" title="The cargo the formulations carry">${esc(cargo)}</span><span class="chip ${statusKind}" id="expStage" title="${exp.status === 'done' ? 'Marked done' : 'From the formulations and results on record'}">${esc(shownStatus)}</span>${repeatLink}
+      ${['doe', 'ofat'].includes(exp.type) ? `<a class="btn" href="#/doe?id=${esc(exp.id)}">Design &amp; results</a>` : ''}<button id="reportExp" title="A page for the lab notebook: the plan, the data table, the statistics and the figures, to print or save as PDF">Report</button><a class="btn" href="#/calendar?month=${esc(exp.startDate.slice(0, 7))}">Calendar</a><button id="setStatus">${exp.status === 'done' ? 'Reopen' : 'Mark done'}</button><button id="delExp" style="color:var(--warn)">Delete</button>`) +
     layerTabBar(ctx, 'core', tabHref, 'Experiment') +
     nextStepStrip(exp, stage, res) +
     `<div class="card">${overview}</div>

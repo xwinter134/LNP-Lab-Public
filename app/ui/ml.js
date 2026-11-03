@@ -433,22 +433,22 @@ function goalsCard(state) {
   const rows = state.goals.map((g, i) => {
     const on = g.on !== false;
     const fields = g.goal === 'target'
-      ? `<input type="number" step="any" name="g_target_${i}" value="${g.target ?? ''}" style="width:78px" title="ideal value"> <span class="muted">ideal</span>
-         <input type="number" step="any" name="g_lo_${i}" value="${g.lo ?? ''}" style="width:72px" title="still acceptable, low end">–<input type="number" step="any" name="g_hi_${i}" value="${g.hi ?? ''}" style="width:72px" title="still acceptable, high end">`
+      ? `<input type="number" step="any" name="g_target_${i}" value="${esc(g.target ?? '')}" style="width:78px" title="ideal value"> <span class="muted">ideal</span>
+         <input type="number" step="any" name="g_lo_${i}" value="${esc(g.lo ?? '')}" style="width:72px" title="still acceptable, low end">–<input type="number" step="any" name="g_hi_${i}" value="${esc(g.hi ?? '')}" style="width:72px" title="still acceptable, high end">`
       : g.goal === 'range'
-      ? `<input type="number" step="any" name="g_lo_${i}" value="${g.lo ?? ''}" style="width:78px" title="anything from here"><span class="muted">to</span><input type="number" step="any" name="g_hi_${i}" value="${g.hi ?? ''}" style="width:78px" title="… to here is equally acceptable"> <span class="muted">all equally good</span>`
+      ? `<input type="number" step="any" name="g_lo_${i}" value="${esc(g.lo ?? '')}" style="width:78px" title="anything from here"><span class="muted">to</span><input type="number" step="any" name="g_hi_${i}" value="${esc(g.hi ?? '')}" style="width:78px" title="… to here is equally acceptable"> <span class="muted">all equally good</span>`
       : g.goal === 'minimize'
-        ? `<input type="number" step="any" name="g_best_${i}" value="${g.best ?? ''}" style="width:78px" title="as good as it needs to get"> <span class="muted">ideal or below</span>
-           <input type="number" step="any" name="g_worst_${i}" value="${g.worst ?? ''}" style="width:78px" title="unacceptable at or above"> <span class="muted">unacceptable</span>`
-        : `<input type="number" step="any" name="g_best_${i}" value="${g.best ?? ''}" style="width:78px" title="as good as it needs to get"> <span class="muted">ideal or above</span>
-           <input type="number" step="any" name="g_worst_${i}" value="${g.worst ?? ''}" style="width:78px" title="unacceptable at or below"> <span class="muted">unacceptable</span>`;
+        ? `<input type="number" step="any" name="g_best_${i}" value="${esc(g.best ?? '')}" style="width:78px" title="as good as it needs to get"> <span class="muted">ideal or below</span>
+           <input type="number" step="any" name="g_worst_${i}" value="${esc(g.worst ?? '')}" style="width:78px" title="unacceptable at or above"> <span class="muted">unacceptable</span>`
+        : `<input type="number" step="any" name="g_best_${i}" value="${esc(g.best ?? '')}" style="width:78px" title="as good as it needs to get"> <span class="muted">ideal or above</span>
+           <input type="number" step="any" name="g_worst_${i}" value="${esc(g.worst ?? '')}" style="width:78px" title="unacceptable at or below"> <span class="muted">unacceptable</span>`;
     return { cells: [
       // An in-vivo target is listed but cannot be switched on in this stage (spec 8.6, calc/ml/targets.js).
       raw(`<input type="checkbox" name="g_on_${i}" ${on && !g.locked ? 'checked' : ''} ${g.locked ? `disabled title="${esc(g.locked)}"` : ''} style="width:auto">`),
       raw(`<b>${esc(g.label || g.name)}</b>${g.unit ? ` <span class="muted">${esc(g.unit)}</span>` : ''} ${RESPONSE_TOPIC[g.name] ? info(RESPONSE_TOPIC[g.name]) : ''}`),
       raw(`<select name="g_goal_${i}" style="width:110px">${['target', 'range', 'minimize', 'maximize'].map((x) => `<option value="${x}" ${g.goal === x ? 'selected' : ''}>${x === 'target' ? 'hit a target' : x === 'range' ? 'stay in a band' : x === 'minimize' ? 'as low as possible' : 'as high as possible'}</option>`).join('')}</select>`),
       raw(`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${fields}</div>`),
-      raw(`<input type="number" step="0.5" min="0" name="g_weight_${i}" value="${g.weight ?? 1}" style="width:66px">`),
+      raw(`<input type="number" step="0.5" min="0" name="g_weight_${i}" value="${esc(g.weight ?? 1)}" style="width:66px">`),
       raw(on ? curveSvg(g) : '<span class="muted">off</span>'),
     ] };
   });
@@ -462,7 +462,7 @@ function goalsCard(state) {
         raw(`<input type="checkbox" name="c_on_${i}" ${c.on ? 'checked' : ''} style="width:auto">`),
         raw(`<select name="c_name_${i}">${RESPONSE_DEFS.map((r) => `<option value="${r.name}" ${c.name === r.name ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`),
         raw(`<select name="c_op_${i}" style="width:90px"><option value="<" ${c.op === '<' ? 'selected' : ''}>below</option><option value=">" ${c.op === '>' ? 'selected' : ''}>above</option></select>`),
-        raw(`<input type="number" step="any" name="c_value_${i}" value="${c.value ?? ''}" style="width:90px">`)] })))}
+        raw(`<input type="number" step="any" name="c_value_${i}" value="${esc(c.value ?? '')}" style="width:90px">`)] })))}
       <button id="addConstraint" style="margin-top:6px;padding:4px 10px">+ Add limit</button>
       ${state.goals.some((g) => g.biology) ? `<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:10px"><input type="checkbox" name="physchemLimits" ${state.goalsBeforeLimits ? 'checked' : ''} style="width:auto"> Size and PDI as limits, the biological result as the goal</label>` : ''}</div></div>`;
 }
@@ -605,7 +605,7 @@ function suggestionsCard(report, state, ref, env) {
   return `<div class="card" style="border-color:var(--c-ml)"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 style="flex:1">What to run next ${info('bo')}</h2>
       <select name="mode" style="width:auto">${Object.entries(MODES).map(([k, v]) => `<option value="${k}" ${state.mode === k ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</select>
-      <input type="number" name="q" min="1" max="12" step="1" value="${state.q}" style="width:68px" title="how many runs"> <span class="muted">runs</span></div>
+      <input type="number" name="q" min="1" max="12" step="1" value="${esc(state.q)}" style="width:68px" title="how many runs"> <span class="muted">runs</span></div>
     <p class="muted">${esc(MODES[state.mode].note)} ${info('explore')}.${mx ? ` Each suggestion keeps lipid mol% at 100 by adjusting ${esc(mx.balanceName.toLowerCase())}, which stays within ${molPct(mx.lo)}–${molPct(mx.hi)} mol%.` : ''}</p>
     ${table(head, body)}
     ${fold(state, 'reading', { title: 'Reading the table', cls: 'sub', frame: false,

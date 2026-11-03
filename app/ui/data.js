@@ -235,7 +235,7 @@ function distributions(rows, ref) {
   return bars('Runs per ionizable lipid', tally(rows, (r) => r.ionizable).map((t) => ({ label: ln(t.value), n: t.n, attrs: `data-value="${esc(t.value)}" data-only="1"` })), { facet: 'ionizable' })
     + bars('Size (nm)', binItems(sizeBins, 0), { facet: 'size' })
     + bars('PDI', binItems(pdiBins, 2), { facet: 'pdi' })
-    + bars('Runs per month', months.map((m) => ({ label: m.month, n: m.n, attrs: `data-lo="${m.month}-01" data-hi="${lastDay(m.month)}"` })).reverse(), { facet: 'date', max: 18 });
+    + bars('Runs per month', months.map((m) => ({ label: m.month, n: m.n, attrs: `data-lo="${esc(m.month)}-01" data-hi="${esc(lastDay(m.month))}"` })).reverse(), { facet: 'date', max: 18 });
 }
 
 /** Spec 5.2: how complete the selection is, per field; a row filters to the formulations it lacks. */
