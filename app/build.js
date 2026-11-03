@@ -1,5 +1,5 @@
 // Which build this is. The public build ships with PERSONAL_BUILD false; `node scripts/dist.mjs --personal`
-// writes a copy with it true into dist/, for Gholan's own app (spec 10: Insights with Claude is not part of the
+// writes a copy with it true into dist/, for the lab's own app (spec 10: Insights with Claude is not part of the
 // public beta). Only the personal build offers the setting "Claude insights"; with it off, or in the public
 // build, nothing of that module is shown.
 //

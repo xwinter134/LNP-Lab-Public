@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const check = read('docs/LICENSE-CHECK.md'), notice = read('NOTICE.md'), learn = read('docs/LEARN.md');
-const rows = check.split('\n').filter((l) => /^\| [^-|]/.test(l) && !/^\| Paper \|/.test(l) && !/Gholan's list/.test(l)).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+const rows = check.split('\n').filter((l) => /^\| [^-|]/.test(l) && !/^\| Paper \|/.test(l) && !/the lab's list/.test(l)).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
 
 test('every place the licence check names exists', () => {
   assert.ok(rows.length >= 20);

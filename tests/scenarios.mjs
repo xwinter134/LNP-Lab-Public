@@ -4702,7 +4702,7 @@ export async function aSlowCreateIsNotADraft({ page, open }) {
     try {
       await page.click('#createExp');
       await page.waitForTimeout(100);
-      await page.click('a.btn[href="#/experiments?new=1"]'); // the wizard's Back, while it is being stored
+      await page.click('a.btn[href="#/advisor"]'); // the wizard's Back, while it is being stored
       await page.waitForTimeout(200);
       if (await page.locator('[data-draft="single"]', { hasText: 'Stored slowly' }).count()) throw new Error(`an experiment being created is offered back as a draft: "${await page.locator('[data-draft="single"]', { hasText: 'Stored slowly' }).innerText()}"`);
       await go('calendar');

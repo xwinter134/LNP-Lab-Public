@@ -232,9 +232,6 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   await go(page, 'overview', 800);
   await shot(page, 'demo-overview', '#main .crumb', '#main .card:has(h2:text-is("Latest results")), #main .card:has(:text("Latest results"))');
 
-  await go(page, 'experiments?new=1');
-  await shot(page, 'new-experiment', '#main .crumb', '#main a[href*="type=reference"]');
-
   await go(page, 'experiments?new=1&type=stability', 700);
   await shot(page, 'wizard-stability', '#main h2:has-text("Stability design")', '#main .card:has(h2:text-is("What will be created")), #main :text("Sample name example")');
 

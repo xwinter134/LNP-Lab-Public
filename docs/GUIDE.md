@@ -314,16 +314,15 @@ sample names to use on the instrument, and the calendar entries.
 
 **Every type, step by step**
 
-1. Open **Experiments** and press **New experiment** (or **+ New experiment** on the overview).
-2. Choose the type.
-3. Fill in the form. Common to every type: a **Name**, the **Start** date (day 0, the production day), the
+1. Open **Experiments** and press **Plan an experiment** (or **+ Plan an experiment** on the overview). The planner
+   asks what you want to find out and recommends a design; **Set this up** opens its form. If you already know which
+   design you want, pick it in the **Design catalogue** instead.
+2. Fill in the form. Common to every type: a **Name**, the **Start** date (day 0, the production day), the
    **Composition**, the **Lipid stock lot** and **RNA lot** (or "choose later"), and the **RNA per batch** (mg), the RNA working concentration, FRR, quench factor, total flow, lipid stock molarity and how many
    formulations you make per day. Tick the **Measurements per batch** (DLS, zeta, EE, RNA content, potency).
-4. Read **What will be created**: the number of formulations and their dates, the expected measurements, the
+3. Read **What will be created**: the number of formulations and their dates, the expected measurements, the
    measurement days, and an example sample name.
-5. Press **Create experiment**. You land on the new experiment's page.
-
-![Choosing the type of a new experiment](guide/new-experiment.jpg)
+4. Press **Create experiment**. You land on the new experiment's page.
 
 **Numbers.** Experiments are numbered `E1`, `E2` … and formulations inside them: `E3-F2` is the second formulation
 of experiment 3, and its final product is measured as `E3-F2_final`. A number is never given out twice, even after

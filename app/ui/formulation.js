@@ -917,7 +917,7 @@ function list(el, ctx, query = '') {
   const any = groups.length > 0;
   const nShow = Object.fromEntries(LIST_SHOW.map((s) => [s.id, everything.filter((b) => s.has(b.status)).length]));
   el.innerHTML = header('Run', 'Formulations',
-    `<a class="btn primary" href="#/experiments?new=1">Plan an experiment</a>`) +
+    `<a class="btn primary" href="#/advisor">Plan an experiment</a>`) +
     `<p class="muted" style="margin:-4px 0 14px">A formulation is numbered inside the experiment that planned it: <b>E3-F2</b> is the second formulation of experiment 3. Open one to work through its record at the bench.</p>` +
     (any ? `<div class="bulkbar sticky" id="formBulk">
       <div class="seg listShow" id="formShow" role="group" aria-label="Show">${LIST_SHOW.map((s) => `<button type="button" data-show="${s.id}" aria-pressed="${s.id === prefs.show}" class="${s.id === prefs.show ? 'on' : ''}">${esc(s.label)} <span class="segN">${nShow[s.id]}</span></button>`).join('')}</div>

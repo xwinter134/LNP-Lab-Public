@@ -235,7 +235,7 @@ export const ANIMAL_STUDY = {
 };
 
 /**
- * The placeholder for the animal-welfare notice shown when the module is opened. Gholan writes the real text
+ * The placeholder for the animal-welfare notice shown when the module is opened. The lab writes the real text
  * (spec 11.3); until then this says what it will cover, and says that it is a placeholder.
  */
 export const ANIMAL_WELFARE_NOTICE = {
@@ -247,7 +247,7 @@ export const ANIMAL_WELFARE_NOTICE = {
     ['Responsibility', 'The user and the licence holder are responsible for every experiment planned or recorded here. The app records and evaluates; it does not approve.'],
     ['No planning without review', 'No study is planned in this app without a biometric review of group sizes and an approved licence. That is why "Create plan" is switched off.'],
   ],
-  note: 'Placeholder text, to be replaced by Gholan\'s own notice (spec 11.3).',
+  note: 'Placeholder text, to be replaced by the lab\'s own notice (spec 11.3).',
 };
 
 /** An empty plan in the module's structure, for the screens to show; never written to the store while locked. */

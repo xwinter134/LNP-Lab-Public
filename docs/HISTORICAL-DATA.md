@@ -174,7 +174,7 @@ A row goes to quarantine, with the reason, when:
 A row already imported (the same file, by its SHA-256, the same sheet and row) is not imported again: the report
 counts it under duplicates.
 
-## What Gholan decides before the first real run
+## What the lab decides before the first real run
 
 - **Which fields make a record usable.** At the moment only `exp_key`, `form_key` and a composition are
   required, so that nothing is thrown away. If, say, FRR and a size are the minimum for the optimizer, say so and

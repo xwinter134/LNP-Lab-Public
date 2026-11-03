@@ -1,6 +1,6 @@
 # IVIS bioluminescence images: what exists to build on (spec 8.7)
 
-Research for the automatic BLI image analysis in phase 6, done before any of Gholan's own IVIS folders were
+Research for the automatic BLI image analysis in phase 6, done before any of the lab's own IVIS folders were
 available. Each source below was opened; licences are as stated by the source. Searched 2026-10-31.
 
 ## Short answer
@@ -53,7 +53,7 @@ From the downloaded folders and the [Living Image 4.5 manual](https://www.biotec
 - Total flux (manual): radiance summed over the ROI area × 4π. A first reconstruction,
   flux ≈ Σ (counts − dark) × C_ccd / t_exp × (cm per unbinned pixel)² × 4π, matched the published flux of one
   S-BIAD3647 image to 3 % and 10 % for two mice and was 23 % low for the third (mouse-to-ROI mapping assumed, flat
-  field not applied). **Not to be trusted for absolute numbers until checked against Gholan's own Living Image
+  field not applied). **Not to be trusted for absolute numbers until checked against the lab's own Living Image
   ROI exports**; the flat-field correction is the most likely gap.
 - Update (phase 6): it was. With the flat-field polynomial from `ClickInfo.txt` applied, the hand-drawn ROIs of
   95 folders re-measure to a median 1.4 % of the published flux (see `docs/BLI-BENCHMARK.md`).
@@ -65,8 +65,8 @@ From the downloaded folders and the [Living Image 4.5 manual](https://www.biotec
 2. Radiance from counts with the `C-ccd` coefficient; saturation check against `CCD Saturation Level`.
 3. Mice: Otsu threshold on `photograph.TIF`, connected components, numbering left to right, long axis from the
    mask. SAM 2 only if touching animals or tails spoil this on real images.
-4. The test bench of the spec (20–30 of Gholan's folders with manual Living Image values) decides; until then
+4. The test bench of the spec (20–30 of the lab's folders with manual Living Image values) decides; until then
    S-BIAD3647's published flux table is the only external check.
 
-What is still needed from Gholan: 20–30 export folders with the manual ROI values from Living Image, and which
+What is still needed from the lab: 20–30 export folders with the manual ROI values from Living Image, and which
 Living Image version and instrument they come from.

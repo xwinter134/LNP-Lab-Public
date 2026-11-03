@@ -1,6 +1,6 @@
 # Open points after the next stage (v0.16.0)
 
-What only Gholan can provide or decide, collected from all six phases. Each item says what it unblocks.
+What only the lab can provide or decide, collected from all six phases. Each item says what it unblocks.
 
 ## Data to provide
 

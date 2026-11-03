@@ -4,7 +4,7 @@ An overview to support the open-source release, not legal advice. Ideas and algo
 copyright, code and text are; patents are a separate question. Where a row says "check", it needs a person to
 look, and where a patent is possible, specialist advice.
 
-**Status:** pre-filled from the publications the code itself cites. Gholan's own list of the five to ten LNP-ML
+**Status:** pre-filled from the publications the code itself cites. The lab's own list of the five to ten LNP-ML
 papers whose methods went into the app is still to come; each one gets a row here.
 
 **Licence:** the repository is MIT-licensed (`LICENSE`). Third-party material it contains, the CurTiPot pKa data
@@ -32,7 +32,7 @@ first, keeps its own terms (`NOTICE.md`).
 | Welch B L 1947 (unequal-variance t test); Holm S 1979 and Šidák Z 1967 (multiple testing) | `app/calc/stats.js`, `app/calc/bio.js` (compareToReference), `app/calc/insights.js` | Textbook methods | none used | no | comment yes, NOTICE yes |
 | Bland J M, Altman D G: agreement of two methods of measurement, Lancet 1986 | `app/calc/bio.js` (agreement), `scripts/bli-benchmark.mjs` | Textbook method | none used | no | comment yes, NOTICE yes |
 | BioImage Archive **S-BIAD3647** (IVIS click folders and the published flux table) | `tests/fixtures/ivis/`, `scripts/bli-benchmark.mjs`, `docs/BLI-BENCHMARK.md` | **Data**, one folder committed as a test fixture | **CC0 1.0** | n/a | fixture README yes, NOTICE yes |
-| (Gholan's list) | | | | | |
+| (the lab's list) | | | | | |
 
 Rules that follow (spec 11.1):
 - Code under GPL may not go into an MIT project; code under MIT or BSD only with its copyright notice. None is

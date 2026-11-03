@@ -1,7 +1,7 @@
 # BLI test bench: automatic per-mouse flux against manual values (spec 8.7)
 
 The spec asks for the approach with the best agreement with manual Living Image values, not the most elegant
-one. Gholan's own 20–30 folders with his manual ROI values are not available yet, so this first bench uses the
+one. The lab's own 20–30 folders with their manual ROI values are not available yet, so this first bench uses the
 only public set with raw Living Image folders and a published per-mouse flux table. Its numbers say how well the
 arithmetic and the segmentation work on these images; they do not yet say how well they work on the lab's.
 
@@ -100,7 +100,7 @@ Where it still fails, from the overlays of the worst pairs:
    report a tumour/organ ROI beside the whole-mouse sum (the liver ROI is that for LNP studies).
 2. **Whole mouse against a tumour circle.** Where the signal spreads past the drawn circle (metastases,
    ascites), the whole mask reads 1.3–2× the circle. That is a difference of definition, not an error; which
-   one the lab wants is a question for Gholan.
+   one the lab wants is its own decision.
 3. **Heads under the manifold.** With mice shoulder to shoulder, the manifold cut can take heads and necks
    (this kept agreement best; stopping the cut at the first narrow row joined the mice through the manifold and
    agreed worse). The liver ROI is therefore placed 5.5 cm up from the tail base, not from the head, and the
@@ -121,7 +121,7 @@ None of these is shown by this set: the failures above are optical (scatter betw
 definitional (whole mouse against tumour circle). The corrections logged in the overlay (`bliImages.corrections`,
 with the algorithm version) are the training data if the lab's images call for it.
 
-## 4. What Gholan's folders must decide
+## 4. What the lab's folders must decide
 
 - 20–30 of the lab's folders with the manual Living Image values (and how the ROIs were drawn: whole mouse,
   liver, or tumour), so the bench runs on the lab's mice, strain, coat colour, holder and instrument.

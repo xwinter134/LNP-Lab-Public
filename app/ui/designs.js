@@ -124,7 +124,7 @@ const LOCK = '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke
 
 /**
  * The animal study module (spec 8.6): greyed, with a lock, showing the structure a plan would have and the idea
- * behind it. A click opens the animal-welfare notice, a placeholder for Gholan's own text (11.3). "Create plan"
+ * behind it. A click opens the animal-welfare notice, a placeholder for the lab's own text (11.3). "Create plan"
  * is disabled while settings.flags.animalStudyPlan is off, which it is, with no switch in Settings. Shown only
  * when an in-vivo layer is on, so a lab that does not record animal data sees the catalogue as before.
  */

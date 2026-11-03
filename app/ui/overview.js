@@ -173,7 +173,7 @@ export async function render(el, ctx) {
   ];
 
   const empty = !experiments.length && !stocks.length && !ctx.store.count('buffers');
-  el.innerHTML = header('Home', 'Overview', `<a class="btn primary" href="#/experiments?new=1">+ New experiment</a>`) +
+  el.innerHTML = header('Home', 'Overview', `<a class="btn primary" href="#/advisor">+ Plan an experiment</a>`) +
     `<div class="grid g4" style="margin-bottom:14px">
       ${kpi('Due today', dueToday.length, overdue.length ? `${overdue.length} overdue` : '')}
       ${kpi('Measurements open', openSlots, `${measurements.length} recorded`)}
@@ -186,7 +186,7 @@ export async function render(el, ctx) {
       <button class="primary" id="tryDemoBtn">Try the demo lab</button></div>
     <div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
       <li><a href="#/advisor">Say what you are trying to find out</a> and the planner will name a design, or <a href="#/designs">browse the catalogue</a> if you already know.</li>
-      <li><a href="#/experiments?new=1">Set the experiment up</a>: it creates the formulations, the measurements they are due, their sample names and the calendar entries.</li>
+      <li><a href="#/advisor">Set the experiment up</a>: it creates the formulations, the measurements they are due, their sample names and the calendar entries.</li>
       <li><a href="#/stocks?new=1">Weigh out a lipid stock</a> and <a href="#/buffers?new=1">make up the buffers</a> the runs need.</li>
       <li>Work through each <a href="#/formulation">formulation record</a> at the bench, then <a href="#/measurements">import the instrument export</a>.</li>
       <li>Read the fit and its diagnostics on <a href="#/doe">Design &amp; results</a>, and let the <a href="#/ml">optimizer</a> propose the next round.</li></ol>

@@ -175,7 +175,7 @@ function list(el, ctx, ref) {
     </details>`;
   };
 
-  el.innerHTML = header('Run', 'Experiments', `<a class="btn primary" href="#/experiments?new=1">New experiment</a>`) +
+  el.innerHTML = header('Run', 'Experiments', `<a class="btn primary" href="#/advisor">Plan an experiment</a>`) +
     `<div class="card" id="expAccordion"></div>`;
   const box = el.querySelector('#expAccordion');
   const limits = new Map();
@@ -186,7 +186,7 @@ function list(el, ctx, ref) {
         <div class="xg-rows">${drafts.map((d) => pendingLine(d, ref)).join('')}</div>
       </details>`;
     if (!exps.length) {
-      box.innerHTML = pending + '<p class="muted">No experiments yet. Start with "New experiment".</p>';
+      box.innerHTML = pending + '<p class="muted">No experiments yet. Start with "Plan an experiment".</p>';
       wirePending();
       return;
     }
@@ -797,7 +797,7 @@ function wizard(el, ctx, ref, settings, type) {
       (type === 'doe' ? '<div class="wsp"><div class="wsp-main">' : '') +
       `<div class="card" id="wizForm">${modeCard}${common}${specific}</div>${processCard}
        <div class="card" style="border-color:var(--accent)"><h2>What will be created</h2><div id="previewBody">${previewHtml(pv)}</div>
-         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><a class="btn" href="#/experiments?new=1">Back</a><button class="primary" id="createExp" data-form="${esc(draftId)}" ${creating || pv.err ? 'disabled' : ''}>${creating ? 'Creating …' : 'Create experiment'}</button></div></div>` +
+         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><a class="btn" href="#/advisor">Back</a><button class="primary" id="createExp" data-form="${esc(draftId)}" ${creating || pv.err ? 'disabled' : ''}>${creating ? 'Creating …' : 'Create experiment'}</button></div></div>` +
       (type === 'doe' ? `</div><aside class="wsp-pin" id="wizPin">${designPinHtml()}</aside></div>` : '');
 
     wireLearn(el);

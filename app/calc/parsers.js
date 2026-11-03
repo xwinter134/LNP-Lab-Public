@@ -627,7 +627,7 @@ export function matchSample(sampleName, { experiments, batches }, test = 'dls') 
 
 /*
  * Plate-reader exports for the in-vitro layer. No real export of the lab's reader was available when this was
- * written (an open point for Gholan), so two generic shapes are read, which between them cover what readers and
+ * written (an open point for the lab), so two generic shapes are read, which between them cover what readers and
  * spreadsheets write:
  *  - the plate grid: a header row 1 … 12 (or 1 … 24), then one row per plate row A … H (or A … P), possibly
  *    several blocks one under the other, each with a label line above it ("Luminescence", "Read 2: 560 nm");

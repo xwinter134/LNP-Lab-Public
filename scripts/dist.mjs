@@ -2,7 +2,7 @@
 //
 //   node scripts/dist.mjs [--personal]
 //
-// --personal makes Gholan's own build (spec 10): app/build.js in the copy says PERSONAL_BUILD = true, which offers
+// --personal makes the lab's own build (spec 10): app/build.js in the copy says PERSONAL_BUILD = true, which offers
 // the setting "Claude insights". The public build leaves it false.
 import { cpSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 rmSync('dist', { recursive: true, force: true });

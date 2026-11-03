@@ -11,7 +11,7 @@ import { personalBuildAvailable } from '../build.js';
 import { listImports, rollbackImport } from '../calc/importops.js';
 
 /*
- * DRAFT WORDING. Gholan writes the final text of this notice (spec 11.2); it is shown in Settings, the first time
+ * DRAFT WORDING. The lab writes the final text of this notice (spec 11.2); it is shown in Settings, the first time
  * a module is switched on, and repeated in mcp/README.md and mcp/manifest.json. Keep the three saying the same.
  */
 export const PRIVACY_NOTE = 'With this switched on, Claude reads your lab data: the files you give it and what the LNP Lab tools return from this lab. That data is sent to Anthropic, which runs Claude, as part of your conversation, under the terms of your Claude account. The LNP Lab server itself sends nothing over the network: it is only a local bridge between Claude and this app\'s records. Many labs treat formulation data as confidential, and some do not allow AI tools: check before you use it. LNP Lab works fully without it.';

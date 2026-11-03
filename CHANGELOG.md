@@ -10,7 +10,7 @@ The version you are running is shown at the foot of the sidebar.
 
 The specification "LNP Lab: Spezifikation der nächsten Ausbaustufe", phases 1 to 6. Everything new is off until
 switched on in Settings, except the breadcrumbs, the Data screen and the optimizer's panel; with nothing switched on
-the app works as in 0.15. The decisions that are Gholan's are listed in `docs/OPEN-POINTS.md`.
+the app works as in 0.15. The decisions that are the lab's are listed in `docs/OPEN-POINTS.md`.
 
 **Finding your way** (spec 9.1)
 - **A trail under every title** (Plan › Plan an experiment › Questions › …), each step a link, with a Back arrow

@@ -31,7 +31,7 @@ import { toUnit } from './space.js';
  * AWAITING RECALIBRATION: the harness for that is tests/usability/history.mjs (npm run history -- --db <file>
  * --campaign <experiment ids>), which replays a finished campaign with only the runs that were really made. It
  * has run on the simulated lab only (docs/history-benchmark.md); a finished historical campaign with its run
- * order is an open point for Gholan, and until it has run these numbers stay as the simulated lab set them.
+ * order is an open point for the lab, and until it has run these numbers stay as the simulated lab set them.
  */
 export const STOP_RULE = { stopBelow: 0.10, goFrom: 0.35, realGain: 0.01 };
 
