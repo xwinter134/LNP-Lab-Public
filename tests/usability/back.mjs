@@ -66,12 +66,18 @@ export async function walkBack({ page, open }) {
       let before = await step(`${aim}: the aim`, { before: '#/advisor?mode=wizard', beforeReady: '.adv-card[data-set^="aim="]', act: () => page.click(`[data-set="aim=${aim}"]`), ready: '#advRoot' });
       let ready = '.adv-card[data-set^="aim="]';
       // Then each question this aim asks, in turn, until the recommendation (or the diagnosis) is on screen.
+      // The next question is looked for only once the planner has drawn the answer: read at once, the page could
+      // still hold the cards of the question just answered, so the next one was skipped and found open at the end.
+      const answered = (q) => page.waitForFunction((x) => !document.querySelector(`.adv-card[data-set^="${x}="]`), q, { timeout: 4000 })
+        .catch(() => { throw new Error(`${aim}: the ${q} question stayed on screen after it was answered`); });
+      await answered('aim');
       for (const q of ['symptom', 'budget', 'scope']) {
         const card = page.locator(`.adv-card[data-set^="${q}="]`).first();
         if (!(await card.count())) continue;
         const pick = await card.getAttribute('data-set');
         ready = `.adv-card[data-set^="${q}="]`;
         before = await step(`${aim}: ${q}`, { before, beforeReady: ready, act: () => page.click(`[data-set="${pick}"]`), ready: '#advRoot' });
+        await answered(q);
       }
       if (await page.locator('.adv-card[data-set^="budget="], .adv-card[data-set^="scope="], .adv-card[data-set^="symptom="]').count()) throw new Error(`${aim}: a question is still open at the end of the walk (${await hashNow()})`);
     }
