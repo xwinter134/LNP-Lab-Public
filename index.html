@@ -395,6 +395,21 @@
   details.step .stepState { font-weight: 600; }
   details.step .st-done { color: var(--ok-text); } details.step .st-in-progress { color: var(--accent-text); }
   details.step .stepSay .chip { margin-left: 4px; vertical-align: 1px; }
+  /* A step's body: what is set up, what the plan works out (read-only tiles), and the few values recorded at the bench. */
+  .sx { margin-top: 14px; }
+  .sx > h3 { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink3); margin: 0 0 8px; }
+  .kvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .kv { background: var(--bg2); border-radius: 10px; padding: 9px 11px 8px; min-width: 0; }
+  .kv .l { font-size: 11.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kv .v { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.25; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kv .v .u { font-size: 12px; font-weight: 400; color: var(--ink2); margin-left: 3px; }
+  .kv .s { font-size: 11.5px; color: var(--ink2); margin-top: 2px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px 14px; align-items: end; }
+  .fields .hint { font-size: 11.5px; color: var(--ink3); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .ticks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  label.tick { display: inline-flex; align-items: center; gap: 7px; margin: 0; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--ink); cursor: pointer; }
+  label.tick input { width: auto; margin: 0; }
+  @media (max-width: 640px) { .kvs { grid-template-columns: repeat(2, minmax(0, 1fr)); } .fields { grid-template-columns: minmax(0, 1fr); } }
   /* The results grid's extra DLS runs: columns that stay out of the way until "+ runs" asks for them. */
   .rgrid:not(.runsOn) .xrun, .rgrid:not(.runsOn) .runNo { display: none; }
   .rgrid.runsOn .run1 { border-left: 1px solid var(--line); }

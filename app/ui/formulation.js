@@ -2,7 +2,7 @@
 // the six steps with calculated targets beside the actuals the operator enters.
 import { raw, fmt, field, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, redrawSoon, swapHtml, autoSaver, sharedRecord, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
-import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, biosafetyAliquot, fillFinish, IPC_STAGES } from '../calc/batch_record.js';
+import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish } from '../calc/batch_record.js';
 import { normaliseRoles, bufferAnswersTo } from '../calc/buffer.js';
 import { archivedSet } from '../calc/usage.js';
 import { VARIABLES, TYPED_VARIABLES, VARIABLE_STEPS, readVariable, sourceOf, checkVariable } from '../calc/variables.js';
@@ -215,11 +215,11 @@ const entered = (x) => x != null && x !== '' && x !== false;
 const STEP_RECORDS = [
   { n: 1, keys: ['rna_stock_mL', 'rna_total_mL', 'rna_diluent_lot', 'rna_operator', 'rna_date'],
     closed: (a) => entered(a.rna_date) || (entered(a.rna_stock_mL) && entered(a.rna_total_mL)) },
-  { n: 2, keys: ['quench_lot', 'p1', 'p2', 'p3', 'primary_mL', 'pretest'], closed: (a) => entered(a.primary_mL) },
-  { n: 3, keys: ['dialysis_lot', 'dialysis_start', 'dialysis_exchange', 'dialysis_end', 'dialysis_end_mL', 'ipc4', 'dialysis_remarks'],
-    closed: (a) => entered(a.dialysis_end_mL) || entered(a.dialysis_end) || entered(a.ipc4) },
-  { n: 4, keys: ['tff_lot', 'tff_end_mL', 'tff_sanitized', 'tff_flushed', 'ipc5'], closed: (a) => entered(a.tff_end_mL) || entered(a.ipc5) },
-  { n: 5, keys: ['compounded', 'prefilter_lot', 'sterile_lot', 'filtered', 'ipc6'], closed: (a) => entered(a.filtered) },
+  { n: 2, keys: ['quench_lot', 'primary_mL'], closed: (a) => entered(a.primary_mL) },
+  { n: 3, keys: ['dialysis_lot', 'dialysis_start', 'dialysis_exchange', 'dialysis_end', 'dialysis_end_mL', 'dialysis_remarks'],
+    closed: (a) => entered(a.dialysis_end_mL) || entered(a.dialysis_end) },
+  { n: 4, keys: ['tff_lot', 'tff_end_mL'], closed: (a) => entered(a.tff_end_mL) },
+  { n: 5, keys: ['compounded', 'prefilter_lot', 'sterile_lot', 'filtered'], closed: (a) => entered(a.filtered) },
   { n: 6, keys: ['storage', 'filled'], closed: (a) => entered(a.filled) },
 ];
 
@@ -354,7 +354,6 @@ export async function render(el, ctx) {
       const measured = ds.finalFormulation.measured_mg_mL ?? out.dia.rna_mg_mL_est;
       const vol = a.tff_end_mL || a.dialysis_end_mL || startDia;
       out.comp = finalFormulationPlan({ volume_mL: vol, measured_mg_mL: measured, final_mg_mL: ds.finalFormulation.final_mg_mL || settings.defaultFinal_mg_mL });
-      out.bio = biosafetyAliquot({ v_mL: 0.5, c_meas: measured, c_target: 0.05 });
       out.fill = fillFinish(ds.fill);
     } catch (e) { out.err = e.message; }
     return out;
@@ -442,6 +441,16 @@ export async function render(el, ctx) {
     const tbl = (rows) => `<table><thead><tr><th>Parameter</th><th style="text-align:right">Target</th><th>Actual / record</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
     const inp = (name, val, w = 110, step = 'any') => `<input type="number" step="${step}" name="${name}" value="${esc(val ?? '')}" style="width:${w}px">`;
     const txt = (name, val, w = 160) => `<input type="text" name="${name}" value="${esc(val ?? '')}" style="width:${w}px">`; // val: the text as typed, escaped here
+    // A step reads top to bottom: what is set up for it, what the plan works out (tiles, nothing to type), and
+    // only the few values written down at the bench. Pump rates and other set values are shown, not asked again.
+    const sec = (title, body) => (body ? `<div class="sx"><h3>${title}</h3>${body}</div>` : '');
+    const kv = (label, value, unit = '', sub = '') => `<div class="kv"><div class="l">${esc(label)}</div><div class="v">${value}${unit ? `<span class="u">${esc(unit)}</span>` : ''}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const kvs = (items) => `<div class="kvs">${items.filter(Boolean).join('')}</div>`;
+    const fld = (label, control, hint = '') => `<div><label>${esc(label)}</label>${control}${hint ? `<div class="hint">${esc(hint)}</div>` : ''}</div>`;
+    const flds = (items) => `<div class="fields">${items.filter(Boolean).join('')}</div>`;
+    const tick = (name, on, label) => `<label class="tick"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}> ${esc(label)}</label>`;
+    const nsel = (name, opts, cur) => `<select name="${name}">${opts.map((o) => (typeof o === 'string' ? { value: o, label: o } : o)).map((o) => `<option value="${esc(o.value)}" ${o.value === cur ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    const targetHint = (v, unit = '') => `target ${v}${unit ? ` ${unit}` : ''}`;
 
     // The mode first: it decides which of the inputs below there are. Quick asks for a volume and works out the
     // mRNA; the full process asks for the mRNA and works out everything from the dilution to the vials.
@@ -479,77 +488,107 @@ export async function render(el, ctx) {
     const dia = stepOf(proc, 'dialysis'), tffStep = stepOf(proc, 'tff');
     const editLink = '<button type="button" class="linkish" data-edit-process>change in the process</button>';
 
-    const step1 = c.dil ? tbl([
-      tr('RNA stock volume (mL)', fmt(c.rnaStock_mL, 3), inp('a_rna_stock_mL', a.rna_stock_mL)),
-      tr('Working solution total (mL)', fmt(c.dil.total_mL, 3), inp('a_rna_total_mL', a.rna_total_mL)),
-      tr('Dilution buffer (mL)', fmt(c.dil.diluent_mL, 3), `${txt('a_rna_diluent_lot', a.rna_diluent_lot || proc.aqueous?.buffer || '', 220)} <span class="muted">lot</span>`),
-      tr('Prepared by / date', '–', `${txt('a_rna_operator', a.rna_operator || settings.operator, 70)} <input type="date" name="a_rna_date" value="${esc(a.rna_date || '')}" style="width:150px">`),
-    ]) : '<div class="note">Set the RNA stock concentration (or choose an RNA lot) to compute the dilution.</div>';
+    const step1 = c.dil ? `${sec('Plan', kvs([
+      kv('RNA stock volume', fmt(c.rnaStock_mL, 3), 'mL'),
+      kv('Working solution total', fmt(c.dil.total_mL, 3), 'mL'),
+      kv('Dilution buffer', fmt(c.dil.diluent_mL, 3), 'mL'),
+    ]))}${sec('Record', flds([
+      fld('Stock volume used (mL)', inp('a_rna_stock_mL', a.rna_stock_mL), targetHint(fmt(c.rnaStock_mL, 3))),
+      fld('Working total (mL)', inp('a_rna_total_mL', a.rna_total_mL), targetHint(fmt(c.dil.total_mL, 3))),
+      fld('Dilution buffer lot', txt('a_rna_diluent_lot', a.rna_diluent_lot || proc.aqueous?.buffer || '')),
+      fld('Prepared by', txt('a_rna_operator', a.rna_operator || settings.operator)),
+      fld('Date', `<input type="date" name="a_rna_date" value="${esc(a.rna_date || '')}">`),
+    ]))}` : '<div class="note">Set the RNA stock concentration (or choose an RNA lot) to compute the dilution.</div>';
 
     const m = c.mix;
-    // The set-up first, from the process, so the mixing step says what it is run on and with what.
+    // The set-up (device, mixer, buffers) is shown read-only — it is changed in the process designer above.
     const dev = deviceOf(proc, ref), mixer = mixerOf(proc, ref);
-    const setup = [
-      tr('Device / mixer', esc([dev?.name || proc.deviceId, mixer ? `${mixer.name} (${mixer.kind})` : proc.mixerId].filter(Boolean).join(' · ')), editLink),
-      tr('Aqueous phase (pump 1)', esc(bufferLine(proc.aqueous) || 'not set'), ''),
-      tr('Quench (pump 3)', esc(proc.quench !== false ? bufferLine(proc.quenchBuffer) || 'buffer not set' : 'none in this process'), ''),
-    ];
-    const step2 = m ? `${tbl([
-      ...setup,
-      ...(c.quick ? [tr(`${c.cargoName} in the volume (mg)`, fmt(c.mass, 3), '')] : []),
-      tr('RNA volume (mL)', fmt(m.rna_mL, 2), ''), tr('Lipid/EtOH volume (mL)', fmt(m.lipid_mL, 2) + (c.npLipid_mL ? ` <span class="muted">(N/P target: ${fmt(c.npLipid_mL, 2)} mL → FRR ${fmt(c.npFrr, 2)})</span>` : ''), ''),
-      tr('Lipid (mmol)', fmt(m.lipid_mmol, 4), ''),
-      ...(c.quench ? [tr('Quench buffer volume (mL)', `${fmt(m.quench_mL, 2)} <span class="muted">prepare ${fmt(m.quenchNeeded_mL, 2)}</span>`, `${txt('a_quench_lot', a.quench_lot || proc.quenchBuffer?.buffer || '', 220)} <span class="muted">lot</span>`)] : []),
-      tr('Pump 1 RNA (mL/min)', fmt(c.flows.p1, 2), inp('a_p1', a.p1)), tr('Pump 2 lipid (mL/min)', fmt(c.flows.p2, 2), inp('a_p2', a.p2)),
-      ...(c.quench || c.flows.p3 > 0 ? [tr('Pump 3 quench (mL/min)', fmt(c.flows.p3, 2), inp('a_p3', a.p3))] : []),
-      tr('Sum flow at T1 (mL/min)', fmt(m.sumFlowT1, 2), ''), tr('Total process flow (mL/min)', fmt(m.totalFlow, 2), ''),
-      tr('Primary product RNA conc. (mg/mL)', fmt(m.primary_mg_mL, 3), ''), tr('Primary product volume (mL)', fmt(m.primary_mL, 2), inp('a_primary_mL', a.primary_mL)),
-      tr('Run time (min)', fmt(m.runTime_min, 2), ''), tr('N/P', m.np != null ? fmt(m.np, 1) : '– (no ionizable class in composition)', ''),
-      tr('Pre-test program', 'Cetoni 50 mL: buffer / water / ethanol', `<label style="font-weight:400"><input type="checkbox" name="a_pretest" ${a.pretest ? 'checked' : ''} style="width:auto"> done</label>`),
-    ])}
+    const setupTiles = kvs([
+      kv('Device / mixer', esc([dev?.name || proc.deviceId, mixer ? `${mixer.name} (${mixer.kind})` : proc.mixerId].filter(Boolean).join(' · ')) || '–'),
+      kv('Aqueous phase (pump 1)', esc(bufferLine(proc.aqueous) || 'not set')),
+      ...(proc.quench !== false ? [kv('Quench (pump 3)', esc(bufferLine(proc.quenchBuffer) || 'buffer not set'))] : []),
+    ]);
+    const step2 = m ? `${sec(`Set-up <span class="muted" style="font-weight:400">· ${editLink}</span>`, setupTiles)}${sec('Volumes to prepare', kvs([
+      ...(c.quick ? [kv(`${c.cargoName} in the volume`, fmt(c.mass, 3), 'mg')] : []),
+      kv('RNA volume', fmt(m.rna_mL, 2), 'mL'),
+      kv('Lipid / EtOH volume', fmt(m.lipid_mL, 2), 'mL', c.npLipid_mL ? `N/P target: ${fmt(c.npLipid_mL, 2)} mL → FRR ${fmt(c.npFrr, 2)}` : ''),
+      kv('Lipid', fmt(m.lipid_mmol, 4), 'mmol'),
+      ...(c.quench ? [kv('Quench buffer', fmt(m.quenchNeeded_mL, 2), 'mL', 'prepare this amount')] : []),
+    ]))}${sec('Pump rates (set on the pumps)', kvs([
+      kv('Pump 1 · RNA', fmt(c.flows.p1, 2), 'mL/min'),
+      kv('Pump 2 · lipid', fmt(c.flows.p2, 2), 'mL/min'),
+      ...(c.quench || c.flows.p3 > 0 ? [kv('Pump 3 · quench', fmt(c.flows.p3, 2), 'mL/min')] : []),
+      kv('Total process flow', fmt(m.totalFlow, 2), 'mL/min'),
+    ]))}${sec('Primary product (expected)', kvs([
+      kv('RNA conc.', fmt(m.primary_mg_mL, 3), 'mg/mL'),
+      kv('Volume', fmt(m.primary_mL, 2), 'mL'),
+      kv('Run time', fmt(m.runTime_min, 2), 'min'),
+      kv('N/P', m.np != null ? fmt(m.np, 1) : '–', m.np == null ? 'no ionizable class' : ''),
+    ]))}${sec('Record', flds([
+      c.quench ? fld('Quench buffer lot', txt('a_quench_lot', a.quench_lot || proc.quenchBuffer?.buffer || '')) : '',
+      fld('Primary product volume (mL)', inp('a_primary_mL', a.primary_mL), targetHint(fmt(m.primary_mL, 2))),
+    ]))}
     ${m.checks.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
 ` : `<div class="note warn">${esc(c.err || (c.quick ? 'Enter the volume to formulate to compute the mixing plan.' : 'Enter RNA input to compute the mixing plan.'))}</div>`;
 
     // Cassette and buffer are the process's (one place to change them, the designer above); the step records
     // what was done with them.
-    const step3 = !dia ? `<p class="muted">No dialysis in this process. ${editLink} to add one.</p>` : `${tbl([
-      tr('Cassette', esc(dia.device || 'not set'), editLink),
-      tr('Dialysis buffer', esc(bufferLine(dia) || 'not set'), `${txt('a_dialysis_lot', a.dialysis_lot || '', 200)} <span class="muted">lot</span>`),
-      tr('Start volume (mL)', inp('ds_dialysis_start_mL', ds.dialysis.start_mL ?? (m ? m.primary_mL.toFixed(2) : '')), ''), tr('Dialysis volume (L)', inp('ds_dialysis_volume_L', ds.dialysis.volume_L), ''), tr('Duration (h)', inp('ds_dialysis_hours', ds.dialysis.hours), `start <input type="datetime-local" name="a_dialysis_start" value="${esc(a.dialysis_start || '')}"> exchange <input type="datetime-local" name="a_dialysis_exchange" value="${esc(a.dialysis_exchange || '')}"> end <input type="datetime-local" name="a_dialysis_end" value="${esc(a.dialysis_end || '')}">`),
-      tr('End volume after dialysis (mL)', '', inp('a_dialysis_end_mL', a.dialysis_end_mL)),
-      tr('Dilution factor / RNA conc. estimate', c.dia ? `${fmt(c.dia.dilutionFactor, 3)} / ${fmt(c.dia.rna_mg_mL_est, 3)} mg/mL` : '–', c.dia ? `<span class="muted">DLS dilution 1 : ${fmt(c.dia.dlsDilution, 0)}</span>` : ''),
-      tr('IPC4 sample taken (do not freeze)', '', `<label style="font-weight:400"><input type="checkbox" name="a_ipc4" ${a.ipc4 ? 'checked' : ''} style="width:auto"> taken</label> ${txt('a_dialysis_remarks', a.dialysis_remarks, 260)}`),
-    ])}`;
+    const step3 = !dia ? `<p class="muted">No dialysis in this process. ${editLink} to add one.</p>` : `${sec(`From the process <span class="muted" style="font-weight:400">· ${editLink}</span>`, kvs([
+      kv('Cassette', esc(dia.device || 'not set')),
+      kv('Dialysis buffer', esc(bufferLine(dia) || 'not set')),
+    ]))}${sec('Set up', flds([
+      fld('Buffer lot', txt('a_dialysis_lot', a.dialysis_lot || '')),
+      fld('Start volume (mL)', inp('ds_dialysis_start_mL', ds.dialysis.start_mL ?? (m ? m.primary_mL.toFixed(2) : ''))),
+      fld('Dialysis volume (L)', inp('ds_dialysis_volume_L', ds.dialysis.volume_L)),
+      fld('Duration (h)', inp('ds_dialysis_hours', ds.dialysis.hours)),
+    ]))}${sec('Record', flds([
+      fld('Start', `<input type="datetime-local" name="a_dialysis_start" value="${esc(a.dialysis_start || '')}">`),
+      fld('Exchange', `<input type="datetime-local" name="a_dialysis_exchange" value="${esc(a.dialysis_exchange || '')}">`),
+      fld('End', `<input type="datetime-local" name="a_dialysis_end" value="${esc(a.dialysis_end || '')}">`),
+      fld('End volume (mL)', inp('a_dialysis_end_mL', a.dialysis_end_mL), c.dia ? `dilution factor ${fmt(c.dia.dilutionFactor, 3)} · RNA ≈ ${fmt(c.dia.rna_mg_mL_est, 3)} mg/mL` : ''),
+      fld('Remarks', txt('a_dialysis_remarks', a.dialysis_remarks)),
+    ]))}`;
 
     // Ticking TFF adds a TFF step to the process (after the dialysis), unticking takes it out: the same as doing
     // it in the designer, so the drawing and this step cannot disagree.
-    const step4 = `<label style="font-weight:400"><input type="checkbox" name="proc_tff" ${tffStep ? 'checked' : ''} style="width:auto"> Concentrate by TFF</label>
-      ${tffStep ? tbl([
-        tr('Module', `<select name="proc_tffModule" style="width:220px">${(tffStep.device && !ref.tffModules.some((x) => x.part === tffStep.device) ? [tffStep.moduleRecord?.part === tffStep.device ? { ...tffStep.moduleRecord, family: `${tffStep.moduleRecord.family || ''} (deleted)` } : { part: tffStep.device, family: 'as written', surface_cm2: NaN }] : []).concat(ref.pick('tffModules', tffStep.device)).map((x) => `<option value="${esc(x.part)}" ${x.part === tffStep.device ? 'selected' : ''}>${esc(x.part)} · ${esc(x.family)}${Number.isFinite(x.surface_cm2) ? ` · ${fmt(x.surface_cm2, 0)} cm²` : ''}</option>`).join('')}</select>`, `${txt('a_tff_lot', a.tff_lot, 160)} <span class="muted">module lot</span>`),
-        tr('Exchange buffer', esc(bufferLine(tffStep) || 'not set'), editLink),
-        tr('RNA load window (mg)', c.tff ? `${fmt(c.tff.minLoad_mg, 1)} – ${fmt(c.tff.maxLoad_mg, 1)}` : '–', c.tff?.checks.map((x) => `<span class="chip warn">${esc(x)}</span>`).join('') || ''),
-        tr('Target conc. after TFF (mg/mL)', inp('ds_tff_target_mg_mL', ds.tff.target_mg_mL), ''), tr('Reduce volume to at least (mL)', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '–', inp('a_tff_end_mL', a.tff_end_mL)),
-        tr('Module sanitized / flushed', '', `<label style="font-weight:400"><input type="checkbox" name="a_tff_sanitized" ${a.tff_sanitized ? 'checked' : ''} style="width:auto"> sanitized</label> <label style="font-weight:400"><input type="checkbox" name="a_tff_flushed" ${a.tff_flushed ? 'checked' : ''} style="width:auto"> flushed</label> <label style="font-weight:400"><input type="checkbox" name="a_ipc5" ${a.ipc5 ? 'checked' : ''} style="width:auto"> IPC5 taken</label>`),
-      ]) : `<p class="muted">Skipped: ${dia ? 'dialysis volume goes' : 'the product goes'} straight to final formulation.</p>`}`;
+    const tffModuleSelect = `<select name="proc_tffModule">${(tffStep?.device && !ref.tffModules.some((x) => x.part === tffStep.device) ? [tffStep.moduleRecord?.part === tffStep.device ? { ...tffStep.moduleRecord, family: `${tffStep.moduleRecord.family || ''} (deleted)` } : { part: tffStep.device, family: 'as written', surface_cm2: NaN }] : []).concat(ref.pick('tffModules', tffStep?.device)).map((x) => `<option value="${esc(x.part)}" ${x.part === tffStep?.device ? 'selected' : ''}>${esc(x.part)} · ${esc(x.family)}${Number.isFinite(x.surface_cm2) ? ` · ${fmt(x.surface_cm2, 0)} cm²` : ''}</option>`).join('')}</select>`;
+    const step4 = `<label class="tick" style="margin-bottom:4px"><input type="checkbox" name="proc_tff" ${tffStep ? 'checked' : ''}> Concentrate by TFF</label>
+      ${tffStep ? `${sec('Set up', flds([
+        fld('Module', tffModuleSelect),
+        fld('Module lot', txt('a_tff_lot', a.tff_lot)),
+        fld('Target conc. after TFF (mg/mL)', inp('ds_tff_target_mg_mL', ds.tff.target_mg_mL)),
+      ]))}${sec(`Exchange buffer <span class="muted" style="font-weight:400">· ${editLink}</span>`, kvs([
+        kv('Exchange buffer', esc(bufferLine(tffStep) || 'not set')),
+      ]))}${sec('Plan', kvs([
+        kv('RNA load window', c.tff ? `${fmt(c.tff.minLoad_mg, 1)} – ${fmt(c.tff.maxLoad_mg, 1)}` : '–', 'mg'),
+        kv('Reduce volume to at least', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '–', 'mL'),
+      ]))}${c.tff?.checks?.length ? `<div class="ticks">${c.tff.checks.map((x) => `<span class="chip warn">${esc(x)}</span>`).join('')}</div>` : ''}${sec('Record', flds([
+        fld('End volume (mL)', inp('a_tff_end_mL', a.tff_end_mL), c.tff ? targetHint(fmt(c.tff.reduceTo_mL, 2)) : ''),
+      ]))}` : `<p class="muted">Skipped: ${dia ? 'dialysis volume goes' : 'the product goes'} straight to final formulation.</p>`}`;
 
     const cp = c.comp;
-    const step5 = tbl([
-      tr('Measured RNA conc. (mg/mL, IPC5 or dialysis estimate)', inp('ds_final_measured_mg_mL', ds.finalFormulation.measured_mg_mL ?? (c.dia ? c.dia.rna_mg_mL_est.toFixed(3) : '')), ''),
-      tr('Final target (mg/mL)', inp('ds_final_final_mg_mL', ds.finalFormulation.final_mg_mL), ''),
-      tr('1st final formulation target (1.33 × final)', cp ? fmt(cp.c1, 3) + ' mg/mL' : '–', ''),
-      tr('1st dilution buffer', `<select name="ds_final_buffer1" style="width:260px">${bufferOpts('dialysis', ds.finalFormulation.buffer1).map((o) => `<option value="${esc(o.value)}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer1_mL, 2)} mL</b> → ${fmt(cp.v1, 2)} mL (DF ${fmt(cp.df1, 3)})` : ''),
-      tr('2nd dilution buffer (cryoprotectant)', `<select name="ds_final_buffer2" style="width:260px">${bufferOpts('final', ds.finalFormulation.buffer2).map((o) => `<option value="${esc(o.value)}" ${o.value === ds.finalFormulation.buffer2 ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`, cp ? `add <b>${fmt(cp.buffer2_mL, 2)} mL</b> → ${fmt(cp.vFinal_mL, 2)} mL (DF ${fmt(cp.df2, 2)})` : ''),
-      tr('Final volume (mL) / RNA (mg)', cp ? `${fmt(cp.vFinal_mL, 2)} / ${fmt(cp.rna_mg, 2)}` : '–', `<label style="font-weight:400"><input type="checkbox" name="a_compounded" ${a.compounded ? 'checked' : ''} style="width:auto"> done</label>`),
-      tr('Pre-filter', `<select name="ds_filtration_prefilter" style="width:220px">${ref.pick('filters', ds.filtration.prefilter).map((x) => `<option ${x === ds.filtration.prefilter ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`, txt('a_prefilter_lot', a.prefilter_lot, 140)),
-      tr('Sterile filter 0.2 µm', `<select name="ds_filtration_sterile" style="width:220px">${ref.pick('filters', ds.filtration.sterile).map((x) => `<option ${x === ds.filtration.sterile ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`, `${txt('a_sterile_lot', a.sterile_lot, 140)} <label style="font-weight:400"><input type="checkbox" name="a_filtered" ${a.filtered ? 'checked' : ''} style="width:auto"> filtered</label> <label style="font-weight:400"><input type="checkbox" name="a_ipc6" ${a.ipc6 ? 'checked' : ''} style="width:auto"> IPC6 / pH / osmolality samples</label>`),
-      `<tr class="advanced"><td>Biosafety aliquot (0.5 mL → 0.05 mg/mL)</td><td style="text-align:right">${c.bio ? `buffer 1 ${fmt(c.bio.buffer1_mL, 3)} mL, buffer 2 ${fmt(c.bio.buffer2_mL, 3)} mL` : '–'}</td><td></td></tr>`,
-    ]);
+    const buf1Select = `<select name="ds_final_buffer1">${bufferOpts('dialysis', ds.finalFormulation.buffer1).map((o) => `<option value="${esc(o.value)}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    const buf2Select = `<select name="ds_final_buffer2">${bufferOpts('final', ds.finalFormulation.buffer2).map((o) => `<option value="${esc(o.value)}" ${o.value === ds.finalFormulation.buffer2 ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    const prefilterSelect = `<select name="ds_filtration_prefilter">${ref.pick('filters', ds.filtration.prefilter).map((x) => `<option ${x === ds.filtration.prefilter ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
+    const sterileSelect = `<select name="ds_filtration_sterile">${ref.pick('filters', ds.filtration.sterile).map((x) => `<option ${x === ds.filtration.sterile ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`;
+    const step5 = `${sec('Set up', flds([
+      fld('Measured RNA conc. (mg/mL)', inp('ds_final_measured_mg_mL', ds.finalFormulation.measured_mg_mL ?? (c.dia ? c.dia.rna_mg_mL_est.toFixed(3) : '')), c.dia ? `dialysis estimate ${fmt(c.dia.rna_mg_mL_est, 3)}` : ''),
+      fld('Final target (mg/mL)', inp('ds_final_final_mg_mL', ds.finalFormulation.final_mg_mL), cp ? `1st target ${fmt(cp.c1, 3)} mg/mL (1.33 × final)` : ''),
+      fld('1st dilution buffer', buf1Select, cp ? `add ${fmt(cp.buffer1_mL, 2)} mL → ${fmt(cp.v1, 2)} mL` : ''),
+      fld('2nd dilution buffer (cryoprotectant)', buf2Select, cp ? `add ${fmt(cp.buffer2_mL, 2)} mL → ${fmt(cp.vFinal_mL, 2)} mL` : ''),
+      fld('Pre-filter', prefilterSelect),
+      fld('Pre-filter lot', txt('a_prefilter_lot', a.prefilter_lot)),
+      fld('Sterile filter 0.2 µm', sterileSelect),
+      fld('Sterile filter lot', txt('a_sterile_lot', a.sterile_lot)),
+    ]))}${sec('Final product', kvs([
+      kv('Final volume', cp ? fmt(cp.vFinal_mL, 2) : '–', 'mL'),
+      kv('RNA', cp ? fmt(cp.rna_mg, 2) : '–', 'mg'),
+    ]))}<div class="ticks">${tick('a_compounded', a.compounded, 'Compounded')}${tick('a_filtered', a.filtered, 'Filtered')}</div>`;
 
     const step6 = `${table(['Container', 'Count', 'Fill (mL)', { label: 'Total (mL)', right: true }, ''], ds.fill.map((f, i) => ({ cells: [raw(txt(`fill_container_${i}`, f.container, 140)), raw(inp(`fill_count_${i}`, f.count, 80, 1)), raw(inp(`fill_mL_${i}`, f.fill_mL, 80)), fmt(f.count * f.fill_mL, 2), raw(`<button data-rmfill="${i}" style="padding:3px 8px">✕</button>`)] })))}
       <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button id="addFill" style="padding:5px 10px">+ Container</button><span class="muted">Total ${fmt(c.fill?.total_mL, 2)} mL of ${cp ? fmt(cp.vFinal_mL, 2) : '–'} mL available</span>
       <label style="font-weight:400;margin-left:auto">Storage ${txt('a_storage', a.storage || '5 °C', 90)}</label><label style="font-weight:400"><input type="checkbox" name="a_filled" ${a.filled ? 'checked' : ''} style="width:auto"> fill & finish done</label></div>`;
 
-    const ipc = `<div class="card advanced"><h2>In-process controls</h2>${table(['Stage', 'After', 'Tests'], IPC_STAGES.map((s) => ({ cells: [raw(`<b>${s.id}</b>`), s.after, s.tests.join(', ')] })))}<p class="muted"><a href="#/measurements?batch=${esc(batch.id)}">Enter or import measurements for this batch</a></p></div>`;
 
     el.innerHTML = header(raw(`<a href="#/formulation">Formulations</a> › <a href="#/experiments?id=${esc(batch.experimentId)}">${esc(describeId(batch.experimentId))}</a>`),
       `${describeId(batch.id)}`,
@@ -565,7 +604,7 @@ export async function render(el, ctx) {
         ${c.quick ? stepBox(2, 'LNP mixing', step2) : `${stepBox(1, 'RNA dilution', step1)}${stepBox(2, 'LNP mixing', step2)}${stepBox(3, 'Dialysis', step3)}
         ${stepBox(4, 'TFF concentration', step4)}
         ${stepBox(5, 'Final formulation & filtration', step5)}${stepBox(6, 'Fill & finish', step6)}`}
-        ${field({ id: 'notes', label: 'Remarks', type: 'textarea', value: batch.notes, rows: 2 })}${customCard(customDefs(ctx.store), batch)}${c.quick ? '' : ipc}</div>` +
+        ${field({ id: 'notes', label: 'Remarks', type: 'textarea', value: batch.notes, rows: 2 })}${customCard(customDefs(ctx.store), batch)}</div>` +
       finishCard();
 
     const form = formEl = el.querySelector('#batchForm');
@@ -803,7 +842,7 @@ export async function render(el, ctx) {
     const process = `<h2>Process</h2><div class="proc">${printSvg(processSvg(proc, ref, { quick: c.quick, flows: c.flows, lipid_mM: c.lipid_mM, product: m ? `${fmt(m.primary_mL, 2)} mL · ${fmt(m.primary_mg_mL, 3)} mg/mL` : '' }))}</div>
       <style>.proc svg{width:100%;height:auto;max-height:62mm}</style>
       <table>${processRows(proc, ref, { quick: c.quick }).map(([k, v]) => `<tr><td style="width:32%">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
-    const mixing = m ? `<table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${c.quick ? row(`Volume to formulate (mL) / ${c.cargoName} (mg)`, `${fmt(plan.volume_mL, 2)} / ${fmt(c.mass, 3)}`) : ''}${row('RNA volume (mL)', fmt(m.rna_mL, 2))}${row('Lipid/EtOH volume (mL)', fmt(m.lipid_mL, 2))}${c.quench ? row('Quench buffer (mL), prepare', fmt(m.quenchNeeded_mL, 2)) : ''}${row('Pump 1 RNA (mL/min)', fmt(c.flows.p1, 2))}${row('Pump 2 lipid (mL/min)', fmt(c.flows.p2, 2))}${c.quench ? row('Pump 3 quench (mL/min)', fmt(c.flows.p3, 2)) : ''}${row('Total flow (mL/min)', fmt(m.totalFlow, 2))}${row('Primary product RNA conc. (mg/mL)', fmt(m.primary_mg_mL, 3))}${row('Primary product (mL)', fmt(m.primary_mL, 2))}${row('Pre-test program run', '')}</table>` : '';
+    const mixing = m ? `<table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${c.quick ? row(`Volume to formulate (mL) / ${c.cargoName} (mg)`, `${fmt(plan.volume_mL, 2)} / ${fmt(c.mass, 3)}`) : ''}${row('RNA volume (mL)', fmt(m.rna_mL, 2))}${row('Lipid/EtOH volume (mL)', fmt(m.lipid_mL, 2))}${c.quench ? row('Quench buffer (mL), prepare', fmt(m.quenchNeeded_mL, 2)) : ''}${row('Pump 1 RNA (mL/min)', fmt(c.flows.p1, 2))}${row('Pump 2 lipid (mL/min)', fmt(c.flows.p2, 2))}${c.quench ? row('Pump 3 quench (mL/min)', fmt(c.flows.p3, 2)) : ''}${row('Total flow (mL/min)', fmt(m.totalFlow, 2))}${row('Primary product RNA conc. (mg/mL)', fmt(m.primary_mg_mL, 3))}${row('Primary product (mL)', fmt(m.primary_mL, 2))}</table>` : '';
     const mixer = mixerOf(proc, ref);
     const head = `<h1>${esc(describeId(batch.id))} · ${esc(batch.id)}</h1><div class="muted">${esc(exp?.name || '')} · ${esc(batch.label || '')} · ${esc(c.cargoName)} · composition #${esc(batch.compositionId)} ${esc(comp?.synonym || '')}${overridden ? ' (adjusted for this batch)' : ''} · planned ${fmtDate(batch.plannedDate)} · operator ${esc(settings.operator)}${c.quick ? ' · quick: mixing only' : ''}</div>
       ${benchPrint(benchNumbers(c, batch))}`;
@@ -823,9 +862,9 @@ export async function render(el, ctx) {
     const body = `${head}${process}${inputs}
       <h2>Step 1 · RNA dilution</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${c.dil ? row('RNA stock volume (mL)', fmt(c.rnaStock_mL, 3)) + row('Working solution total (mL)', fmt(c.dil.total_mL, 3)) + row(`Dilution buffer (mL)${proc.aqueous?.buffer ? `, ${esc(proc.aqueous.buffer)}` : ''}`, fmt(c.dil.diluent_mL, 3)) : ''}</table>
       <h2>Step 2 · LNP mixing${mixer ? ` (${esc(mixer.name)})` : ''}</h2>${mixing}
-      ${dia ? `<h2>Step 3 · Dialysis</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Cassette', esc(dia.device || ''))}${row('Buffer', esc(bufferLine(dia)))}${row('Start volume (mL)', fmt(c.startDia, 2))}${row('Dialysis volume (L) / duration (h)', `${fmt(ds.dialysis.volume_L, 1)} / ${fmt(ds.dialysis.hours, 0)}`)}${row('Start / exchange / end (date, time)', '')}${row('End volume (mL)', '')}${row('IPC4 sample (do not freeze)', '')}</table>` : ''}
-      ${tffStep ? `<h2>Step 4 · TFF</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Module', esc(tffStep.device || ''))}${row('Exchange buffer', esc(bufferLine(tffStep)))}${row('RNA load window (mg)', c.tff ? `${fmt(c.tff.minLoad_mg, 1)} – ${fmt(c.tff.maxLoad_mg, 1)}` : '')}${row('Reduce volume to (mL)', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '')}${row('IPC5 sample', '')}</table>` : ''}
-      <h2>Step 5 · Final formulation & filtration</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Measured RNA conc. (mg/mL)', '')}${cp ? row('1st finalFormulation: ' + esc(ds.finalFormulation.buffer1 || 'buffer 1') + ' (mL)', fmt(cp.buffer1_mL, 2)) + row('2nd finalFormulation: ' + esc(ds.finalFormulation.buffer2 || 'buffer 2') + ' (mL)', fmt(cp.buffer2_mL, 2)) + row('Final volume (mL) at ' + fmt(ds.finalFormulation.final_mg_mL, 2) + ' mg/mL', fmt(cp.vFinal_mL, 2)) : ''}${row('Pre-filter / sterile filter lots', `${esc(ds.filtration.prefilter)} / ${esc(ds.filtration.sterile)}`)}${row('IPC6, pH, osmolality samples', '')}</table>
+      ${dia ? `<h2>Step 3 · Dialysis</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Cassette', esc(dia.device || ''))}${row('Buffer', esc(bufferLine(dia)))}${row('Start volume (mL)', fmt(c.startDia, 2))}${row('Dialysis volume (L) / duration (h)', `${fmt(ds.dialysis.volume_L, 1)} / ${fmt(ds.dialysis.hours, 0)}`)}${row('Start / exchange / end (date, time)', '')}${row('End volume (mL)', '')}</table>` : ''}
+      ${tffStep ? `<h2>Step 4 · TFF</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Module', esc(tffStep.device || ''))}${row('Exchange buffer', esc(bufferLine(tffStep)))}${row('RNA load window (mg)', c.tff ? `${fmt(c.tff.minLoad_mg, 1)} – ${fmt(c.tff.maxLoad_mg, 1)}` : '')}${row('Reduce volume to (mL)', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '')}</table>` : ''}
+      <h2>Step 5 · Final formulation & filtration</h2><table><tr><th>Parameter</th><th class="r">Target</th><th>Actual</th></tr>${row('Measured RNA conc. (mg/mL)', '')}${cp ? row('1st finalFormulation: ' + esc(ds.finalFormulation.buffer1 || 'buffer 1') + ' (mL)', fmt(cp.buffer1_mL, 2)) + row('2nd finalFormulation: ' + esc(ds.finalFormulation.buffer2 || 'buffer 2') + ' (mL)', fmt(cp.buffer2_mL, 2)) + row('Final volume (mL) at ' + fmt(ds.finalFormulation.final_mg_mL, 2) + ' mg/mL', fmt(cp.vFinal_mL, 2)) : ''}${row('Pre-filter / sterile filter lots', `${esc(ds.filtration.prefilter)} / ${esc(ds.filtration.sterile)}`)}</table>
       <h2>Step 6 · Fill & finish</h2><table><tr><th>Container</th><th class="r">Count</th><th class="r">Fill (mL)</th><th>Storage</th></tr>${ds.fill.map((f) => `<tr><td>${esc(f.container)}</td><td class="r">${esc(f.count)}</td><td class="r">${fmt(f.fill_mL, 2)}</td><td>${blank}</td></tr>`).join('')}</table>
       ${sig}`;
     printHtml(`${describeId(batch.id)} (${batch.id})`, body);
