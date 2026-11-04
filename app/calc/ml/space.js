@@ -7,6 +7,7 @@
 // space a plain box the surrogate handles natively, and the constraint holds exactly by construction.
 import { FACTORS } from '../experiment.js';
 import { overriddenComposition } from '../composition.js';
+import { VARIABLE_BY_KEY, readVariable } from '../variables.js';
 
 /** Process factors the optimiser can set, with the batch fields they read from and write to. */
 export const PROCESS_FACTORS = [
@@ -20,6 +21,13 @@ export const PROCESS_FACTORS = [
   { key: 'quench', name: 'Quench factor', unit: '× lipid volume', lo: 1, hi: 10, step: 0.5, read: (b) => b.plan?.mixing?.quenchFactor },
   { key: 'lipid_mM', name: 'Lipid stock molarity', unit: 'mM', lo: 20, hi: 70, step: 0.5, read: (b) => b.plan?.mixing?.lipidStock_mM },
   { key: 'rna_mg_mL', name: 'RNA working concentration', unit: 'mg/mL', lo: 0.1, hi: 0.8, step: 0.02, read: (b) => b.plan?.rna?.working_mg_mL },
+  // The aqueous phase as the formulation records it (variables.js, schema 3, role factor). Their default ranges
+  // come from the registry, so the form, the importer and the optimizer agree. A lab that never records them
+  // never sees them offered: suggestSpace only offers a factor that actually varied.
+  ...['loadingPH', 'bufferMolarity_mM'].map((key) => {
+    const v = VARIABLE_BY_KEY[key];
+    return { key, name: v.name, unit: v.unit === 'pH' ? '' : v.unit, lo: v.lo, hi: v.hi, step: v.stepSize, read: (b) => readVariable(b, key) };
+  }),
 ];
 
 /** Composition factors: mol% of one lipid class. The balance class keeps the total at 100. */

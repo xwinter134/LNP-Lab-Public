@@ -130,7 +130,7 @@ export function buildExperiment(spec, env) {
     // A copy for each formulation: changing one record's process must not change its siblings'. A spec with
     // no process leaves it off, and the plan reads as the lab layout (processOf in calc/process.js).
     ...(spec.process ? { process: JSON.parse(JSON.stringify(spec.process)) } : {}),
-    downstream: {}, factors: {},
+    downstream: {}, factors: {}, conditions: {},
   });
   const batches = [];
   const slots = [];
@@ -144,7 +144,7 @@ export function buildExperiment(spec, env) {
     // A process without quench runs no quench pump, whatever the quench factor says.
     plan.mixing.flows = flowsFromTotal(plan.mixing.totalFlow, plan.mixing.frr, effectiveQuench(plan));
     syncQuick(plan); // quick mode: the mRNA in the chosen volume, after any factor that changes it (FRR, quench, RNA conc.)
-    const b = { id: nextFormulation(), experimentId: expId, label, compositionId, stockId: spec.stockId || null, plannedDate: dateFor(i), status: 'planned', plan, actual: {}, notes: '' };
+    const b = { id: nextFormulation(), experimentId: expId, label, compositionId, stockId: spec.stockId || null, plannedDate: dateFor(i), status: 'planned', plan, actual: {}, notes: '', provenance: { source: 'manual' } };
     batches.push(b);
     return b;
   };

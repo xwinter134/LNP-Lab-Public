@@ -154,6 +154,8 @@ function stopHere(rows, res, round, seed) {
     measuredBestTrueD: pickedBest(rows).trueD, verdictAfter };
 }
 
+const FORECAST = { hit: 0, raw: 0, tot: 0 };
+
 /** One campaign: starting design, then ROUNDS rounds of Q suggestions. */
 function optimizerCampaign(seed) {
   const r = rng(1000 + seed);
@@ -171,7 +173,12 @@ function optimizerCampaign(seed) {
     const before = { verdict: res.verdict?.level ?? null, lastGain: res.pick?.lastRound?.gain ?? null,
       pickBefore: res.pick ? { batchId: res.pick.batchId, predictedD: res.pick.predictedD, trueD: trueD(res.pick.point) } : null,
       confirmBatches: res.suggestions.confirm?.batches ?? 0 };
-    picks.forEach((p, i) => rows.push(row(p.point, makeAndMeasure(p.point, r), round, i, true)));
+    picks.forEach((p, i) => {
+      const v = makeAndMeasure(p.point, r);
+      // Was the result inside the 95 % interval the batch would have stored (optimizer.js, forecast)?
+      for (const [k, f] of Object.entries(p.forecast || {})) if (Number.isFinite(v[k]) && f.sd > 0) { FORECAST.tot++; if (Math.abs(v[k] - f.mean) <= 1.96 * f.sd) FORECAST.hit++; if (Math.abs(v[k] - f.mean) <= 1.96 * f.sd / (f.calibrated || 1)) FORECAST.raw++; }
+      rows.push(row(p.point, v, round, i, true));
+    });
     // The model's own best guess, once the screen would show it (20 runs or more).
     const afterFit = fitModels({ rows, space: SPACE, goals: GOALS, strategy: 'experiment', seed: 7 + round });
     const after = score(afterFit, { goals: GOALS, q: 1, mode: MODE, seed: 7 + round });
@@ -256,6 +263,7 @@ const baselines = {
     within95: campaigns.filter((c) => Math.max(c.ccd.optimumTrueD, c.ccd.picked.trueD) >= 0.95 * opt.D).length },
 };
 
+console.log(`\nSuggested runs whose result fell inside the 95 % interval stored with them: ${FORECAST.hit}/${FORECAST.tot} (${(100 * FORECAST.hit / Math.max(1, FORECAST.tot)).toFixed(0)} %; ${(100 * FORECAST.raw / Math.max(1, FORECAST.tot)).toFixed(0)} % before the calibration)`);
 console.log(`\nRound  runs  picked best (median, IQR)   model's pick  model's optimum  within 95 % of the optimum`);
 for (const r of perRound) console.log(`${String(r.round).padStart(5)}  ${String(r.runs).padStart(4)}  ${f3(r.pickedMedian)} (${f3(r.pickedQ25)}–${f3(r.pickedQ75)})       ${f3(r.smoothedMedian)}        ${f3(r.optimumMedian)}           ${r.within95}/${SEEDS}`);
 console.log(`\nSame budget (${budget} runs), no optimizer:`);

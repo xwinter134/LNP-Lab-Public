@@ -14,7 +14,10 @@ export const ICONS = {
   designs: svg('<rect x="2.8" y="3.2" width="6" height="6" rx="1.4" fill="currentColor" fill-opacity=".18"/><rect x="11.2" y="3.2" width="6" height="6" rx="1.4"/><rect x="2.8" y="10.8" width="6" height="6" rx="1.4"/><rect x="11.2" y="10.8" width="6" height="6" rx="1.4" fill="currentColor" fill-opacity=".18"/>'),
   advisor: svg('<circle cx="10" cy="10" r="7"/><path d="M8.1 7.9a1.95 1.95 0 1 1 2.6 1.85c-.5.18-.7.5-.7 1v.55" stroke-linecap="round"/><circle cx="10" cy="14.2" r=".95" fill="currentColor" stroke="none"/>'),
   ml: svg('<circle cx="4.5" cy="6" r="1.9" fill="currentColor" stroke="none"/><circle cx="4.5" cy="14" r="1.9" fill="currentColor" stroke="none"/><circle cx="11" cy="10" r="1.9" fill="currentColor" stroke="none" opacity=".75"/><circle cx="16.5" cy="6.5" r="1.9" fill="currentColor" stroke="none" opacity=".5"/><circle cx="16.5" cy="13.5" r="1.9" fill="currentColor" stroke="none" opacity=".5"/><path d="M6.1 6.8 9.4 9.2M6.1 13.2 9.4 10.8M12.6 9.2l2.4-1.8M12.6 10.8l2.4 1.8"/>'),
+  data: svg('<rect x="3" y="3.5" width="14" height="13" rx="1.5"/><path d="M3 7.5h14M3 11.5h14M8 7.5v9"/>'),
   insights: svg('<rect x="3" y="10" width="3.2" height="7" rx="1" fill="currentColor" stroke="none"/><rect x="8.4" y="6" width="3.2" height="11" rx="1" fill="currentColor" stroke="none"/><rect x="13.8" y="3" width="3.2" height="14" rx="1" fill="currentColor" stroke="none"/>'),
   materials: svg('<path d="M10 2.8l7 3.5v7.4l-7 3.5-7-3.5V6.3z" fill="currentColor" fill-opacity=".18"/><path d="M3 6.3l7 3.5 7-3.5M10 9.8v7.4"/>'),
+  quarantine: svg('<rect x="3" y="4" width="14" height="12.5" rx="2" fill="currentColor" fill-opacity=".18"/><path d="M3 8.5h14M10 11v3M10 15.6v.1" stroke-width="1.8"/>'),
+  studies: svg('<circle cx="7" cy="7" r="3.2" fill="currentColor" fill-opacity=".18"/><circle cx="13.5" cy="12.5" r="3.6"/><path d="M9.3 9.3l1.7 1.6M4 15.5h3M5.5 14v3"/>'),
   settings: svg('<circle cx="10" cy="10" r="2.6"/><path d="M10 2.8v2.2M10 15v2.2M2.8 10H5M15 10h2.2M4.9 4.9l1.6 1.6M13.5 13.5l1.6 1.6M4.9 15.1l1.6-1.6M13.5 6.5l1.6-1.6"/>'),
 };

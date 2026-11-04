@@ -65,8 +65,8 @@ export async function buffersDesignAndSave({ page, open }) {
   await page.fill('input[name=name]', 'Acetate 50 mM pH 5.5');
   await page.click('#saveBuffer');
   await page.waitForTimeout(200);
-  // lots are numbered in sequence now, not coded
-  await expectText(page, '#bufferList', /Buffer-001/, 'saved buffer lot is numbered');
+  // lots are named code-pH-date (spec 9.2), and keep their Buffer number as well
+  await expectText(page, '#bufferList', /[A-Z0-9]+-pH\d+\.\d-\d{8}/, 'saved buffer lot is named by code, pH and date');
   await expectText(page, '#bufferList', /Acetate 50 mM pH 5\.5/, 'and carries its name');
 }
 
@@ -92,7 +92,7 @@ export async function materialsAddLots({ page, open }) {
   await open('materials?tab=tff');
   await open('materials?tab=consumables');
   // a tab that no longer exists must fall back rather than break the screen
-  await open('materials?tab=mixers');
+  await open('materials?tab=no-such-tab');
   await expectText(page, '#tabBody', /Lipid/, 'an unknown tab falls back to the first one');
 }
 
@@ -883,7 +883,7 @@ export async function manualEntryRefusesImpossible({ page, open }) {
   await page.fill('input[name=v_pdi]', '5');
   await page.click('#saveManual');
   await page.waitForTimeout(250);
-  await expectText(page, '#manualCheck', /Not saved[\s\S]*PDI 5 is outside 0–1 — did you mean 0\.05\?/, 'the refusal says why');
+  await expectText(page, '#manualCheck', /Not saved[\s\S]*PDI 5 is outside 0–1, did you mean 0\.05\?/, 'the refusal says why');
   if (!(await page.locator('input[name=v_pdi].invalid').count())) throw new Error('the PDI field is not marked');
   if ((await storedMeasurements(page)).length !== before) throw new Error('an impossible PDI was stored');
   if (await slotStatus(page, sampleName, 'dls') !== 'open') throw new Error('the slot was closed by a refused result');
@@ -1018,7 +1018,7 @@ export async function bulkBenchActions({ page, open }) {
   await page.waitForTimeout(150);
   await page.click('#createExp'); await page.waitForTimeout(400);
   const id = await latestOfType(page, 'reference');
-  await expectText(page, '#nextStep', /Next step: make the formulations — 3 planned/, 'a new experiment says what to do next');
+  await expectText(page, '#nextStep', /Next step: make the formulations, 3 planned/, 'a new experiment says what to do next');
   await expectText(page, '#expStage', /planned/, 'and its progress chip starts at planned');
   const forms = async () => (await readCol(page, 'batches')).filter((b) => b.experimentId === id);
 
@@ -1037,7 +1037,7 @@ export async function bulkBenchActions({ page, open }) {
   await page.click('#markAllProduced'); await page.waitForTimeout(250);
   fs = await forms();
   if (fs.length !== 3 || !fs.every((b) => b.status === 'produced')) throw new Error(`Mark all produced left: ${fs.map((b) => b.status).join(', ')}`);
-  await expectText(page, '#nextStep', /Next step: measure — \d+ results still due/, 'once made, the next step is to measure');
+  await expectText(page, '#nextStep', /Next step: measure, \d+ results still due/, 'once made, the next step is to measure');
   await expectText(page, '#expStage', /measuring/, 'and the progress chip follows');
 
   // the list: tick two planned formulations of another experiment, leave the rest alone
@@ -1310,7 +1310,7 @@ export async function benchCardFollowsInputs({ page, open }) {
   });
   if (!order) throw new Error('the "At the bench" card should come before the inputs');
   let c = await card();
-  if (c.rna_stock_mL.text !== '—' || !/choose an RNA lot/.test(c.rna_stock_mL.sub)) throw new Error(`with no RNA lot the stock volume should wait for one: "${c.rna_stock_mL.text}" / "${c.rna_stock_mL.sub}"`);
+  if (c.rna_stock_mL.text !== '–' || !/choose an RNA lot/.test(c.rna_stock_mL.sub)) throw new Error(`with no RNA lot the stock volume should wait for one: "${c.rna_stock_mL.text}" / "${c.rna_stock_mL.sub}"`);
   await setInput(page, 'rna_stock_mg_mL', '1.02');
   // RNA stock 3/1.02 = 2.941 mL into 3/0.4 = 7.5 mL; lipid 7.5/3 = 2.5; quench 2.5 x 2 = 5; pumps 112.5 split 3:1:2;
   // primary product 0.4 x 56.25/112.5 = 0.2 mg/mL, so all 3 mg is 15 mL into dialysis.
@@ -1347,7 +1347,7 @@ export async function benchCardFollowsInputs({ page, open }) {
   // emptying the RNA input leaves the volumes waiting for it, and the pumps (which do not depend on it) standing
   await setInput(page, 'rna_mass_mg', '');
   c = await card();
-  if (c.rna_mL.text !== '—' || !/enter the RNA input/.test(c.rna_mL.sub)) throw new Error(`no RNA input: "${c.rna_mL.text}" / "${c.rna_mL.sub}"`);
+  if (c.rna_mL.text !== '–' || !/enter the RNA input/.test(c.rna_mL.sub)) throw new Error(`no RNA input: "${c.rna_mL.text}" / "${c.rna_mL.sub}"`);
   if (c.p2.text !== '9.23 mL/min') throw new Error(`the pump flows do not depend on the RNA input: "${c.p2.text}"`);
 }
 
@@ -1634,7 +1634,7 @@ export async function correctStoredResult({ page, open }) {
   await page.fill(box, '5');
   await page.fill('#editReason', 'typo');
   await page.click('#saveEdit'); await page.waitForTimeout(200);
-  await expectText(page, '#editCheck', /Not saved[\s\S]*PDI 5 is outside 0–1 — did you mean 0\.05\?/, 'a PDI of 5 is refused on correction as on entry');
+  await expectText(page, '#editCheck', /Not saved[\s\S]*PDI 5 is outside 0–1, did you mean 0\.05\?/, 'a PDI of 5 is refused on correction as on entry');
   if (!(await page.locator(`${box}.invalid`).count())) throw new Error('the refused field is not marked');
   let now = await stored();
   if (now.values.pdi !== 0.5 || now.history?.length) throw new Error('a refused correction changed the record');
@@ -1652,7 +1652,7 @@ export async function correctStoredResult({ page, open }) {
   if (now.history?.length !== 1 || now.history[0].reason !== 'typo' || now.history[0].values?.pdi !== 0.5 || !now.history[0].at) throw new Error(`history: ${JSON.stringify(now.history)}`);
   if ((now.flags || []).some((f) => /PDI/.test(f.text))) throw new Error('the QC flag of the typo outlived its correction');
   if (now.slotId !== m.slotId || now.sampleName !== m.sampleName) throw new Error('the correction moved the result off its slot');
-  await expectText(page, '#resultHistory', /Corrected \d{2} \w{3} \d{4}( by \S+)?: typo — was PDI 0\.5\b/, 'the history is shown under the values');
+  await expectText(page, '#resultHistory', /Corrected \d{2} \w{3} \d{4}( by \S+)?: typo, was PDI 0\.5\b/, 'the history is shown under the values');
   await expectText(page, '#main', /PDI 0\.050/, 'and the result reads the corrected value');
   // The list shows 50 at a time (usability cycle 4, C), and with the smoke run's clock standing still every
   // result is stored in the same millisecond, so this one is looked up as a person would: by its sample name.
@@ -1848,7 +1848,7 @@ export async function orphanedResultsNoted({ page, open }) {
     await restart();
     await open('settings'); // the reload may have landed on the overview already; a change of hash redraws it
     await open('overview');
-    await expectText(page, '#orphansMissing', /2 results belong to a formulation that no longer exists — E900-F1\. Nothing has been changed/, 'the overview names the results and their formulation');
+    await expectText(page, '#orphansMissing', /2 results belong to a formulation that no longer exists, E900-F1\. Nothing has been changed/, 'the overview names the results and their formulation');
     await page.click('#orphansMissing a[href="#/measurements?batch=E900-F1"]');
     await page.waitForFunction(() => location.hash === '#/measurements?batch=E900-F1' && /Results · E900-F1/.test(document.querySelector('#main')?.innerText || ''), null, { timeout: 4000 })
       .catch(async () => { throw new Error(`the note did not open the Measurements screen filtered to E900-F1: ${await page.evaluate(() => location.hash)}`); });
@@ -1948,15 +1948,15 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   for (const n of [2, 3, 4, 5, 6]) {
     if (!(await page.locator(`#step${n} > summary`).isVisible())) throw new Error(`step ${n}'s line is not on the screen`);
   }
-  if (!/^Step 2 · LNP mixing — not started · pumps 56\.25 \/ 18\.75 \/ 37\.50 mL\/min/.test(await line(2))) throw new Error(`step 2's line: "${await line(2)}"`);
-  if (!/^Step 3 · Dialysis — not started · start volume \d+\.\d\d mL/.test(await line(3))) throw new Error(`step 3's line: "${await line(3)}"`);
-  if (!/^Step 4 · TFF concentration — skipped/.test(await line(4))) throw new Error(`step 4's line: "${await line(4)}"`);
-  if (!/^Step 6 · Fill & finish — not started · \d+ × [\d.]+ mL/.test(await line(6))) throw new Error(`step 6's line: "${await line(6)}"`);
+  if (!/^Step 2 · LNP mixing, not started · pumps 56\.25 \/ 18\.75 \/ 37\.50 mL\/min/.test(await line(2))) throw new Error(`step 2's line: "${await line(2)}"`);
+  if (!/^Step 3 · Dialysis, not started · start volume \d+\.\d\d mL/.test(await line(3))) throw new Error(`step 3's line: "${await line(3)}"`);
+  if (!/^Step 4 · TFF concentration, skipped/.test(await line(4))) throw new Error(`step 4's line: "${await line(4)}"`);
+  if (!/^Step 6 · Fill & finish, not started · \d+ × [\d.]+ mL/.test(await line(6))) throw new Error(`step 6's line: "${await line(6)}"`);
   // what a folded step holds is not read: the pump table is on step 2's line, not under it
   await expectNoText(page, '#main', /Pump 1 RNA \(mL\/min\)|End volume after dialysis/, 'a folded step keeps its table out of the page');
   // the line follows the inputs and agrees with the bench card
   await setInput(page, 'rna_stock_mg_mL', '1.02');
-  if (!/— not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
+  if (!/, not started · 2\.941 mL stock \+ 4\.559 mL buffer$/.test(await line(1))) throw new Error(`step 1's line: "${await line(1)}"`);
   if (String(await opened()) !== '1') throw new Error(`a redraw changed the open steps: ${await opened()}`);
 
   // the user's own choice survives the redraws: step 1 folded, step 3 opened and typed in
@@ -1969,7 +1969,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   // signing off step 1 closes it: its line says so, and the next step opens below without folding the rest
   await page.click('#step1 > summary');
   await setInput(page, 'a_rna_date', '2026-10-17');
-  if (!/^Step 1 · RNA dilution — done/.test(await line(1))) throw new Error(`step 1 signed off: "${await line(1)}"`);
+  if (!/^Step 1 · RNA dilution, done/.test(await line(1))) throw new Error(`step 1 signed off: "${await line(1)}"`);
   if (String(await opened()) !== '1,2,3') throw new Error(`step 2 should open once step 1 is done, with 1 and 3 left open: ${await opened()}`);
   await page.evaluate(() => window.lnpDb.flush()); // stored as typed: no Save button to press
   await reopen();
@@ -1981,7 +1981,7 @@ export async function benchRecordOpensOnItsStep({ page, open }) {
   await page.evaluate(() => window.lnpDb.flush());
   await reopen();
   if (String(await opened()) !== '5') throw new Error(`with dialysis recorded the record should open on step 5: ${await opened()}`);
-  if (!/— not recorded/.test(await line(2)) || !/— done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
+  if (!/, not recorded/.test(await line(2)) || !/, done · start volume 12\.00 mL → 13\.5 mL after/.test(await line(3))) {
     throw new Error(`steps 2 and 3 after dialysis was recorded: "${await line(2)}" / "${await line(3)}"`);
   }
 
@@ -2407,9 +2407,9 @@ export async function measurementsDueLeads({ page, open }) {
     await open('overview');
     await open('measurements');
     if (await page.$eval('#main > .card', (c) => c.id) !== 'dueCard') throw new Error('the Due card is not the first card on Measurements');
-    await expectText(page, '#dueCard .dueGroup.overdue', /Overdue[\s\S]*E970 · Due check — T7, 2 samples \(DLS, EE\) — 3 days overdue/i, 'the overdue timepoint, one line for the experiment and stage');
-    await expectText(page, '#dueCard .dueGroup.today', /E970 · Due check — T10, 2 samples \(DLS\) — due today/, 'the one due today');
-    await expectText(page, '#dueCard .dueGroup.coming', /Coming · next 7 days[\s\S]*E970 · Due check — T12, 2 samples \(DLS, EE\) — due \w{3} \d{1,2} \w{3}/i, 'the one in two days, with its weekday');
+    await expectText(page, '#dueCard .dueGroup.overdue', /Overdue[\s\S]*E970 · Due check, T7, 2 samples \(DLS, EE\), 3 days overdue/i, 'the overdue timepoint, one line for the experiment and stage');
+    await expectText(page, '#dueCard .dueGroup.today', /E970 · Due check, T10, 2 samples \(DLS\), due today/, 'the one due today');
+    await expectText(page, '#dueCard .dueGroup.coming', /Coming · next 7 days[\s\S]*E970 · Due check, T12, 2 samples \(DLS, EE\), due \w{3} \d{1,2} \w{3}/i, 'the one in two days, with its weekday');
     await expectNoText(page, '#dueCard', /T30/, 'and not the one three weeks out');
 
     // the sample names wait behind the count, and Copy puts exactly that line's names on the clipboard
@@ -2460,7 +2460,7 @@ export async function measurementsDueLeads({ page, open }) {
     await writeCol(page, 'experiments', later);
     await open('overview');
     await open('measurements');
-    await expectText(page, '#dueCard', /Nothing is due in the next 7 days\. Next: E970 · Due check — T30, 2 samples, due \w{3} \d{1,2} \w{3} \(in 20 days\)\./, 'nothing due, and the next thing');
+    await expectText(page, '#dueCard', /Nothing is due in the next 7 days\. Next: E970 · Due check, T30, 2 samples, due \w{3} \d{1,2} \w{3} \(in 20 days\)\./, 'nothing due, and the next thing');
     for (const s of later[0].expected) s.status = 'done';
     await writeCol(page, 'experiments', later);
     await open('overview');
@@ -3648,10 +3648,13 @@ export async function questionsWaitForTheAnswer({ page, base, errors }) {
     await open('settings');
     await p2.click('#emptyTrash'); await answered(/Erase the \d+ deleted item/);
     same('Empty trash', trash, await count('trash'));
-    // And a yes is waited for too, and goes ahead.
+    // And a yes is waited for too, and goes ahead: everything goes but what other records still name (the
+    // demo's measurements name E1's formulations), which stays and says so (spec 12.2).
     await p2.evaluate(() => { window.__answer = true; });
     await p2.click('#emptyTrash'); await answered(/Erase the \d+ deleted item/);
-    if (await count('trash')) throw new Error(`${where}: OK on "Empty trash" did not empty it`);
+    const left = await count('trash');
+    const keptRows = await p2.locator('#trashList [data-kept]').count();
+    if (left !== keptRows) throw new Error(`${where}: OK on "Empty trash" left ${left} entries, ${keptRows} of them said to be still named`);
 
     // Adding a lipid to a stock asked for its key through prompt(), which the app's window answers with null.
     await open('stocks?new=1');
@@ -3877,7 +3880,7 @@ scenarios.push(createPressedTwiceMakesOne);
 export async function failedCreateKeepsStockAndLot({ page, open }) {
   for (const { hash, field, value, button, col, draftKey, landed, what } of [
     { hash: 'stocks?new=1', field: 'molarity_mM', value: '21.5', button: '#saveStock', col: 'stocks', draftKey: 'lnp-lab.draft.stock', landed: /^#\/stocks\?id=Stock-\d+$/, what: /The new stock Stock-\d+ was undone[\s\S]*press “Create stock” again/ },
-    { hash: 'buffers?new=1', field: 'conc_mM', value: '35', button: '#saveBuffer', col: 'buffers', draftKey: 'lnp-lab.draft.buffer', landed: /^#\/buffers\?id=Buffer-\d+$/, what: /The new lot Buffer-\d+ was undone[\s\S]*press “Save lot” again/ },
+    { hash: 'buffers?new=1', field: 'conc_mM', value: '35', button: '#saveBuffer', col: 'buffers', draftKey: 'lnp-lab.draft.buffer', landed: /^#\/buffers\?id=Buffer-\d+$/, what: /The new lot \S+ \(Buffer-\d+\) was undone[\s\S]*press “Save lot” again/ },
   ]) {
     const before = (await readCol(page, col)).length;
     await open(hash);
@@ -4007,8 +4010,12 @@ export async function importsGroupOnlyRunsAndCatchRepeats({ page, open }) {
   const head = 'Sample Name\tZ-Average (d.nm)\tPdI';
   await paste([head, 'LNP-1\t80\t0.1', 'LNP-2\t120\t0.2', 'LNP-3\t160\t0.3', `${a} 1\t81.1\t0.08`, `${a} 2\t82.2\t0.09`, `${a} 3\t83.3\t0.10`, `${b} (1)\t90.0\t0.1`]);
   await expectText(page, '#importReadAs', /7 rows → 5 samples/, 'three formulations stay three samples, and the runs of the app\'s own samples are grouped');
-  const firstCells = await page.evaluate(() => [...document.querySelectorAll('#importPreview tbody tr')].map((r) => r.cells[0].innerText.replace(/\s+/g, ' ').trim()));
-  const want = ['LNP-1', 'LNP-2', 'LNP-3', `${a} from ${a} 1, ${a} 2, ${a} 3`, `${b} from ${b} (1)`];
+  // The preview is drawn as the results grid (spec 9.3): the matched samples in the grid, by formulation, and the
+  // three that matched nothing below it, in the order of the file.
+  const firstCells = await page.evaluate(() => [...document.querySelectorAll('#importPreview tbody tr')].map((r) => r.querySelector('td.impSample').innerText.replace(/\s+/g, ' ').trim()));
+  const want = [`${a} from ${a} 1, ${a} 2, ${a} 3`, `${b} from ${b} (1)`, 'LNP-1', 'LNP-2', 'LNP-3'];
+  const strays = await page.$$eval('#importStrays td.impSample', (tds) => tds.map((td) => td.innerText.trim()));
+  if (strays.join() !== 'LNP-1,LNP-2,LNP-3') throw new Error(`the unmatched rows below the grid: ${strays}`);
   if (JSON.stringify(firstCells) !== JSON.stringify(want)) throw new Error(`the preview's samples: ${JSON.stringify(firstCells)}, expected ${JSON.stringify(want)}`);
   await expectText(page, '#importApart', /Read as separate samples: LNP-1, LNP-2, LNP-3\./, 'the names kept apart are named');
   await expectText(page, '#importKept', /SHA-256 of the pasted rows, not the rows themselves: keep the instrument’s file/, 'the preview says what is kept of what was imported');
@@ -4639,13 +4646,13 @@ export async function aFailedActionIsUndoneWhole({ page, open }) {
     // A new buffer lot: the number the form shows is the number stored, after a press that was undone.
     await go('buffers?new=1');
     await page.waitForSelector('#saveBuffer', { timeout: 3000 });
-    const lot = (await page.locator('#bufferForm').innerText()).match(/Lot:\s*(Buffer-\d+)/)?.[1];
+    const lot = (await page.locator('#bufferForm').innerText()).match(/also (Buffer-\d+)/)?.[1];
     await failing('the lot', () => page.click('#saveBuffer'));
     await go('settings'); // where the note sends the user
     const there = await page.locator('#storageNote').innerText();
     if (/this screen|Save lot/.test(there)) throw new Error(`on Settings the note still speaks of the buffer form: "${there}"`);
     await go('buffers?new=1');
-    const again = (await page.locator('#bufferForm').innerText()).match(/Lot:\s*(Buffer-\d+)/)?.[1];
+    const again = (await page.locator('#bufferForm').innerText()).match(/also (Buffer-\d+)/)?.[1];
     if (again !== lot) throw new Error(`the form showed ${lot}, and after the undone press it shows ${again}`);
     await page.click('#saveBuffer');
     await page.waitForFunction(() => /^#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 3000 });
@@ -4695,7 +4702,7 @@ export async function aSlowCreateIsNotADraft({ page, open }) {
     try {
       await page.click('#createExp');
       await page.waitForTimeout(100);
-      await page.click('a.btn[href="#/experiments?new=1"]'); // the wizard's Back, while it is being stored
+      await page.click('a.btn[href="#/advisor"]'); // the wizard's Back, while it is being stored
       await page.waitForTimeout(200);
       if (await page.locator('[data-draft="single"]', { hasText: 'Stored slowly' }).count()) throw new Error(`an experiment being created is offered back as a draft: "${await page.locator('[data-draft="single"]', { hasText: 'Stored slowly' }).innerText()}"`);
       await go('calendar');
@@ -4861,11 +4868,24 @@ export async function materialsEditComposition({ page, open }) {
     if (!asked.some((q) => /Change the recipe of composition #\d+[\s\S]*already made[\s\S]*Save as new composition/.test(q))) throw new Error(`no question before changing a used recipe: ${JSON.stringify(asked)}`);
     const edited = (await readCol(page, 'compositions')).find((c) => c.id === copy.id);
     if (edited.mol_pct.DMG0PEG2000 !== 3 || edited.history?.[0]?.mol_pct?.DMG0PEG2000 !== 2.5) throw new Error(`edited composition stored as ${JSON.stringify(edited)}`);
-    // Deleting a recipe a formulation uses is refused.
+    // Deleting a recipe a formulation uses is refused; the question offers to archive it instead (spec 9.5).
+    // Whichever way the question is answered (an earlier scenario may leave a handler that says yes), the
+    // composition stays in the store; archived, it is restored and its editor opened again.
+    const archived0 = await readCol(page, 'archive');
     await page.click(`#tabBody tr.mat-row[data-open="${copy.id}"]`);
     await page.click('[data-editor] [data-act=delete]');
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(150);
     if (!(await readCol(page, 'compositions')).some((c) => c.id === copy.id)) throw new Error('a used composition was deleted');
+    if (!(await page.locator('[data-editor]').count())) {
+      // Archived, it has left the registry; Restore in the Archived card brings it back to the list.
+      await page.click('#archivedCard > summary');
+      await page.click(`#archivedCard [data-unarchive="composition|${copy.id}"]`);
+      await page.waitForSelector(`#tabBody tr.mat-row[data-open="${copy.id}"]`, { timeout: 4000 });
+      await writeCol(page, 'archive', archived0);
+      // its "Archived … Undo" note goes too, or the next scenario's Undo would press this one
+      await page.evaluate(() => document.querySelectorAll('#toast > *').forEach((n) => n.remove()));
+      await page.click(`#tabBody tr.mat-row[data-open="${copy.id}"]`);
+    }
     // "Save as new" leaves the original as it was.
     await page.fill(`[data-editor] [name=c_p${iPeg}]`, '1');
     await page.fill(`[data-editor] [name=c_p${iChol}]`, '39');
@@ -5544,11 +5564,12 @@ export async function freezeThawLoggedAndCounted({ page, open }) {
 }
 
 /**
- * Deleting an RNA lot a formulation names: the question names the formulation, the formulation keeps the lot's
- * concentration and cargo (so its numbers stay) and shows the lot as deleted, and Undo brings the lot back.
+ * Deleting an RNA lot a formulation names (spec 9.5, 12.2): the question names the formulation and offers to
+ * archive it instead; archived, the lot stays in the store, leaves the RNA tab and the pickers, and the record
+ * goes on calculating with it; Undo, and Restore in the Archived card, bring it back to the lists.
  */
 export async function deleteReferencedRnaLot({ page, open }) {
-  const was = { rnaLots: await readCol(page, 'rnaLots'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), trash: await readCol(page, 'trash') };
+  const was = { rnaLots: await readCol(page, 'rnaLots'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), trash: await readCol(page, 'trash'), archive: await readCol(page, 'archive') };
   try {
     const built = await page.evaluate(async () => {
       const { buildExperiment } = await import('./app/calc/experiment.js');
@@ -5568,15 +5589,19 @@ export async function deleteReferencedRnaLot({ page, open }) {
     await page.click('[data-editor] [data-act=delete]');
     await page.waitForTimeout(250);
     const asked = await stopAnswering(page);
-    if (!asked.some((q) => q.includes(f) && /1\.50 mg\/mL/.test(q))) throw new Error(`the question should name ${f} and what it keeps: ${JSON.stringify(asked)}`);
-    if ((await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('the lot was not deleted');
+    if (!asked.some((q) => q.includes(f) && /1\.50 mg\/mL/.test(q) && /cannot be deleted[\s\S]*Archive it instead/.test(q))) throw new Error(`the question should name ${f}, say it cannot be deleted and offer to archive: ${JSON.stringify(asked)}`);
+    if (!(await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('a lot a formulation names left the store');
+    if ((await readCol(page, 'trash')).some((t) => JSON.stringify(t).includes('RNA-DEL-1'))) throw new Error('a lot a formulation names went to the trash');
+    if (!(await readCol(page, 'archive')).some((a) => a.id === 'rnaLot:RNA-DEL-1')) throw new Error('the lot was not archived');
+    if (await page.locator('#tabBody tr.mat-row[data-open="RNA-DEL-1"]').count()) throw new Error('the archived lot is still listed');
     const b = (await readCol(page, 'batches')).find((x) => x.id === f);
-    if (b.plan.rna.lotId !== 'RNA-DEL-1' || b.plan.rna.stock_mg_mL !== 1.5 || b.plan.rna.cargo !== 'mRNA') throw new Error(`the formulation should keep the lot's number and concentration, and its own cargo: ${JSON.stringify(b.plan.rna)}`);
+    if (b.plan.rna.lotId !== 'RNA-DEL-1' || b.plan.rna.stock_mg_mL != null) throw new Error(`the formulation should be left as it was: ${JSON.stringify(b.plan.rna)}`);
     await page.click('#toast button[data-toast-action="Undo"]');
     await page.waitForTimeout(200);
-    if (!(await readCol(page, 'rnaLots')).some((r) => r.id === 'RNA-DEL-1')) throw new Error('Undo did not bring the lot back');
+    if ((await readCol(page, 'archive')).some((a) => a.id === 'rnaLot:RNA-DEL-1')) throw new Error('Undo left the lot archived');
+    await expectText(page, '#tabBody', /RNA-DEL-1/, 'Undo lists it again');
 
-    // Deleted again (from Settings' restore list the same entry would come back): the record says so.
+    // Archived again: the record still reads the lot, and new experiments are no longer offered it.
     await page.click('#tabBody tr.mat-row[data-open="RNA-DEL-1"]');
     await answerYes(page);
     await page.click('[data-editor] [data-act=delete]');
@@ -5584,8 +5609,15 @@ export async function deleteReferencedRnaLot({ page, open }) {
     await stopAnswering(page);
     await open(`formulation?batch=${f}`);
     const label = await page.$eval('select[name=rna_lotId]', (s) => s.selectedOptions[0]?.textContent || '');
-    if (label !== 'RNA-DEL-1 (deleted)') throw new Error(`the record should name the deleted lot: "${label}"`);
+    if (!/^RNA-DEL-1 · siRNA · TTR · 1\.50 mg\/mL$/.test(label)) throw new Error(`the record should still name the archived lot as it is: "${label}"`);
     await expectText(page, '#atBench', /RNA stock to pipette[\s\S]*RNA-DEL-1 · 1\.5 mg\/mL/, 'and go on calculating with its concentration');
+    await open('experiments?new=1&type=single');
+    const offered = await page.$$eval('select[name=rnaLotId] option', (os) => os.map((o) => o.value));
+    if (offered.includes('RNA-DEL-1')) throw new Error('an archived RNA lot is still offered for a new experiment');
+    await open('materials?tab=rna');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="rnaLot|RNA-DEL-1"]');
+    await page.waitForSelector('#tabBody tr.mat-row[data-open="RNA-DEL-1"]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list the lot again'); });
   } finally {
     await stopAnswering(page).catch(() => {});
     for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
@@ -5608,7 +5640,9 @@ export async function bufferIonicStrengthAgrees({ page, open }) {
     await expectText(page, '#bufferResult', /what the meter reads/, 'the predicted pH says which scale it is');
     await page.click('#saveBuffer');
     await page.waitForFunction(() => /#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 4000 });
-    const lot = (await page.evaluate(() => location.hash)).split('=')[1];
+    // The address names the record (Buffer-NNN); the lot is offered by the name on the bottle, code-pH-date.
+    const recId = (await page.evaluate(() => location.hash)).split('=')[1];
+    const lot = (await readCol(page, 'buffers')).find((b) => b.id === recId)?.lot || recId;
 
     await open('experiments?new=1&type=single');
     const proc = Number(await page.inputValue('input[name=pr_aq_ionicStrength_mM]'));
@@ -5644,3 +5678,1128 @@ export async function feedbackOpensAnIssue({ page, open }) {
   if (!opened.length || new URL(opened[0]).searchParams.get('labels') !== 'enhancement') throw new Error('Settings › Feedback does not open an idea');
 }
 scenarios.push(feedbackOpensAnIssue);
+
+/**
+ * Spec 9.1: "Plan an experiment → Choose a design yourself" had no way back on screen. Every step of the
+ * wizard now shows a trail, and the Back arrow returns one step at a time, then up the trail once history ends.
+ */
+export async function backArrowWalksTheWizard({ page, open }) {
+  await open('advisor');
+  const steps = ['advisor?mode=wizard', 'advisor?mode=wizard&aim=trouble', 'designs'];
+  for (const s of steps) { await open(s); if (!(await page.$('#crumbs'))) throw new Error(`no breadcrumbs on #/${s}`); }
+  const trail = await page.locator('#crumbs').innerText();
+  if (!/Plan[\s\S]*Design catalogue/.test(trail)) throw new Error(`the trail on the design catalogue reads "${trail}"`);
+  for (const want of [steps[1], steps[0], 'advisor']) {
+    await page.click('#crumbBack');
+    await page.waitForFunction((w) => location.hash === '#/' + w, want, { timeout: 3000 }).catch(() => {});
+    const now = await page.evaluate(() => location.hash);
+    if (now !== '#/' + want) throw new Error(`Back went to ${now}, expected #/${want}`);
+  }
+  // Each step's trail links to the step above it, which is where Back goes once there is no history.
+  await open('advisor?mode=wizard&aim=trouble');
+  await page.waitForSelector('#crumbs a', { timeout: 3000 });
+  const crumb = await page.$$eval('#crumbs a', (as) => as.at(-1)?.getAttribute('href'));
+  if (crumb !== '#/advisor?mode=wizard') throw new Error(`the step above "Work out what went wrong" links to ${crumb}`);
+}
+scenarios.push(backArrowWalksTheWizard);
+
+/**
+ * Spec 9.5: a composition formulations read their recipe from cannot be deleted. Delete asks whether to archive
+ * it instead; archived, it leaves the new-experiment picker, shows under "Archived" on Materials, and Restore
+ * brings it back. The formulation keeps its recipe throughout.
+ */
+export async function archiveAComposition({ page, open }) {
+  const was = { compositions: await readCol(page, 'compositions'), batches: await readCol(page, 'batches'), archive: await readCol(page, 'archive') };
+  const accept = (d) => d.accept().catch(() => {}); // another scenario's handler may have accepted it already
+  page.on('dialog', accept);
+  try {
+    const id = Math.max(100, ...was.compositions.map((c) => Number(c.id) || 0)) + 1;
+    await writeCol(page, 'compositions', [...was.compositions, { id, synonym: 'Archive smoke', mol_pct: { MC3: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100 }]);
+    await writeCol(page, 'batches', [...was.batches, { id: 'E991-F1', experimentId: 'E991', compositionId: id, status: 'made', plan: {} }]);
+    await open('materials?tab=compositions');
+    await page.click(`#tabBody tr.mat-row[data-open="${id}"]`);
+    await page.click('[data-editor] [data-act=delete]');
+    await page.waitForFunction((i) => [...document.querySelectorAll('#archivedCard [data-unarchive]')].some((b) => b.dataset.unarchive === `composition|${i}`), id, { timeout: 4000 })
+      .catch(() => { throw new Error(`composition #${id} was not archived`); });
+    if (!(await readCol(page, 'compositions')).some((c) => c.id === id)) throw new Error('the archived composition left the store');
+    await open('experiments?new=1');
+    const offered = await page.$$eval('select[name=compositionId] option', (os) => os.map((o) => o.value));
+    if (offered.includes(String(id))) throw new Error(`archived composition #${id} is still offered for a new experiment`);
+    await open('materials?tab=compositions');
+    await page.click('#archivedCard > summary');
+    await page.click(`#archivedCard [data-unarchive="composition|${id}"]`);
+    // Other records may be archived too (the card then stays); this one's Restore button goes.
+    await page.waitForFunction((i) => !document.querySelector(`#archivedCard [data-unarchive="composition|${i}"]`), id, { timeout: 4000 })
+      .catch(() => { throw new Error('Restore left it archived'); });
+  } finally {
+    page.off('dialog', accept);
+    await writeCol(page, 'compositions', was.compositions);
+    await writeCol(page, 'batches', was.batches);
+    await writeCol(page, 'archive', was.archive);
+  }
+}
+scenarios.push(archiveAComposition);
+
+/**
+ * Spec 4.1: a formulation records what 0.15 does not already know on its "Process conditions" card; what the
+ * process designer, the RNA lot and the composition say is shown there, not asked again. A value out of range
+ * is kept and warned about.
+ */
+export async function processConditionsAreRecorded({ page, open }) {
+  const batch = (await readCol(page, 'batches')).find((b) => b.plan && b.compositionId != null);
+  if (!batch) throw new Error('the earlier scenarios should have left a formulation');
+  await open(`formulation?batch=${batch.id}`);
+  await page.click('#conditionsCard > summary');
+  await page.selectOption('select[name=cond_cryoprotectant]', 'Sucrose');
+  await page.fill('input[name=cond_ethanolPct]', '150');
+  await page.press('input[name=cond_ethanolPct]', 'Tab');
+  await page.waitForFunction(() => /above 100/.test(document.querySelector('#conditionsCard')?.innerText || ''), null, { timeout: 3000 })
+    .catch(() => { throw new Error('an ethanol share of 150 % was not warned about'); });
+  if (!(await page.$('#conditionsCard[open]'))) throw new Error('the card folded on redraw');
+  await expectText(page, '#conditionsCard', /Ionizable lipid[\s\S]*from the composition/, 'the lipid is read from the composition');
+  await page.waitForTimeout(400);
+  const c = (await readCol(page, 'batches')).find((b) => b.id === batch.id)?.plan?.conditions || {};
+  if (c.cryoprotectant !== 'Sucrose' || c.ethanolPct !== 150) throw new Error(`stored conditions: ${JSON.stringify(c)}`);
+  if ((await readCol(page, 'batches')).find((b) => b.id === batch.id)?.plan?.process?.cryoprotectant) throw new Error('a condition was written into the process designer\'s record');
+}
+scenarios.push(processConditionsAreRecorded);
+
+/**
+ * Spec 5: the data overview. A facet click filters and goes into the URL, Back undoes it, the counts stay
+ * shop-style, a bar sets a filter, a saved view appears in the sidebar, and the selection reaches the optimizer.
+ */
+export async function dataOverviewFilters({ page, open }) {
+  await open('data');
+  const total = Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  if (!(total > 0)) throw new Error('the data overview lists no formulations');
+  const first = page.locator('#facets .facet[data-key="ionizable"] .fval').first();
+  if (!(await first.count())) throw new Error('no ionizable lipid facet');
+  const want = Number((await first.locator('.n').innerText()).replace(/\D/g, ''));
+  await first.click();
+  await page.waitForFunction(() => /ionizable=/.test(location.hash), null, { timeout: 3000 });
+  const n = Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  if (n !== want) throw new Error(`the facet said (${want}), the selection holds ${n}`);
+  if (!(await page.$('#vbody tr[data-open]'))) throw new Error('the table is empty');
+  await page.goBack();
+  await page.waitForFunction(() => !/ionizable=/.test(location.hash), null, { timeout: 3000 });
+  // a completeness row lists the formulations that lack the field
+  await page.locator('.hbar.comp').first().click();
+  await page.waitForFunction(() => /missing=/.test(location.hash), null, { timeout: 3000 });
+  // a saved view lands in the sidebar
+  await open('data?mixerType=T-junction');
+  await page.click('#saveView');
+  await page.fill('#viewName', 'Smoke view');
+  await page.click('#viewNameOk');
+  await page.waitForFunction(() => [...document.querySelectorAll('#nav a.sub')].some((a) => /Smoke view/.test(a.textContent)), null, { timeout: 3000 })
+    .catch(() => { throw new Error('the saved view is not in the sidebar'); });
+  // and the selection goes to the optimizer as its data basis
+  await open('data');
+  await page.click('#toMl');
+  await page.waitForSelector('#mlSelection', { timeout: 5000 });
+  const note = await page.locator('#mlSelection').innerText();
+  if (!/formulations?/.test(note)) throw new Error(`the optimizer says: ${note}`);
+}
+scenarios.push(dataOverviewFilters);
+
+/**
+ * Spec 9.3: with "Enter results as a grid" on, an experiment's formulations are rows to type into. Replicates in
+ * one cell, a block pasted out of Excel, a PDI no measurement can have (red, kept in the grid) and an EE below
+ * the QC limit (orange, stored); one Save all, the values stored as an imported DLS result stores them, then Undo.
+ * The import preview draws its cells the same way.
+ */
+export async function resultsGridWithReplicatesPasteAndUndo({ page, open }) {
+  const was = await readCol(page, 'settings');
+  await writeCol(page, 'settings', [...was.filter((s) => s.id !== 'default'), { ...(was.find((s) => s.id === 'default') || { id: 'default' }), entryGrid: true }]);
+  try {
+    await open('experiments?new=1&type=reference');
+    await page.fill('input[name=name]', 'Grid entry smoke');
+    await page.fill('input[name=ref_n]', '3'); await page.dispatchEvent('input[name=ref_n]', 'change');
+    await page.click('#createExp'); await page.waitForTimeout(300);
+    const exp = (await readCol(page, 'experiments')).find((e) => e.name === 'Grid entry smoke');
+    if (!exp || exp.batchIds.length !== 3) throw new Error('the reference experiment for the grid was not created');
+    await open(`measurements?egexp=${exp.id}`);
+    await page.waitForSelector('#entryGrid input.ecell', { timeout: 5000 });
+    const rows = await page.$$eval('#entryGrid tbody tr', (tr) => tr.map((r) => r.dataset.key));
+    if (rows.join() !== exp.batchIds.join()) throw new Error(`the grid's rows are ${rows}, not the formulations ${exp.batchIds}`);
+    const cell = (row, col) => page.locator(`#entryGrid input.ecell[data-row="${row}"][data-colid="${col}"]`);
+    // Three replicates with decimal commas; the mean and SD appear under the cell as it is typed.
+    await cell(0, 'zave').fill('82; 85; 80');
+    await cell(0, 'pdi').fill('0,10; 0,12; 0,11');
+    const sum = await cell(0, 'zave').evaluate((el) => el.nextElementSibling.textContent);
+    if (sum !== '82.3 ± 2.5 (n = 3)') throw new Error(`under the replicates: "${sum}"`);
+    // Enter goes down the column.
+    await cell(0, 'zave').focus(); await page.keyboard.press('Enter');
+    if (!(await cell(1, 'zave').evaluate((el) => el === document.activeElement))) throw new Error('Enter did not go down the column');
+    // A block out of Excel, pasted into row 2's Z-ave: two lines of Z-ave, PDI and EE.
+    await cell(1, 'zave').evaluate((el, text) => {
+      const dt = new DataTransfer(); dt.setData('text/plain', text);
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, '90\t0.15\t95\r\n91\t1.4\t70\r\n');
+    if (await cell(2, 'ee').inputValue() !== '70') throw new Error('the pasted block did not reach the last cell');
+    if (!(await cell(2, 'pdi').evaluate((el) => el.classList.contains('egBad')))) throw new Error('a PDI of 1.4 is not marked red');
+    if (!(await cell(2, 'ee').evaluate((el) => el.classList.contains('egWarn')))) throw new Error('an EE of 70 % under the QC limit is not marked orange');
+    if (await cell(1, 'pdi').evaluate((el) => el.classList.contains('egWarn') || el.classList.contains('egBad'))) throw new Error('a plausible PDI is marked');
+    const before = (await readCol(page, 'measurements')).length;
+    await page.click('#egSave');
+    await page.waitForSelector('#egSaved', { timeout: 5000 });
+    const ms = (await readCol(page, 'measurements')).filter((m) => exp.batchIds.includes(m.batchId));
+    const dls0 = ms.find((m) => m.batchId === exp.batchIds[0] && m.test === 'dls');
+    if (!dls0 || dls0.values.runs?.length !== 3 || Math.abs(dls0.values.zave_nm - 82.333) > 0.01 || Math.abs(dls0.values.zave_sd - 2.517) > 0.01 || Math.abs(dls0.values.pdi - 0.11) > 1e-6) throw new Error(`the replicates were stored as ${JSON.stringify(dls0?.values)}`);
+    if (ms.length !== 4) throw new Error(`expected 4 results (two DLS, two EE), found ${ms.length}: ${ms.map((m) => m.batchId + ' ' + m.test).join(', ')}`);
+    if (ms.some((m) => m.batchId === exp.batchIds[2] && m.test === 'dls')) throw new Error('the DLS result with a PDI of 1.4 was stored');
+    if (!ms.find((m) => m.batchId === exp.batchIds[2] && m.test === 'ee')?.flags?.length) throw new Error('the EE of 70 % was not stored with its QC flag');
+    const slots = (await readCol(page, 'experiments')).find((e) => e.id === exp.id).expected;
+    if (slots.filter((s) => s.status === 'done').length !== 4) throw new Error('the saved results did not close their slots');
+    if (await cell(2, 'pdi').inputValue() !== '1.4') throw new Error('the refused PDI left the grid');
+    if (await cell(0, 'zave').inputValue() !== '') throw new Error('a saved cell was kept');
+    // Undo takes the whole save back.
+    await page.click('#egUndo');
+    await page.waitForFunction(async (n) => (await window.lnpDb.read('measurements')).length === n, before, { timeout: 5000 })
+      .catch(() => { throw new Error('Undo left the results stored'); });
+    const reopened = (await readCol(page, 'experiments')).find((e) => e.id === exp.id).expected;
+    if (reopened.some((s) => s.status !== 'open')) throw new Error('Undo did not reopen the slots');
+    // The import preview, with the grid on, draws its numbers as the grid does.
+    await page.click('#pasteFold > summary');
+    await page.fill('#pasteBox', `Sample Name,Z-Average (d.nm),PdI\n${exp.batchIds[0]}_final,82.4,0.08\n${exp.batchIds[0]}_final,84.0,0.09`);
+    await page.click('#pasteGo');
+    await page.waitForSelector('#importPreview table.egrid .ecell', { timeout: 5000 });
+    await expectText(page, '#importPreview', /82\.4; 84[\s\S]*83\.2 ± 1\.1 \(n = 2\)/, 'the preview shows the runs and their mean as the grid does');
+  } finally {
+    await writeCol(page, 'settings', was);
+  }
+}
+scenarios.push(resultsGridWithReplicatesPasteAndUndo);
+
+/**
+ * Spec 9.4: with the troubleshooting assistant on, "Work out what went wrong" reads a formulation's context,
+ * weighs the causes by it (an FRR of 2:1 first for a high PDI, too little PEG ruled out at 3 mol%), plans small
+ * experiments, and hands one to the experiment wizard filled in. Every step is in the address: Back after each
+ * returns to the step before, the context as it was sent.
+ */
+export async function troubleshooterThreeSteps({ page, open }) {
+  const was = await readCol(page, 'settings');
+  await writeCol(page, 'settings', [...was.filter((s) => s.id !== 'default'), { ...(was.find((s) => s.id === 'default') || { id: 'default' }), troubleAssistant: true }]);
+  const back = async (want, label) => {
+    await page.click('#crumbBack');
+    await page.waitForFunction((w) => w.test(location.hash), want, { timeout: 3000 })
+      .catch(async () => { throw new Error(`${label}: Back went to ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150);
+  };
+  try {
+    await open('experiments?new=1&type=single');
+    await page.fill('input[name=name]', 'Troubleshoot smoke');
+    await page.click('#createExp'); await page.waitForTimeout(300);
+    const exp = (await readCol(page, 'experiments')).find((e) => e.name === 'Troubleshoot smoke');
+    const id = exp.batchIds[0];
+    const batches = await readCol(page, 'batches');
+    const b = batches.find((x) => x.id === id);
+    b.plan.mixing.frr = 2; b.plan.mixing.totalFlow = 60;
+    // The process designer's record (calc/process.js): a T-mixer, citrate at pH 4 as the loading buffer.
+    b.plan.process = { ...(b.plan.process || {}), mixerId: 't-mixer', aqueous: { ...(b.plan.process?.aqueous || {}), buffer: 'Citrate 25 mM, pH 4.0', pH: 4, mM: 25 } };
+    await writeCol(page, 'batches', batches);
+
+    // Step 1: the context, read off the formulation and editable.
+    await open('advisor?mode=wizard&aim=trouble');
+    await page.selectOption('#tsBatch', id);
+    await page.waitForFunction(() => /batch=/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('#ts_frr', { timeout: 3000 });
+    if (await page.inputValue('#ts_frr') !== '2') throw new Error(`the FRR was not read off ${id}: "${await page.inputValue('#ts_frr')}"`);
+    if (await page.inputValue('#ts_mixer') !== 'T-mixer') throw new Error(`the mixer type was not read off the formulation: "${await page.inputValue('#ts_mixer')}"`);
+    await page.fill('#ts_peg', '3');
+    await page.check('input[name=ts_symptom][value=pdi]');
+    await page.click('#tsDiagnose');
+    await page.waitForFunction(() => /step=diagnose/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('.tsCause', { timeout: 3000 });
+
+    // Step 2: the diagnosis, the ratio first with its reason, too little PEG ruled out.
+    const first = await page.$eval('.tsCause', (c) => c.dataset.cause);
+    if (first !== 'frr') throw new Error(`the first cause for a high PDI at FRR 2:1 is ${first}`);
+    await expectText(page, '.tsCause[data-cause="frr"]', /FRR 2:1 is below the usual 3:1, which fits a high PDI/, 'the reason the ratio moved up');
+    if (!(await page.$('.tsCause.tsOut[data-cause="peg"]'))) throw new Error('too little PEG is not ruled out at 3 mol%');
+    await expectText(page, '.tsCause.tsOut[data-cause="peg"]', /PEG 3 mol% is already high/, 'and says why');
+    await expectText(page, '#crumbs', /Context[\s\S]*Diagnosis/, 'the trail names the steps');
+    await back(/aim=trouble(?![\s\S]*step=)/, 'Back from the diagnosis');
+    if (await page.inputValue('#ts_peg') !== '3') throw new Error('Back to the context lost the PEG that was typed');
+    if (!(await page.isChecked('input[name=ts_symptom][value=pdi]'))) throw new Error('Back to the context lost the symptom');
+    await page.click('#tsDiagnose');
+    await page.waitForFunction(() => /step=diagnose/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('#tsToPlan', { timeout: 3000 });
+
+    // Step 3: the plan. The ratio at three levels beside 2:1, with a button into the wizard.
+    await page.click('#tsToPlan');
+    await page.waitForFunction(() => /step=plan/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('.tsPlan[data-plan="ofat:frr"]', { timeout: 3000 });
+    await expectText(page, '.tsPlan[data-plan="ofat:frr"]', /FRR at 3 levels, with 2:1 as control/, 'the plan for the ratio');
+    await back(/step=diagnose/, 'Back from the plan');
+    await page.waitForSelector('#tsToPlan', { timeout: 3000 });
+    await page.click('#tsToPlan');
+    await page.waitForSelector('.tsPlan[data-plan="ofat:frr"] a[data-create]', { timeout: 3000 });
+    await page.click('.tsPlan[data-plan="ofat:frr"] a[data-create]');
+    await page.waitForFunction(() => /#\/experiments\?new=1&type=ofat/.test(location.hash), null, { timeout: 3000 });
+    await page.waitForSelector('select[name=ofat_factor]', { timeout: 3000 });
+    if (await page.inputValue('select[name=ofat_factor]') !== 'frr') throw new Error('the wizard did not open on the ratio');
+    if (await page.inputValue('input[name=ofat_levelsText]') !== '2, 3, 4, 5') throw new Error(`the wizard's levels: ${await page.inputValue('input[name=ofat_levelsText]')}`);
+    await back(/step=plan/, 'Back from the wizard');
+  } finally {
+    await writeCol(page, 'settings', was);
+  }
+}
+scenarios.push(troubleshooterThreeSteps);
+
+/**
+ * Spec 6.5 and 10: an import of tables comes into the app with its refused rows, Quarantine appears in the
+ * sidebar, a row fixed there and checked again joins its import, Settings › Imports undoes the import whole into
+ * the trash, and in a personal build the Insights screen shows Claude's report and says when it is out of date.
+ * The import file is the one scripts/import-tidy.mjs makes, the same format the MCP server writes for the
+ * browser version.
+ */
+export async function claudeImportAndQuarantine({ page, open }) {
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const accept = (d) => d.accept().catch(() => {});
+  page.on('dialog', accept);
+  try {
+    await open('settings');
+    if (!(await page.$('#claudeCard'))) throw new Error('Settings has no Claude card');
+    if (await page.$('#privacyNote')) throw new Error('the privacy note shows with both modules off');
+    const out = mkdtempSync(join(tmpdir(), 'lnp-scn-'));
+    execFileSync(process.execPath, ['scripts/import-tidy.mjs', 'docs/historical-example', '--first', '900', '--out', out], { stdio: 'pipe' });
+    // The example folder also holds a study (studies.csv, bioMeasurements.csv) with two planted mistakes of its
+    // own: five rows wait in quarantine, three of the physicochemistry and two of the study.
+    const file = readFileSync(join(out, 'import.json'));
+    const importId = JSON.parse(file).importId;
+    await page.setInputFiles('#importFile', { name: 'import.json', mimeType: 'application/json', buffer: file });
+    await page.waitForSelector('#importsCard', { timeout: 5000 }).catch(() => { throw new Error('the imports card did not appear after the import'); });
+    await expectText(page, '#importsCard', new RegExp(`${importId}[\\s\\S]*5 formulations, 7 results[\\s\\S]*5 open`), 'the import is listed with what it brought');
+    await open('overview');
+    if (!(await page.$('#nav a[href="#/quarantine"]'))) throw new Error('Quarantine is not in the sidebar while rows wait there');
+
+    await open('quarantine');
+    await expectText(page, '#quarantineSay', /5 rows an import refused/, 'the quarantine list');
+    await page.locator('#main tr', { hasText: 'Lipid-X' }).locator('a', { hasText: 'Open' }).click();
+    await page.waitForSelector('#qCheck');
+    await page.fill('[name=qf_ionizable_lipid]', 'DLin-MC3-DMA');
+    await page.click('#qCheck');
+    await page.waitForFunction(() => /4 rows an import refused/.test(document.querySelector('#quarantineSay')?.innerText || ''), null, { timeout: 3000 })
+      .catch(() => { throw new Error('the fixed row is still listed'); });
+    const fixed = (await readCol(page, 'batches')).find((b) => b.provenance?.fixedFrom);
+    if (!fixed || fixed.provenance.importId !== importId || fixed.experimentId !== 'E901') throw new Error(`the fixed formulation: ${JSON.stringify(fixed?.provenance)} in ${fixed?.experimentId}`);
+
+    await open('settings');
+    await page.click(`[data-undo-import="${importId}"]`);
+    await page.waitForFunction((id) => /in the trash/.test(document.querySelector(`#importsCard tr[data-import="${id}"]`)?.innerText || ''), importId, { timeout: 3000 })
+      .catch(() => { throw new Error('the import is not shown as in the trash'); });
+    const left = (await readCol(page, 'batches')).filter((b) => b.provenance?.importId === importId);
+    if (left.length) throw new Error(`${left.length} formulations of the undone import are still in the lab`);
+    if (!(await readCol(page, 'trash')).some((t) => t.kind === 'import' && t.records.some((r) => r.rec?.id === fixed.id))) throw new Error('the fixed row did not go to the trash with its import');
+    await expectText(page, '#trashCard', new RegExp(`import ${importId}`), 'Recently deleted lists the import');
+
+    // Claude insights: offered only by a personal build (here the developer switch), and with the notice first.
+    await open('overview');
+    await open('settings');
+    if (await page.$('[data-module=personalBuild]')) throw new Error('Claude insights is offered outside a personal build');
+    await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+    await open('overview');
+    await open('settings');
+    await page.check('[data-module=personalBuild]');
+    await page.waitForSelector('#privacyNote', { timeout: 3000 });
+    await expectText(page, '#privacyNote', /sent to Anthropic[\s\S]*sends nothing over the network/, 'the privacy note');
+    // A report written when the lab had as many formulations as now is current; 21 more make it out of date.
+    const batches = await readCol(page, 'batches');
+    await writeCol(page, 'insightReports', [{ id: 'report-smoke', createdAt: '2026-10-01T10:00:00.000Z', title: 'Smoke report', dataState: { formulations: batches.length, lastDate: '2026-09-30' },
+      findings: [{ text: 'Higher FRR, smaller particles', analysis: 'correlation', formulationIds: batches.slice(0, 2).map((b) => b.id), value: 'r −0.9' }] }]);
+    await open('insights');
+    await expectText(page, '#claudeReport', /Smoke report[\s\S]*Higher FRR, smaller particles/, 'the report on Insights');
+    if (await page.$('#claudeReportStale')) throw new Error('a current report is called out of date');
+    await writeCol(page, 'batches', [...batches, ...Array.from({ length: 21 }, (_, i) => ({ id: `E999-F${i + 1}`, experimentId: 'E999', plannedDate: '2026-10-01', status: 'measured', plan: {} }))]);
+    await open('overview');
+    await open('insights');
+    await expectText(page, '#claudeReportStale', /Report out of date, regenerate it in Claude\. 21 formulations/, 'the stale report');
+    await writeCol(page, 'batches', batches);
+    await writeCol(page, 'insightReports', []);
+  } finally {
+    page.off('dialog', accept);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(claudeImportAndQuarantine);
+
+/**
+ * Spec 7.4, 7.5, 4.2: the optimizer's "Data and model" panel. Open before a fit, asking which lipid and mixer
+ * (the one with most data preselected); freeing a factor updates "about 5 × k runs" live; after a fit its line
+ * names the mode, the data and the fingerprint, and Reproduce makes the run again and says it matches.
+ */
+export async function optimizerTransparency({ page, open }) {
+  await open('overview'); // a fresh visit, not the fitted screen an earlier scenario left
+  await open('ml');
+  if (!(await page.$('#mlPanel[open]'))) throw new Error('the panel should be open before a fit');
+  if (!(await page.$('#selCombo'))) throw new Error('no lipid and mixer choice');
+  await expectText(page, '#mlPanel', /Data\s+\d+ of \d+ formulations/, 'the data line');
+  const before = await page.locator('#spaceNeed').innerText();
+  // a click, not check(): the change redraws the card, so the box clicked is not the one that ends up checked
+  const key = await page.locator('input[name^="s_on_"]:not(:checked)').first().getAttribute('name');
+  await page.click(`input[name="${key}"]`);
+  await page.waitForFunction((b) => document.querySelector('#spaceNeed')?.innerText !== b, before, { timeout: 3000 })
+    .catch(() => { throw new Error(`freeing a factor did not update "${before}"`); });
+  await expectText(page, '#spaceNeed', /With \d+ free factors?, about \d+ runs are needed/, 'runs needed, live');
+  await page.click(`input[name="${key}"]`);
+  await page.waitForTimeout(300);
+  await page.click('#runBtn');
+  await page.waitForSelector('#mlLede', { timeout: 60000 });
+  await expectText(page, '#mlPanel > summary', /mode · \d+ of \d+ formulations · fingerprint [0-9a-f]{12}/, 'the panel line after a fit');
+  await page.click('#mlPanel > summary');
+  await page.click('#reproduceNow');
+  await page.waitForFunction(() => /Reproduced|Not reproduced/.test(document.querySelector('#reproduceOut')?.innerText || ''), null, { timeout: 60000 });
+  await expectText(page, '#reproduceOut', /^Reproduced/, 'the run comes out the same');
+  await page.click('#whyFold > summary');
+  await page.waitForSelector('#whyBody table', { timeout: 3000 }).catch(() => { throw new Error('the list is drawn when the fold opens'); });
+  await expectText(page, '#whyFold', /In the model[\s\S]*Reason/, 'a reason per formulation');
+}
+scenarios.push(optimizerTransparency);
+
+/**
+ * Spec 8: the biological layers. Off, nothing shows; switched on, Studies joins the sidebar and the layers get
+ * their tabs. A study is set up with a reference and a test formulation, values are typed into its grid and
+ * evaluated against the reference, the formulation's layer tab shows them, an IVIS folder (the CC0 fixture) is
+ * analysed, assigned and saved, and the animal study sits locked in the design catalogue with its notice.
+ */
+export async function biologicalLayers({ page, open }) {
+  const batches = (await readCol(page, 'batches')).filter((b) => b.plan);
+  if (batches.length < 2) throw new Error('the earlier scenarios should have left two formulations');
+  const [refB, testB] = batches;
+  await open(`formulation?batch=${refB.id}`);
+  if (await page.$('.layerTabs')) throw new Error('layer tabs show with every layer off');
+  if (await page.$('#nav a[href="#/studies"]')) throw new Error('Studies is in the sidebar with every layer off');
+  await open('settings');
+  await page.check('input[name=bio_invivo]');
+  await page.check('input[name=bio_biodist]');
+  await page.waitForSelector('#nav a[href="#/studies"]', { timeout: 5000 }).catch(() => { throw new Error('Studies did not join the sidebar'); });
+  // a new study, its plan
+  await open('studies?new=1');
+  await page.fill('#newForm input[name=name]', 'Smoke liver screen');
+  await page.click('#createStudy');
+  await page.waitForSelector('#planForm', { timeout: 5000 });
+  const study = (await readCol(page, 'studies')).find((s) => s.name === 'Smoke liver screen');
+  if (!study) throw new Error('the study was not stored');
+  const rows = page.locator('#groupTable tbody tr');
+  await rows.nth(0).locator('[name=g_batch]').fill(refB.id);
+  await rows.nth(1).locator('[name=g_batch]').fill(testB.id);
+  await page.fill('#planForm input[name=licence]', 'Smoke-123');
+  await page.press('#planForm input[name=licence]', 'Tab');
+  await page.waitForFunction(([id, b]) => window.lnpDb.read('studies').then((ss) => ss.find((s) => s.id === id)?.groups?.[1]?.batchId === b), [study.id, testB.id], { timeout: 5000 })
+    .catch(() => { throw new Error('the plan was not stored'); });
+  // typed values: the reference at about 1000, the candidate about ten times higher
+  await open(`studies?id=${study.id}&part=enter&layer=invivo`);
+  const vals = [900, 1100, 1000, 950, 1050, 9000, 11000, 10000, 12000, 8000];
+  const boxes = page.locator('#enterGrid [name=e_value]');
+  for (let i = 0; i < vals.length; i++) await boxes.nth(i).fill(String(vals[i]));
+  await page.click('#saveValues');
+  await page.waitForFunction((id) => window.lnpDb.read('bioMeasurements').then((ms) => ms.filter((m) => m.studyId === id).length === 10), study.id, { timeout: 5000 })
+    .catch(() => { throw new Error('the ten values were not stored'); });
+  await open(`studies?id=${study.id}&part=results`);
+  await expectText(page, '#partBody', /fold over reference[\s\S]*Group 2: (9|10)[\d.]*-fold over reference \(95 % CI [\d.]+–[\d.]+\), n = 5 vs 5, p \(Holm\)/, 'the candidate against the reference, with its effect size');
+  if (!(await page.$('#partBody svg'))) throw new Error('no fold chart');
+  // the formulation's layer tab shows the study
+  await open(`formulation?batch=${testB.id}`);
+  await page.click('.layerTabs a[data-layer-tab="invivo"]');
+  await page.waitForSelector('.layerTabs a.primary[data-layer-tab="invivo"]', { timeout: 5000 });
+  await expectText(page, '#main', new RegExp(`${study.id}[\\s\\S]*fold over reference`), 'the in vivo tab of the formulation');
+  // an IVIS folder: three mice found, assigned and saved
+  await open(`studies?id=${study.id}&part=ivis`);
+  const dir = new URL('./fixtures/ivis/BMD20230209123405/', import.meta.url).pathname;
+  await page.setInputFiles('#bliFiles', ['AnalyzedClickInfo.txt', 'ClickInfo.txt', 'luminescent.TIF', 'photograph.TIF', 'readbias.TIF', 'background.TIF'].map((f) => dir + f));
+  await page.waitForSelector('.bliItem canvas', { timeout: 20000 }).catch(() => { throw new Error('the IVIS folder was not analysed'); });
+  const mice = page.locator('.bliItem tr[data-mouse]');
+  if ((await mice.count()) !== 3) throw new Error(`found ${await mice.count()} mice, expected 3`);
+  await expectText(page, '.bliItem', /BMD20230209123405/, 'the acquisition, named by its click number');
+  const ids = await page.$$eval('.bliItem input[data-f=subject]', (xs) => xs.map((x) => x.value));
+  if (ids.join(' ') !== '579G 580G 581G') throw new Error(`animals suggested: ${ids.join(' ')}`);
+  for (let i = 0; i < 3; i++) await mice.nth(i).locator('select[data-f=group]').selectOption(i < 2 ? 'G1' : 'G2');
+  await page.click('.bliItem [data-bli-save]');
+  await page.waitForFunction((id) => window.lnpDb.read('bliImages').then((bs) => bs.some((b) => b.studyId === id && b.mice.length === 3 && b.algorithm?.version)), study.id, { timeout: 5000 })
+    .catch(() => { throw new Error('the image record was not stored'); });
+  const ms = (await readCol(page, 'bioMeasurements')).filter((m) => m.studyId === study.id && m.imageId);
+  if (ms.length !== 6 || !ms.every((m) => m.file?.sha256)) throw new Error(`stored ${ms.length} values from the image`);
+  // the animal study: locked, its notice a placeholder
+  await open('designs');
+  if (!(await page.$('#animalStudyCard'))) throw new Error('no animal study module with an in-vivo layer on');
+  if (!(await page.isDisabled('#animalPlan'))) throw new Error('"Create plan" is not disabled');
+  await page.click('#animalStudy');
+  await expectText(page, '#welfareNotice', /placeholder[\s\S]*3R principle[\s\S]*Licence obligation/i, 'the welfare notice');
+  // and off again: nothing of it shows
+  await open('settings');
+  await page.uncheck('input[name=bio_invivo]');
+  await page.uncheck('input[name=bio_biodist]');
+  await page.waitForFunction(() => !document.querySelector('#nav a[href="#/studies"]'), null, { timeout: 5000 }).catch(() => { throw new Error('Studies stayed in the sidebar'); });
+  await open('designs');
+  if (await page.$('#animalStudyCard')) throw new Error('the animal study shows with every layer off');
+}
+scenarios.push(biologicalLayers);
+
+// ---- Spec 9.5 / 12.2, 9.2, 4.3, 4.4: nothing referenced is hard-deleted; buffer lots; provenance; before updates ----
+
+/** A small experiment built the way the wizard builds one, for the scenarios below. */
+const builtExperiment = (page, experimentId, extra = {}) => page.evaluate(async ([id, x]) => {
+  const { buildExperiment } = await import('./app/calc/experiment.js');
+  const { DEFAULT_SETTINGS } = await import('./app/refdata.js');
+  return buildExperiment({ type: 'single', name: `check ${id}`, startDate: '2026-10-17', compositionId: 1, tests: ['dls'], ...x }, { settings: DEFAULT_SETTINGS, experimentId: id, takenFormulations: [] });
+}, [experimentId, extra]);
+
+/**
+ * Every kind of component asks calc/usage.js where it is used: an instrument of one's own a record names is
+ * archived, not deleted, and leaves the process designer's picker; a shipped lipid and a shipped filter can be
+ * archived per lab; the Archived card restores each.
+ */
+export async function componentsArchivedWhenUsed({ page, open }) {
+  const was = { devices: await readCol(page, 'devices'), batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), archive: await readCol(page, 'archive'), trash: await readCol(page, 'trash') };
+  try {
+    const built = await builtExperiment(page, 'E993');
+    const f = built.batches[0];
+    f.plan.process = { ...(f.plan.process || {}), deviceId: 'arch-rig', mixerId: 't-mixer' };
+    await writeCol(page, 'devices', [...was.devices, { id: 'arch-rig', name: 'Archive rig', pumps: 2, quench: 'optional', mixers: ['t-mixer'] }]);
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+
+    await open('materials?tab=devices');
+    await page.click('#instrumentList tr.mat-row[data-open="arch-rig"]');
+    await expectText(page, '[data-editor]', new RegExp(`Used by 1 formulation record \\(${f.id}\\)`), 'the editor says which record uses it');
+    await answerYes(page);
+    await page.click('[data-editor] [data-act=delete]');
+    await page.waitForTimeout(250);
+    const asked = await stopAnswering(page);
+    if (!asked.some((q) => q.includes(f.id) && /cannot be deleted[\s\S]*Archive it instead/.test(q))) throw new Error(`the question should name ${f.id} and offer to archive: ${JSON.stringify(asked)}`);
+    if (!(await readCol(page, 'devices')).some((d) => d.id === 'arch-rig')) throw new Error('an instrument a record names left the store');
+    if ((await readCol(page, 'trash')).some((t) => JSON.stringify(t).includes('arch-rig'))) throw new Error('an instrument a record names went to the trash');
+    if (await page.locator('#instrumentList tr.mat-row[data-open="arch-rig"]').count()) throw new Error('the archived instrument is still listed');
+    await open('experiments?new=1&type=single');
+    const offered = await page.$$eval('select[name=pr_deviceId] option', (os) => os.map((o) => o.value));
+    if (!offered.length) throw new Error('no instrument picker in the process designer');
+    if (offered.includes('arch-rig')) throw new Error('the archived instrument is still offered for a new experiment');
+    await open(`formulation?batch=${f.id}`);
+    const kept = await page.$$eval('select[name=pr_deviceId] option:checked', (os) => os.map((o) => o.value));
+    if (kept.length && kept[0] !== 'arch-rig') throw new Error(`the record that names it lost it: ${kept}`);
+    await open('materials?tab=devices');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="device|arch-rig"]');
+    await page.waitForSelector('#instrumentList tr.mat-row[data-open="arch-rig"]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list the instrument again'); });
+
+    // A shipped lipid: never deleted, but archivable; the question says where it is used.
+    await open('materials?tab=lipids');
+    await answerYes(page);
+    await page.click('#tabBody button[data-act=archlipid][data-key=DSPC]');
+    await page.waitForTimeout(250);
+    const askedLipid = await stopAnswering(page);
+    if (!askedLipid.some((q) => /DSPC[\s\S]*is used by #\d+[\s\S]*not deleted\. Archive it\?/.test(q))) throw new Error(`archiving a shipped lipid should say where it is used: ${JSON.stringify(askedLipid)}`);
+    if (await page.locator('#tabBody tr[data-key=DSPC]').count()) throw new Error('the archived lipid is still listed');
+    await page.click('#archivedCard > summary');
+    await page.click('#archivedCard [data-unarchive="lipid|DSPC"]');
+    await page.waitForSelector('#tabBody tr[data-key=DSPC]', { timeout: 4000 }).catch(() => { throw new Error('Restore did not list DSPC again'); });
+
+    // A shipped filter, archived, leaves the formulation record's filter menus.
+    await open('materials?tab=consumables');
+    const filter = await page.getAttribute('#tabBody [data-act=archfilter] >> nth=1', 'data-id');
+    await answerYes(page);
+    await page.click(`#tabBody [data-act=archfilter][data-id="${filter}"]`);
+    await page.waitForTimeout(250);
+    await stopAnswering(page);
+    if (!(await readCol(page, 'archive')).some((a) => a.id === `filter:${filter}`)) throw new Error('the filter was not archived');
+    if (await page.locator(`#tabBody tr[data-filter="${filter}"]`).count()) throw new Error('the archived filter is still listed');
+    await open(`formulation?batch=${f.id}`);
+    const menu = await page.$$eval('select[name=ds_filtration_prefilter] option', (os) => os.map((o) => o.value));
+    if (!menu.length) throw new Error('no pre-filter menu on the formulation record');
+    if (menu.includes(filter)) throw new Error(`the archived filter ${filter} is still offered`);
+  } finally {
+    await stopAnswering(page).catch(() => {});
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 9.2: a buffer lot takes its measured pH, what is left and its expiry, and the overview shows them; a batch
+ * naming a lot by its name and by its number counts once; the common buffers carry no lot chips; the catalogue
+ * code is the lab's own on Materials › Buffer catalog, and a new lot is named with it.
+ */
+export async function bufferLotsAndCatalogCodes({ page, open }) {
+  const was = { buffers: await readCol(page, 'buffers'), batches: await readCol(page, 'batches'), bufferCatalog: await readCol(page, 'bufferCatalog'), counters: await readCol(page, 'counters') };
+  try {
+    await open('buffers');
+    const from = (await page.$$eval('#catalogList a.bufPrep', (as) => as.map((a) => [a.textContent, a.dataset.from]))).find(([n]) => n === 'Citrate 50 mM, pH 4.0')?.[1];
+    await open(`buffers?new=1&from=${from}`);
+    await page.fill('#bufferLotFields [name=measuredPH]', '4.06');
+    await page.fill('#bufferLotFields [name=remaining_mL]', '400');
+    await page.fill('#bufferLotFields [name=expiry]', '2026-11-30');
+    await page.dispatchEvent('#bufferLotFields [name=expiry]', 'change');
+    await page.waitForTimeout(300);
+    await page.click('#saveBuffer');
+    await page.waitForFunction(() => /#\/buffers\?id=Buffer-\d+$/.test(location.hash), null, { timeout: 4000 });
+    const id = (await page.evaluate(() => location.hash)).split('=')[1];
+    const lot = (await readCol(page, 'buffers')).find((b) => b.id === id);
+    if (lot?.measuredPH !== 4.06 || lot.remaining_mL !== 400 || lot.expiry !== '2026-11-30') throw new Error(`the lot's fields were not stored: ${JSON.stringify(lot)}`);
+    // One formulation naming it twice: by the name on the bottle and by its Buffer number.
+    await writeCol(page, 'batches', [...was.batches, { id: 'E994-F1', experimentId: 'E994', status: 'planned', plan: { process: { aqueous: { buffer: lot.lot } }, rna: { diluent: lot.id } } }]);
+    await open('buffers');
+    await page.click(`#bufferList details.lotgroup:has(tr[data-lot="${id}"]) > summary`);
+    await expectText(page, `#bufferList tr[data-lot="${id}"]`, /4\.06[\s\S]*400[\s\S]*30 Nov 2026[\s\S]*\b1 batch\b/, 'the overview shows the measured pH, what is left, the expiry and one batch');
+    if (await page.locator('#catalogList .chip').count()) throw new Error('the common buffers still carry lot chips');
+
+    await open('materials?tab=buffers');
+    await expectText(page, '#tabBody', /Code/, 'the catalogue shows its codes');
+    const box = '#tabBody input[data-code="Citrate 50 mM, pH 4.0"]';
+    if ((await page.inputValue(box)) !== 'CIT50') throw new Error('the shipped code is not shown');
+    await page.fill(box, 'labcit');
+    await page.dispatchEvent(box, 'change');
+    await page.waitForTimeout(200);
+    if (!(await readCol(page, 'bufferCatalog')).some((r) => r.id === 'Citrate 50 mM, pH 4.0' && r.code === 'LABCIT')) throw new Error('the lab\'s own code was not stored');
+    await expectText(page, '#tabBody tr[data-buffer="Citrate 50 mM, pH 4.0"]', /shipped: CIT50/, 'the shipped code is still said');
+    await page.fill('#tabBody input[data-code="Acetate 25 mM, pH 5.0"]', 'LABCIT');
+    await page.dispatchEvent('#tabBody input[data-code="Acetate 25 mM, pH 5.0"]', 'change');
+    await page.waitForTimeout(200);
+    if (!/LABCIT is the code of Citrate/.test(await toastText(page))) throw new Error('a code two buffers would share was not refused');
+    await open(`buffers?new=1&from=${from}`);
+    await expectText(page, '#bufferForm', /Lot: LABCIT-pH4\.0-/i, 'a new lot is named with the lab\'s code');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 4.3: a small provenance symbol on the formulation, measurement and composition detail views; a click opens
+ * its details. A composition added under Materials is written as typed in.
+ */
+export async function provenanceSymbolOpensDetails({ page, open }) {
+  const was = { batches: await readCol(page, 'batches'), experiments: await readCol(page, 'experiments'), measurements: await readCol(page, 'measurements'), compositions: await readCol(page, 'compositions') };
+  try {
+    const built = await builtExperiment(page, 'E995');
+    const f = built.batches[0].id;
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    const sha = 'c0ffee'.repeat(10) + 'abcd';
+    await writeCol(page, 'measurements', [...was.measurements, { id: 'prov-m1', batchId: f, experimentId: 'E995', test: 'dls', stage: 'final', date: '2026-10-17', sampleName: `${f}_final`, values: { zave_nm: 80, pdi: 0.1 },
+      provenance: { source: 'instrument-import', file: { name: 'zetasizer-run.csv', sha256: sha }, importId: 'imp-7', importedAt: '2026-10-17T09:30:00Z', importedBy: 'GH' } }]);
+
+    await open(`formulation?batch=${f}`);
+    if (await page.isVisible('#provFormulation .provPanel')) throw new Error('the provenance details show before a click');
+    await page.click('#provFormulation > summary');
+    await expectText(page, '#provFormulation .provPanel', /Source\s*Typed in[\s\S]*File name\s*–/, 'the formulation\'s details');
+
+    await open('measurements?id=prov-m1');
+    await expectText(page, '#provMeasurement > summary', /Instrument file/, 'the symbol says where the result came from');
+    await page.click('#provMeasurement > summary');
+    await expectText(page, '#provMeasurement .provPanel', new RegExp(`zetasizer-run\\.csv[\\s\\S]*${sha}[\\s\\S]*imp-7[\\s\\S]*2026-10-17 09:30[\\s\\S]*GH`), 'every detail, the hash in full');
+
+    await open('materials?tab=compositions');
+    const id = Number(await page.inputValue('#compForm [name=id]'));
+    await page.selectOption('#compForm [name=k0]', 'DSPC'); await page.fill('#compForm [name=p0]', '100');
+    await page.click('#addComp');
+    await page.waitForTimeout(200);
+    const c = (await readCol(page, 'compositions')).find((x) => x.id === id);
+    if (c?.provenance?.source !== 'manual') throw new Error(`a composition added here should be written as typed in: ${JSON.stringify(c)}`);
+    await page.click(`#tabBody tr.mat-row[data-open="${id}"]`);
+    await page.click('#provComposition > summary');
+    await expectText(page, '#provComposition .provPanel', /Typed in/, 'the composition\'s details');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+
+/**
+ * Spec 4.4 and 12.2: Settings lists the copies a migration kept, downloads one as a backup file and restores it
+ * after a question; a trash entry other records still name stays past its days and through Empty trash, and
+ * says so; deleting an experiment a study names asks first.
+ */
+export async function beforeUpdatesTrashAndStudies({ page, open }) {
+  const was = { preMigration: await readCol(page, 'preMigration'), compositions: await readCol(page, 'compositions'), trash: await readCol(page, 'trash'), measurements: await readCol(page, 'measurements'),
+    experiments: await readCol(page, 'experiments'), batches: await readCol(page, 'batches'), studies: await readCol(page, 'studies') };
+  try {
+    const extra = { id: 9901, synonym: 'from before the update', mol_pct: { DSPC: 100 }, sum: 100 };
+    await writeCol(page, 'preMigration', [{ id: 'v2-2026-10-01T08:00:00.000Z', from: 2, to: 3, at: '2026-10-01T08:00:00.000Z', data: { compositions: [...was.compositions, extra] } }]);
+    // An old trash entry whose formulation a result still names.
+    await writeCol(page, 'trash', [...was.trash, { id: 'trash-kept-1', kind: 'experiment', label: 'E997 · kept check', deletedAt: '2026-01-01T00:00:00.000Z', records: [{ col: 'batches', index: 0, after: null, before: null, rec: { id: 'E997-F1', experimentId: 'E997' } }] }]);
+    await writeCol(page, 'measurements', [...was.measurements, { id: 'm-kept-1', batchId: 'E997-F1', test: 'dls', values: { zave_nm: 90 } }]);
+
+    await open('settings');
+    await expectText(page, '#preMigrationCard', /Before updates[\s\S]*version 2 to 3/, 'the copy is listed with its versions');
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }), page.click('#preMigrationCard [data-pm-download]')]);
+    if (!/before-update-v2-2026-10-01\.json$/.test(dl.suggestedFilename())) throw new Error(`the download is called ${dl.suggestedFilename()}`);
+    await answerNo(page);
+    await page.click('#preMigrationCard [data-pm-restore]');
+    await page.waitForTimeout(200);
+    if ((await readCol(page, 'compositions')).some((c) => c.id === 9901)) throw new Error('No to the restore still restored');
+    await answerYes(page);
+    await page.click('#preMigrationCard [data-pm-restore]');
+    await page.waitForTimeout(400);
+    const asked = await stopAnswering(page);
+    if (!asked.some((q) => /Restore the records as they were before the update/.test(q))) throw new Error(`the restore did not ask: ${JSON.stringify(asked)}`);
+    const back = (await readCol(page, 'compositions')).find((c) => c.id === 9901);
+    if (!back || back.provenance?.source !== 'manual') throw new Error(`the copy was not restored and brought up to date: ${JSON.stringify(back)}`);
+
+    await expectText(page, '#trashList tr[data-trash="trash-kept-1"]', /E997 · kept check[\s\S]*Kept: still named by measurement/, 'the old entry is listed and says why it is kept');
+    await answerYes(page);
+    await page.click('#emptyTrash');
+    await page.waitForTimeout(300);
+    await stopAnswering(page);
+    if (!(await readCol(page, 'trash')).some((t) => t.id === 'trash-kept-1')) throw new Error('Empty trash erased an entry a result still names');
+
+    // An experiment whose formulation a study names: Delete asks first.
+    const built = await builtExperiment(page, 'E998');
+    await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+    await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    await writeCol(page, 'studies', [...was.studies, { id: 'Study-998', name: 'names E998', groups: [{ id: 'G1', name: 'test', batchId: built.batches[0].id, role: 'test', n: 3 }], experimentIds: [] }]);
+    await open('experiments?id=E998');
+    await answerNo(page);
+    await page.click('#delExp');
+    await page.waitForTimeout(250);
+    const askedExp = await stopAnswering(page);
+    if (!askedExp.some((q) => /named by study Study-998/.test(q))) throw new Error(`deleting an experiment a study names did not ask: ${JSON.stringify(askedExp)}`);
+    if (!(await readCol(page, 'experiments')).some((e) => e.id === 'E998')) throw new Error('No still deleted the experiment');
+  } finally {
+    await stopAnswering(page).catch(() => {});
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+scenarios.push(componentsArchivedWhenUsed, bufferLotsAndCatalogCodes, provenanceSymbolOpensDetails, beforeUpdatesTrashAndStudies);
+
+/**
+ * Spec 7.3.2: the structure of each ionizable lipid is kept once, as a SMILES string, on the descriptor card
+ * (shown with the descriptor mode switched on); text no SMILES can be is refused.
+ */
+export async function lipidSmilesIsKept({ page, open }) {
+  const was = { settings: await readCol(page, 'settings'), lipids: await readCol(page, 'lipids') };
+  try {
+    const s = was.settings.find((x) => x.id === 'default') || { id: 'default' };
+    await writeCol(page, 'settings', [...was.settings.filter((x) => x.id !== 'default'), { ...s, mlDescriptors: true }]);
+    await open('materials?tab=lipids');
+    await page.waitForSelector('#descriptorCard input[name=smiles]', { timeout: 5000 });
+    const key = await page.$eval('#descriptorCard input[name=smiles]', (i) => i.dataset.desc);
+    const smiles = 'CCCCCCCCC(CCCCCCCC)CCCCCCC(=O)OCCCCCCN(CCO)CCCCCCC(=O)OCCCCCCCCCCC';
+    await page.fill(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'not a smiles');
+    await page.dispatchEvent(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'change');
+    await page.waitForTimeout(200);
+    if ((await readCol(page, 'lipids')).some((l) => l.key === key && l.smiles)) throw new Error('text with spaces was kept as a SMILES');
+    await page.fill(`#descriptorCard input[name=smiles][data-desc="${key}"]`, smiles);
+    await page.dispatchEvent(`#descriptorCard input[name=smiles][data-desc="${key}"]`, 'change');
+    await page.waitForTimeout(200);
+    const stored = (await readCol(page, 'lipids')).find((l) => l.key === key);
+    if (stored?.smiles !== smiles) throw new Error(`the SMILES was not kept: ${JSON.stringify(stored)}`);
+    await open('materials?tab=lipids');
+    await page.waitForSelector('#descriptorCard input[name=smiles]', { timeout: 5000 });
+    const shown = await page.$eval(`#descriptorCard input[name=smiles][data-desc="${key}"]`, (i) => i.value);
+    if (shown !== smiles) throw new Error('the SMILES is not shown again');
+  } finally {
+    for (const c of Object.keys(was)) await writeCol(page, c, was[c]);
+  }
+}
+scenarios.push(lipidSmilesIsKept);
+
+/**
+ * Spec 5.1 and 5.3, the audit's gaps: the pH range is two sliders that set the filter and the URL; a formulation
+ * whose result came from an instrument file is under Source › Instrument file; a set of formulations is linked in
+ * by id and shown as one chip; saved views are renamed and deleted on the Data screen, and any two of them are
+ * compared with all four distributions over each other; CSV and XLSX carry the provenance columns. And spec 9.3:
+ * the import preview is the results grid, matched formulations as rows, the rows that matched nothing below.
+ */
+export async function dataSlidersViewsAndExports({ page, open }) {
+  const was = { batches: await readCol(page, 'batches'), measurements: await readCol(page, 'measurements'), experiments: await readCol(page, 'experiments'), views: await readCol(page, 'views') };
+  const ids = (sel = '#vbody tr[data-open]') => page.$$eval(sel, (trs) => trs.map((t) => t.dataset.open));
+  const kpi = async () => Number((await page.locator('#dataKpis .kpi .v').first().innerText()).trim());
+  try {
+    const plan = (pH) => ({ mixing: { frr: 3, totalFlow: 12 }, rna: { np: 6 }, conditions: { bufferSystem: 'Citrate', loadingPH: pH } });
+    await writeCol(page, 'experiments', [...was.experiments, { id: 'E993', type: 'comparison', name: 'Slider smoke', startDate: '2026-10-10', status: 'done', batchIds: ['E993-F1', 'E993-F2'], expected: [] }]);
+    await writeCol(page, 'batches', [...was.batches, { id: 'E993-F1', experimentId: 'E993', compositionId: 1, plannedDate: '2026-10-10', status: 'measured', plan: plan(4) },
+      { id: 'E993-F2', experimentId: 'E993', compositionId: 1, plannedDate: '2026-10-11', status: 'measured', plan: plan(6.4) }]);
+    await writeCol(page, 'measurements', [...was.measurements,
+      { id: 'm993a', batchId: 'E993-F1', experimentId: 'E993', test: 'dls', stage: 'final', sampleName: 'E993-F1_final', date: '2026-10-12', values: { zave_nm: 81, pdi: 0.09 }, flags: [] },
+      { id: 'm993b', batchId: 'E993-F2', experimentId: 'E993', test: 'dls', stage: 'final', sampleName: 'E993-F2_final', date: '2026-10-12', values: { zave_nm: 120, pdi: 0.21 }, flags: [], raw: { fileName: 'zetasizer.csv', sha256: 'c0ffee'.padEnd(64, '0') } }]);
+
+    // ---- the pH sliders
+    await open('overview');
+    await open('data');
+    const lo = page.locator('input.fslider[data-slider="loadingPH"][data-end="lo"]');
+    if (!(await lo.count()) || !(await page.locator('input.fslider[data-slider="loadingPH"][data-end="hi"]').count())) throw new Error('the loading pH has no slider for each end');
+    await lo.evaluate((el) => { el.value = '6'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    await page.waitForFunction(() => /loadingPH=6~/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`the slider did not set the filter: ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150); // the screen is drawn in the task after the hash change
+    const high = await ids();
+    if (!high.includes('E993-F2') || high.includes('E993-F1')) throw new Error(`pH from 6 lists ${high.join(', ')}`);
+    if (await page.inputValue('input[data-range="loadingPH"][data-end="lo"]') !== '6') throw new Error('the box above the slider does not show its end');
+    if (await lo.inputValue() !== '6') throw new Error('the slider did not keep its place over the redraw');
+    await page.goBack();
+    await page.waitForFunction(() => !/loadingPH=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 1 failed at ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- Source › Instrument file, by the file a result came from
+    const inst = page.locator('#facets .facet[data-key="source"] .fval[data-value="instrument-import"]');
+    if (!(await inst.count())) throw new Error('no "Instrument file" under Source although a result came from one');
+    await expectText(page, '#facets .facet[data-key="source"]', /Instrument file/, 'the source label');
+    await inst.click();
+    await page.waitForFunction(() => /source=instrument-import/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 2 failed at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150); // the screen is drawn in the task after the hash change
+    if (!(await ids()).includes('E993-F2')) throw new Error('the formulation with a Zetasizer result is not under Instrument file');
+
+    // ---- a set linked in by id, one chip
+    await open('data?ids=E993-F1,E993-F2');
+    await expectText(page, '#idsChip', /^2 chosen formulations ×$/, 'the chip of a linked set');
+    if (await kpi() !== 2) throw new Error(`the linked set holds ${await kpi()} formulations`);
+    await page.click('#idsChip');
+    await page.waitForFunction(() => !/ids=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 3 failed at ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- the provenance columns, in CSV and in XLSX
+    const { readFileSync } = await import('node:fs');
+    await open('data?ids=E993-F2');
+    const [csv] = await Promise.all([page.waitForEvent('download'), page.click('#exportCsv')]);
+    const text = readFileSync(await csv.path(), 'utf8').replace(/^﻿/, '');
+    const head = text.split('\n')[0];
+    for (const h of ['Source', 'Import', 'Source file', 'SHA-256', 'Sheet', 'Row', 'Result files', 'Result files SHA-256']) if (!head.split(',').includes(h)) throw new Error(`the CSV has no "${h}" column: ${head}`);
+    if (!/zetasizer\.csv,c0ffee0+/.test(text)) throw new Error('the CSV does not name the result file and its hash');
+    const [xlsx] = await Promise.all([page.waitForEvent('download'), page.click('#exportXlsx')]);
+    const { execFileSync } = await import('node:child_process');
+    const sheet = execFileSync('python3', ['-c', 'import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print(z.read("xl/worksheets/sheet1.xml").decode())', await xlsx.path()]).toString();
+    if (!/SHA-256/.test(sheet) || !/zetasizer\.csv/.test(sheet)) throw new Error('the XLSX lacks the provenance columns');
+
+    // ---- saved views: renamed, deleted, any two compared
+    const view = (id, name, query) => ({ id, name, query, createdAt: '2026-10-12T10:00:00.000Z' });
+    await writeCol(page, 'views', [...was.views, view('v-one', 'Zz one', 'ids=E993-F1'), view('v-two', 'Zz two', 'ids=E993-F2'), view('v-aa', 'Aa first', 'loadingPH=6~')]);
+    await open('overview');
+    await open('data');
+    await page.click('#viewsCard > summary');
+    await page.click('#viewsCard [data-rename="v-aa"]');
+    await page.fill('#viewsCard .viewRename', 'Aa renamed');
+    await page.click('#viewsCard [data-renameok]');
+    await page.waitForFunction(() => [...document.querySelectorAll('#nav a.sub')].some((a) => /Aa renamed/.test(a.textContent)), null, { timeout: 3000 }).catch(() => { throw new Error('the renamed view is not in the sidebar'); });
+    if ((await readCol(page, 'views')).find((v) => v.id === 'v-aa')?.name !== 'Aa renamed') throw new Error('the rename was not stored');
+    await page.evaluate(() => { window.__realConfirm ||= window.confirm; window.confirm = () => true; });
+    await page.click('#viewsCard [data-delview="v-aa"]');
+    await page.waitForFunction(() => ![...document.querySelectorAll('#nav a.sub')].some((a) => /Aa renamed/.test(a.textContent)), null, { timeout: 3000 }).catch(() => { throw new Error('the deleted view is still in the sidebar'); });
+    if ((await readCol(page, 'views')).some((v) => v.id === 'v-aa')) throw new Error('the deleted view is still stored');
+    await page.evaluate(() => { window.confirm = window.__realConfirm; });
+    // Two views that are not the first two by name.
+    await page.selectOption('#viewA', 'v-two');
+    await page.selectOption('#viewB', 'v-one');
+    await page.click('#compareViews');
+    await page.waitForFunction(() => /compare=v-two,v-one/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`wait 4 failed at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForSelector('#cmpTable', { timeout: 3000 });
+    for (const c of ['#cmpLipid', '#cmpSize', '#cmpPdi', '#cmpMonth']) if (!(await page.$(c))) throw new Error(`the comparison has no ${c} chart: "${(await page.locator('#main').innerText()).slice(0, 600)}"`);
+    await expectText(page, '#cmpTable', /Zz two[\s\S]*Zz one[\s\S]*Formulations\s*1\s*1/, 'the two picked views side by side');
+    if ((await page.locator('#cmpSize .hb.two i.b').count()) < 2) throw new Error('the size chart does not overlay both views');
+    await page.selectOption('#cmpA', 'v-one'); // the view on the other side: the two swap
+    await page.waitForFunction(() => /compare=v-one,v-two/.test(decodeURIComponent(location.hash)), null, { timeout: 3000 }).catch(async () => { throw new Error(`picking on the comparison went to ${await page.evaluate(() => location.hash)}`); });
+
+    // ---- the import preview drawn as the results grid
+    await open('measurements');
+    await page.click('#pasteFold > summary');
+    await page.fill('#pasteBox', 'Sample Name,Z-Average (d.nm),PdI\nE993-F1_final,82.4,0.08\nE993-F1_final,84.0,0.09\nvial X,90,0.1');
+    await page.click('#pasteGo');
+    await page.waitForSelector('#importGrid tr[data-batch="E993-F1"] .ecell', { timeout: 5000 }).catch(() => { throw new Error('the matched formulation is not a row of the grid'); });
+    await expectText(page, '#importGrid tr[data-batch="E993-F1"]', /E993-F1[\s\S]*82\.4; 84[\s\S]*83\.2 ± 1\.1 \(n = 2\)/, 'the row: the formulation, its runs and their mean');
+    await expectText(page, '#importStrays', /vial X/, 'the row that matched nothing, below the grid');
+    if (!(await page.$('#importStrays select[data-target]'))) throw new Error('the unmatched row has nowhere to be put');
+    if (await page.$('#importGrid select[data-target]')) throw new Error('a matched row asks where it goes');
+  } finally {
+    await writeCol(page, 'views', was.views);
+    await writeCol(page, 'measurements', was.measurements);
+    await writeCol(page, 'batches', was.batches);
+    await writeCol(page, 'experiments', was.experiments);
+  }
+}
+scenarios.push(dataSlidersViewsAndExports);
+
+/**
+ * Spec 9.1: leaving a form with typed, unsaved input asks first, by a link, the sidebar, Back or a crumb; staying
+ * keeps the screen and what was typed, and puts the address back. Nothing typed, nothing asked. The browser's
+ * beforeunload is answered too. The question is answered by a stand-in for confirm() so each answer is chosen.
+ */
+export async function leaveGuardAsksFirst({ page, open }) {
+  const asked = () => page.evaluate(() => window.__asked.slice());
+  const answer = (yes) => page.evaluate((y) => { window.__answer = y; }, yes);
+  const stub = () => page.evaluate(() => { window.__realConfirm ||= window.confirm; window.__asked = []; window.confirm = (m) => { window.__asked.push(m); return window.__answer; }; });
+  // Staying: the n-th question has been asked and the address is back where it was.
+  const stayed = async (n, hash, label) => {
+    await page.waitForFunction(([k, h]) => window.__asked.length >= k && location.hash === h, [n, hash], { timeout: 3000 })
+      .catch(async () => { throw new Error(`${label}: ${(await asked()).length} questions, the address at ${await page.evaluate(() => location.hash)}`); });
+    await page.waitForTimeout(150);
+  };
+  const unloadHeld = () => page.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; });
+  try {
+    await open('overview');
+    await open('measurements');
+    await stub();
+    // Nothing typed: no question.
+    await page.click('#manualFree');
+    await answer(false);
+    await page.click('#nav a[href="#/overview"]');
+    await page.waitForFunction(() => location.hash === '#/overview', null, { timeout: 3000 }).catch(() => { throw new Error('a form with nothing typed held the screen'); });
+    if ((await asked()).length) throw new Error(`asked with nothing typed: ${await asked()}`);
+
+    // A value typed: the sidebar asks, and staying keeps it.
+    await open('measurements');
+    await stub();
+    await page.click('#manualFree');
+    await page.fill('input[name=run_z1]', '88');
+    await answer(false);
+    await page.click('#nav a[href="#/overview"]');
+    await stayed(1, '#/measurements', 'the sidebar');
+    const q = await asked();
+    if (q.length !== 1 || !/Not saved yet: a result typed into "Type one result"\. Leave this screen anyway\?/.test(q[0])) throw new Error(`asked: ${JSON.stringify(q)}`);
+    if (await page.evaluate(() => location.hash) !== '#/measurements') throw new Error(`staying left the address at ${await page.evaluate(() => location.hash)}`);
+    if (await page.inputValue('input[name=run_z1]') !== '88') throw new Error('staying lost the value typed');
+    // The browser's own leaving (a reload, closing the tab) is held too.
+    if (!(await unloadHeld())) throw new Error('beforeunload lets a typed result go');
+    // Back, the on-screen arrow: asked, and the address comes back.
+    await page.click('#crumbBack');
+    await stayed(2, '#/measurements', 'Back');
+    if (await page.evaluate(() => location.hash) !== '#/measurements' || await page.inputValue('input[name=run_z1]') !== '88') throw new Error('staying after Back did not keep the screen');
+    // Leaving when the answer is yes.
+    await answer(true);
+    await page.click('#nav a[href="#/overview"]');
+    await page.waitForFunction(() => location.hash === '#/overview' && /Overview/.test(document.querySelector('#main h1')?.textContent || ''), null, { timeout: 3000 }).catch(() => { throw new Error('a yes did not leave'); });
+    if (await unloadHeld()) throw new Error('the form left behind still holds beforeunload');
+
+    // A Materials editor with a field changed, left by a tab link; after Cancel the link goes without a question.
+    await open('materials?tab=rna');
+    await stub();
+    const row = page.locator('#tabBody tr.mat-row').first();
+    if (!(await row.count())) throw new Error('no RNA lot to open (materialsAddLots adds one)');
+    await row.click();
+    await page.waitForSelector('[data-editor]', { timeout: 3000 });
+    const box = page.locator('[data-editor] input[type=text]:not([readonly]):not([disabled])').first();
+    await box.fill(`${await box.inputValue()} changed`);
+    await answer(false);
+    await page.click('a[href="#/materials?tab=lipids"]');
+    await stayed(1, '#/materials?tab=rna', 'a Materials tab');
+    if (!/changes in the open editor/.test((await asked())[0] || '')) throw new Error(`the Materials editor was left without a question: ${JSON.stringify(await asked())}`);
+    if (!/tab=rna/.test(await page.evaluate(() => location.hash))) throw new Error('staying left the RNA tab');
+    await page.click('[data-editor] [data-act=cancel]');
+    await page.click('a[href="#/materials?tab=lipids"]');
+    await page.waitForFunction(() => /tab=lipids/.test(location.hash), null, { timeout: 3000 });
+    if ((await asked()).length !== 1) throw new Error('asked again after Cancel');
+
+    // The correction of a stored result, left by a crumb.
+    const m = (await readCol(page, 'measurements')).find((x) => x.test === 'dls' && x.values?.zave_nm != null);
+    if (!m) throw new Error('no stored DLS result to correct');
+    await open(`measurements?id=${m.id}`);
+    await stub();
+    await page.click('#editResult');
+    await page.fill('#editReason', 'typo');
+    await answer(false);
+    await page.click('#crumbs a[href]');
+    await stayed(1, `#/measurements?id=${m.id}`, 'a crumb');
+    if (!/a correction of this result/.test((await asked())[0] || '')) throw new Error('the correction form was left without a question');
+    if (!(await page.$('#editForm'))) throw new Error('staying closed the correction form');
+    await answer(true);
+    await page.click('#crumbs a[href]');
+    await page.waitForFunction(() => !/id=/.test(location.hash) && !document.querySelector('#editForm'), null, { timeout: 3000 }).catch(() => { throw new Error('a yes did not leave the correction'); });
+  } finally {
+    await page.evaluate(() => { if (window.__realConfirm) window.confirm = window.__realConfirm; });
+  }
+}
+scenarios.push(leaveGuardAsksFirst);
+
+/** Spec 9.1: every assistant walked with Back after each step (tests/usability/back.mjs, also `npm run back`). */
+export async function backAfterEveryAssistantStep({ page, open }) {
+  const { walkBack } = await import('./usability/back.mjs');
+  const n = await walkBack({ page, open });
+  if (n < 30) throw new Error(`only ${n} steps were walked`);
+}
+scenarios.push(backAfterEveryAssistantStep);
+
+/** Spec 10 with 5.3: a finding of Claude's report opens its formulations together in Data, by the ids filter. */
+export async function claudeReportOpensInData({ page, open }) {
+  const was = { settings: await readCol(page, 'settings'), reports: await readCol(page, 'insightReports'), batches: await readCol(page, 'batches') };
+  try {
+    // Three formulations of the lab, or three made for the purpose when it has fewer (SMOKE_ONLY).
+    if (was.batches.length < 3) await writeCol(page, 'batches', [...was.batches, ...[1, 2, 3].map((i) => ({ id: `E994-F${i}`, experimentId: 'E994', compositionId: 1, plannedDate: '2026-10-01', status: 'made', plan: {} }))]);
+    const batches = (await readCol(page, 'batches')).slice(0, 3);
+    await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+    await writeCol(page, 'settings', [...was.settings.filter((s) => s.id !== 'default'), { ...(was.settings.find((s) => s.id === 'default') || { id: 'default' }), personalBuild: true }]);
+    await writeCol(page, 'insightReports', [{ id: 'report-ids', createdAt: '2026-10-15T10:00:00.000Z', title: 'Ids report', dataState: { formulations: 999 },
+      findings: [{ text: 'These three', analysis: 'correlation', formulationIds: batches.map((b) => b.id) }] }]);
+    await open('overview');
+    await open('insights');
+    await page.waitForSelector('#claudeReport a.reportIds', { timeout: 4000 }).catch(async () => { throw new Error(`no link to the report's formulations: "${(await page.locator('#main').innerText()).slice(0, 300)}"`); });
+    await page.click('#claudeReport a.reportIds');
+    await page.waitForFunction(() => /^#\/data\?ids=/.test(location.hash), null, { timeout: 3000 }).catch(async () => { throw new Error(`the report link went to ${await page.evaluate(() => location.hash)}`); });
+    await expectText(page, '#idsChip', new RegExp(`^${batches.length} chosen formulations? ×$`), 'Data shows the linked set as one chip');
+    const shown = await page.$$eval('#vbody tr[data-open]', (trs) => trs.map((t) => t.dataset.open).sort());
+    if (shown.join() !== batches.map((b) => b.id).sort().join()) throw new Error(`Data lists ${shown}, the report named ${batches.map((b) => b.id)}`);
+  } finally {
+    await writeCol(page, 'settings', was.settings);
+    await writeCol(page, 'insightReports', was.reports);
+    await writeCol(page, 'batches', was.batches);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(claudeReportOpensInData);
+
+/**
+ * Spec 8.7, review: the image the biological-layers scenario saved is opened again from its export folder.
+ * Other files (a luminescent image changed by one byte) are refused, with the reason; the same files open it with
+ * its saved mice. A click on a mouse picks it, the brush erases from its mask and the mouse is measured again,
+ * and the save keeps the correction with the algorithm version, the standardised crops and the luminescence crop.
+ */
+export async function bliReviewAndCorrect({ page, open }) {
+  const { readFileSync } = await import('node:fs');
+  const rec0 = (await readCol(page, 'bliImages'))[0];
+  if (!rec0) throw new Error('the biological-layers scenario should have saved an image');
+  await open('settings');
+  await page.check('input[name=bio_invivo]');
+  try {
+    await open(`studies?id=${rec0.studyId}&part=ivis`);
+    await page.click(`[data-bli-review="${rec0.id}"]`);
+    const dir = new URL('./fixtures/ivis/BMD20230209123405/', import.meta.url).pathname;
+    const names = ['AnalyzedClickInfo.txt', 'ClickInfo.txt', 'luminescent.TIF', 'photograph.TIF', 'readbias.TIF', 'background.TIF'];
+    const changed = names.map((n) => { const b = Buffer.from(readFileSync(dir + n)); if (n === 'luminescent.TIF') b[b.length - 1] ^= 1; return { name: n, mimeType: 'application/octet-stream', buffer: b }; });
+    await page.setInputFiles('#bliReviewFiles', changed);
+    await page.waitForSelector('#bliReviewRefused', { timeout: 10000 }).catch(() => { throw new Error('other files were not refused'); });
+    await expectText(page, '#bliReviewRefused', /not the files the record was made from[\s\S]*luminescent\.TIF differs/, 'the refusal');
+    if (await page.$('.bliItem canvas')) throw new Error('the record was opened over other files');
+    await page.setInputFiles('#bliReviewFiles', names.map((n) => dir + n));
+    await page.waitForSelector('.bliItem canvas', { timeout: 20000 }).catch(() => { throw new Error('the saved image did not open'); });
+    const ids = await page.$$eval('.bliItem input[data-f=subject]', (xs) => xs.map((x) => x.value));
+    if (ids.join(' ') !== rec0.mice.map((m) => m.subject).join(' ')) throw new Error(`the saved animals were not kept: ${ids.join(' ')}`);
+    // A click on mouse 2 (on its liver ROI, which lies on it) picks it.
+    const m2 = rec0.mice.find((m) => m.n === 2);
+    const at = async (x, y) => {
+      const box = await page.locator('.bliItem canvas').boundingBox();
+      const size = await page.$eval('.bliItem canvas', (c) => [c.width, c.height]);
+      await page.mouse.click(box.x + x * box.width / size[0], box.y + y * box.height / size[1]);
+    };
+    await at(m2.liver.cx, m2.liver.cy);
+    await page.waitForFunction(() => document.querySelector('.bliItem [name=bliSel0][value="2"]')?.checked, null, { timeout: 3000 }).catch(() => { throw new Error('a click on the mouse did not pick it'); });
+    // Erase from its mask where it was clicked: one correction, logged.
+    await page.check('.bliItem [name=bliTool0][value=erase]');
+    await at(m2.liver.cx, m2.liver.cy);
+    await expectText(page, '.bliItem [data-bli-say]', /1 correction logged/, 'the mask correction');
+    await page.click('.bliItem [data-bli-save]');
+    await page.waitForFunction((id) => window.lnpDb.read('bliImages').then((bs) => { const b = bs.find((x) => x.id === id); return b && b.reviewedAt && b.corrections.some((c) => c.field === 'mask'); }), rec0.id, { timeout: 5000 })
+      .catch(() => { throw new Error('the review was not stored'); });
+    const rec = (await readCol(page, 'bliImages')).find((b) => b.id === rec0.id);
+    const c = rec.corrections.find((x) => x.field === 'mask');
+    if (c.mouse !== 2 || !/^lnp-lab-bli \d+\.\d+\.\d+ /.test(c.algorithm) || !(c.to.areaCm2 < c.from.areaCm2)) throw new Error(`the correction: ${JSON.stringify(c)}`);
+    const e2 = rec.mice.find((m) => m.n === 2);
+    if (!e2.edited || e2.totalFlux === m2.totalFlux) throw new Error('the corrected mouse was not measured again');
+    if (!rec.mice.every((m) => m.crop?.width === 40 && m.crop.height === 88 && m.lumCrop?.width === 40 && m.lumCrop.max > 0)) throw new Error('standardised crops missing');
+    const v = (await readCol(page, 'bioMeasurements')).find((m) => m.imageId === rec.id && m.mouse === 2 && m.quantity === 'total_flux');
+    if (!v || Math.abs(v.value - e2.totalFlux) > 1e-6 * Math.abs(e2.totalFlux)) throw new Error('the study value did not follow the corrected mask');
+    if (rec.mice.length !== rec0.mice.length || rec.files.length !== rec0.files.length) throw new Error('the review changed what the record holds');
+  } finally {
+    await open('settings');
+    await page.uncheck('input[name=bio_invivo]');
+  }
+}
+scenarios.push(bliReviewAndCorrect);
+
+/** Spec 10.2: a finding of Claude's report links into the Data overview with exactly its formulations. */
+export async function insightFindingLinksToData({ page, open }) {
+  const batches = (await readCol(page, 'batches')).filter((b) => b.plan).slice(0, 2);
+  await page.evaluate(() => localStorage.setItem('lnp-lab.build.personal', '1'));
+  const settings0 = await readCol(page, 'settings');
+  try {
+    await open('settings');
+    // Switched on in the stored settings, not through the box: its first use asks to read the privacy notice, which
+    // the scenario of the import has done; this one must also run alone (SMOKE_ONLY).
+    await writeCol(page, 'settings', settings0.some((x) => x.id === 'default') ? settings0.map((x) => (x.id === 'default' ? { ...x, personalBuild: true } : x)) : [...settings0, { id: 'default', personalBuild: true }]);
+    await writeCol(page, 'insightReports', [{ id: 'report-links', createdAt: '2026-10-01T10:00:00.000Z', title: 'Link report', dataState: { formulations: (await readCol(page, 'batches')).length, lastDate: '2026-09-30' },
+      findings: [{ text: 'Two formulations alike', analysis: 'summary', formulationIds: batches.map((b) => b.id), value: 'n = 2', link: `#/data?ids=${batches.map((b) => b.id).join(',')}` }] }]);
+    await open('insights');
+    const href = await page.getAttribute('#claudeReport [data-report-link]', 'href');
+    if (href !== `#/data?ids=${batches.map((b) => b.id).join(',')}`) throw new Error(`the finding links to ${href}`);
+    await page.click('#claudeReport [data-report-link]');
+    await page.waitForFunction(() => location.hash.startsWith('#/data'), null, { timeout: 3000 }).catch(() => { throw new Error('the link does not open the Data overview'); });
+  } finally {
+    await writeCol(page, 'insightReports', []);
+    await open('settings');
+    await writeCol(page, 'settings', settings0);
+    await page.evaluate(() => localStorage.removeItem('lnp-lab.build.personal'));
+  }
+}
+scenarios.push(insightFindingLinksToData);
+
+/**
+ * Security: text a person typed or imported is never read as markup. Every free-text field of every record (a
+ * label, a sample name, an operator, a study's name, a calendar title, a row in quarantine) gets a harmless
+ * script appended, and every screen and a detail page of each kind is opened: none of it may run. A crafted
+ * backup or instrument file would otherwise run code in the lab of whoever opens it. Found five such places
+ * at first (calendar, design and results, experiment, measurements, overview); this keeps them closed.
+ */
+export async function recordTextIsNeverMarkup({ page, open, errors }) {
+  // What this scenario causes on purpose is not an error of the app: a value marked with text no longer plots
+  // (an SVG coordinate of NaN), and an <img src=x> that escaping failed to stop is fetched (a 404, and then the
+  // check below fails anyway). Everything else logged meanwhile still counts.
+  const errAt = errors?.length ?? 0;
+  const COLS = ['experiments', 'batches', 'measurements', 'compositions', 'stocks', 'buffers', 'lipids', 'rnaLots', 'events', 'studies', 'bioMeasurements', 'inbox', 'quarantine', 'insightReports', 'views', 'devices', 'settings'];
+  const was = {};
+  for (const c of COLS) was[c] = await readCol(page, c);
+  const SKIP = /^(id|.*Id|.*Ids|batchId|lotId|stockId|compositionId|experimentId|key|lipidKey|class|status|type|kind|role|unit|stage|test|date|.*Date|.*At|createdAt|updatedAt|ns|hash|sha256|source|mode|op|goal|cargo|layer|quantity|bucket|engine|version|schema|link|query|theme)$/;
+  const tag = (where) => `<img src=x onerror="(window.__xss=window.__xss||new Set()).add('${where}')">`;
+  // A number or a date kept as text is a value, not free text: marked, it would only stop a chart from plotting.
+  const valueLike = (v) => /^\s*-?\d+(\.\d+)?\s*$|^\d{4}-\d\d-\d\d/.test(v);
+  const poison = (v, at) => (typeof v === 'string' ? (valueLike(v) ? v : v + tag(at))
+    : Array.isArray(v) ? v.map((x) => poison(x, `${at}[]`))
+      : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SKIP.test(k) ? x : poison(x, at ? `${at}.${k}` : k)])) : v);
+  try {
+    // Run alone (SMOKE_ONLY), the lab may be empty: an experiment of three formulations to open, then.
+    if (was.batches.length < 2) {
+      const built = await builtExperiment(page, 'E997', { type: 'comparison', compositionIds: [1, 1, 1] }).catch(() => null)
+        || await builtExperiment(page, 'E997');
+      was.experiments = [...was.experiments]; was.batches = [...was.batches];
+      await writeCol(page, 'experiments', [...was.experiments, built.experiment]);
+      await writeCol(page, 'batches', [...was.batches, ...built.batches]);
+    }
+    const base = { experiments: await readCol(page, 'experiments'), batches: await readCol(page, 'batches') };
+    const bats = base.batches.map((b) => b.id);
+    if (bats.length < 1) throw new Error('no formulation to open');
+    while (bats.length < 2) bats.push(bats[0]);
+    const today = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+    const seed = {
+      compositions: [{ id: 9901, synonym: 'Probe comp', mol_pct: { MC3: 50, DSPC: 10, Chol: 38.5, DMG0PEG2000: 1.5 }, sum: 100, notes: 'n' }],
+      stocks: [{ id: 'Stock-901', compositionId: 9901, molarity_mM: 10, volume_mL: 5, status: 'available', date: today, operator: 'op', remarks: 'r' }],
+      studies: [{ id: 'Study-901', name: 'Probe study', layer: 'invitro', groups: [{ id: 'G1', name: 'ref', batchId: bats[0], role: 'reference', n: 3 }, { id: 'G2', name: 'test', batchId: bats[1], role: 'test', n: 3 }], referenceBatchId: bats[0], experimentIds: [], notes: 'n' }],
+      bioMeasurements: ['G1', 'G2'].flatMap((g, gi) => [1, 2, 3].map((k) => ({ id: `bm-${g}-${k}`, studyId: 'Study-901', batchId: bats[gi], group: g, subject: `w${k}`, layer: 'invitro', quantity: 'luminescence', value: 1000 * (gi + 1) + k, unit: 'RLU', timepoint_h: 24 }))),
+      inbox: [{ id: 'ib-probe', sampleName: 'stray_final', test: 'dls', values: { zave_nm: 77.7, pdi: 0.12 }, date: today, operator: 'op', raw: { fileName: 'run.csv' } }],
+      quarantine: [{ id: 'q-probe', importId: 'imp-probe', table: 'measurements', status: 'open', reason: 'why', origin: { file: { name: 'probe.xlsx' }, sheet: 'Sheet1', row: 3 }, raw: { sample: 's', pdi: '8.5' } }],
+      events: [{ id: 'ev-probe', date: today, title: 'Probe event', link: '' }],
+      views: [{ id: 'v-probe', name: 'Probe view', query: `ids=${bats[0]}`, createdAt: '2026-10-12T10:00:00.000Z' }],
+      insightReports: [{ id: 'rep-probe', createdAt: '2026-10-01T10:00:00.000Z', title: 'Probe report', dataState: { formulations: 3, lastDate: '2026-09-30' }, findings: [{ text: 'f', analysis: 'correlation', formulationIds: bats.slice(0, 2), value: 'r 0.9' }] }],
+      lipids: [{ key: 'PROBE1', name: 'Probe lipid', class: 'ionizable', mw: 700, supplier: 's', notes: 'n' }],
+      devices: [{ id: 'probe-rig', name: 'Probe rig', pumps: 2, quench: 'optional', mixers: ['t-mixer'], notes: 'n' }],
+      // a lot every formulation record offers as a dilution buffer (the first full run found it unescaped there)
+      buffers: [{ id: 'Buffer-901', name: 'Probe buffer', lot: 'PROBE-LOT', system: 'PBS', conc_mM: 10, targetPH: 7.4, volume_mL: 500, roles: ['dialysis', 'final'], notes: 'n', date: today }],
+    };
+    const def = was.settings.find((x) => x.id === 'default') || { id: 'default' };
+    const settings = [...was.settings.filter((x) => x.id !== 'default'), { ...def, bio: { invitro: true, invivo: true, biodist: true, tropism: true }, personalBuild: true, resultsGrid: true, troubleshooter: true, mlDescriptors: true, operator: 'op' }];
+    for (const c of COLS) {
+      const rows = c === 'settings' ? settings : [...(base[c] || was[c]), ...(seed[c] || [])];
+      await writeCol(page, c, c === 'settings' ? rows.map((x) => (x.id === 'default' ? { ...x, operator: x.operator + tag('settings.operator') } : x)) : rows.map((r) => poison(r, c)));
+    }
+    await page.evaluate(() => { window.__xss = new Set(); });
+    const exps = base.experiments.map((e) => e.id);
+    const screens = ['overview', 'advisor', 'designs', 'experiments', 'formulation', 'calendar', 'stocks', 'buffers', 'data', 'measurements', 'quarantine', 'doe', 'insights', 'studies', 'ml', 'materials', 'settings',
+      'materials?tab=lipids', 'materials?tab=compositions', 'materials?tab=rna', 'materials?tab=devices', 'studies?id=Study-901', 'quarantine?id=q-probe', 'stocks?id=Stock-901',
+      // the forms that list the lab's lipids, compositions and buffers in their pickers
+      'experiments?new=1&type=comparison', 'experiments?new=1&type=doe&mode=mixture', 'experiments?new=1&type=single', 'buffers?id=Buffer-901',
+      // every record of a kind with a page of its own: each kind of text appears where some record has it, and a
+      // sample of them missed a remark and an instrument file name on the third run
+      ...exps.flatMap((e) => [`experiments?id=${e}`, `doe?id=${e}`]), ...bats.map((b) => `formulation?batch=${b}`),
+      ...was.measurements.map((m) => `measurements?id=${m.id}`), ...was.stocks.map((x) => `stocks?id=${x.id}`), ...was.buffers.map((x) => `buffers?id=${x.id}`),
+      ...was.studies.map((x) => `studies?id=${x.id}`), `data?ids=${bats.slice(0, 3).join(',')}`];
+    const hits = new Set();
+    for (const s of screens) {
+      await open(s);
+      await page.evaluate(() => document.querySelectorAll('details:not([open])').forEach((d) => { d.open = true; d.dispatchEvent(new Event('toggle')); }));
+      await page.waitForTimeout(s.includes('?id=') || s.includes('?batch=') ? 150 : 400);
+      for (const h of await page.evaluate(() => { const x = [...(window.__xss || [])]; window.__xss = new Set(); return x; })) hits.add(`${h} on ${s}`);
+    }
+    // an image that failed late, after the last screen
+    await page.waitForTimeout(800);
+    for (const h of await page.evaluate(() => [...(window.__xss || [])])) hits.add(`${h} (late)`);
+    if (hits.size) throw new Error(`text from a record ran as script: ${[...hits].slice(0, 8).join('; ')}`);
+  } finally {
+    for (const c of COLS) await writeCol(page, c, was[c]);
+    if (errors) {
+      const mine = errors.splice(errAt);
+      errors.push(...mine.filter((e) => !/attribute [\w-]+: Expected (length|number), "NaN"|Failed to load resource: the server responded with a status of 404/.test(e)));
+    }
+  }
+}
+scenarios.push(recordTextIsNeverMarkup);

@@ -1,0 +1,136 @@
+*** ClickNumber:	BMD20230209123405
+ClickInfoType:	SingleClickAnalysis
+
+*** photographic image:	photograph.TIF
+Acquisition Date:	Thursday, February 9, 2023
+Acquisition Time:	12:34:12
+Acquisition Seconds:	3758812452
+Pixel Width:	1
+Pixel Height:	1
+Binning Factor:	4
+Image Units:	counts
+f Number:	8
+Field of View:	21.8
+Filter Position:	1
+Emission filter:	Open
+Exposure Time Sec:	0.2
+Object radius:	0.75
+Subject size:	1.5
+Error Wave:	No Error
+
+*** luminescent image:	luminescent.TIF
+Acquisition Date:	Thursday, February 9, 2023
+Acquisition Time:	12:34:28
+Acquisition Seconds:	3758812468
+Pixel Width:	1
+Pixel Height:	1
+Image Units:	counts
+Binning Factor:	8
+Luminescent Exposure (Seconds):	60
+Luminescent Exposure Units:	sec
+f Number:	1
+Field of View:	21.8
+Read Bias Level:	747.94
+Emission filter:	Open
+Filter Position:	1
+Excitation filter:	Block
+Subject size:	1.5
+Demand Temperature:	-85
+Measured Temperature:	-85
+Error Wave:	No Error
+Cosmic:	0
+Background Corrected:	0
+Flat Field Corrected:	0
+
+*** readbias image:	readbias.TIF
+Acquisition Date:	Thursday, February 9, 2023
+Acquisition Time:	12:34:28
+Acquisition Seconds:	3758812468
+Pixel Width:	1
+Pixel Height:	1
+Data Multiplier:	10
+Binning Factor:	8
+Demand Temperature:	-85
+Measured Temperature:	-85
+Temperature Lock Status:	Locked
+Background Exposure (Seconds):	0.0
+Background Click:	BKG20230209031753
+
+*** darkcharge image:	background.TIF
+Acquisition Date:	Thursday, February 9, 2023
+Acquisition Time:	12:34:28
+Acquisition Seconds:	3758812468
+Pixel Width:	1
+Pixel Height:	1
+Data Multiplier:	10
+Read Bias Level:	747.497
+Binning Factor:	8
+Demand Temperature:	-85
+Measured Temperature:	-85
+Temperature Lock Status:	Locked
+Background Exposure (Seconds):	60
+Background Click:	BKG20230209031753
+
+*** readbiasonly image:	readbiasonly.TIF
+Acquisition Date:	Thursday, February 9, 2023
+Acquisition Time:	12:35:32
+Acquisition Seconds:	3758812532
+Pixel Width:	1
+Pixel Height:	1
+Binning Factor:	8
+Read Bias Level:	747.94
+Demand Temperature:	-85
+Measured Temperature:	-85
+Data Multiplier:	1
+Background Exposure (Seconds):	0.0
+
+*** User Label Name Set:	Living Image Universal
+User:	
+Group:	
+Experiment:	
+Comment1:	579G 580G 581G
+Comment2:	
+Time Point:	
+Animal Number:	
+Animal Strain:	
+Animal Model:	
+Sex:	
+View:	
+Cell Line:	
+Reporter:	
+Treatment:	
+Luc Injection Time:	
+IACUC Number:	
+
+*** User Input:	
+User ID:	BMD
+Display Type:	Overlay
+User:	
+Group:	
+Experiment:	
+Comment1:	
+Comment2:	
+Time Point:	
+Animal Number:	
+Animal Strain:	
+Animal Model:	
+Sex:	
+View:	
+Cell Line:	
+Reporter:	
+Treatment:	
+Luc Injection Time:	
+IACUC Number:	
+Displayed Key Choices:	User;Group;Experiment;Comment1;Comment2;
+
+*** ROIs:	
+ROI 1:	zColorIndex=1;ROI Type=Measurement;ColorTable=BlueRedGreen;Subject ROI=_none_;Subject ID=;Subject Label=;Bkg ROI=_none_;LineSize=2.000000;Locked=0;PositionLocked=0;Shape=Circle;Xc=923.737171254619;Yc=692.465366910757;Width=190.572630027059;Height=201.374317558954;Angle=0.0000;Label=ROI 1;cm per pixel=0.011354166667;ROIColor=16711680;
+ROI 2:	zColorIndex=1;ROI Type=Measurement;ColorTable=BlueRedGreen;Subject ROI=_none_;Subject ID=;Subject Label=;Bkg ROI=_none_;LineSize=2.000000;Locked=0;PositionLocked=0;Shape=Circle;Xc=600.280638111940;Yc=641.751443948497;Width=190.572630027059;Height=201.374317558954;Angle=0.0000;Label=ROI 2;cm per pixel=0.011354166667;ROIColor=16711680;
+ROI 3:	zColorIndex=1;ROI Type=Measurement;ColorTable=BlueRedGreen;Subject ROI=_none_;Subject ID=;Subject Label=;Bkg ROI=_none_;LineSize=2.000000;Locked=0;PositionLocked=0;Shape=Circle;Xc=174.208073416232;Yc=609.940474167058;Width=190.572630027059;Height=201.374317558954;Angle=0.0000;Label=ROI 3;cm per pixel=0.011354166667;ROIColor=16711680;
+
+*** Tags:	 
+
+*** Comments:	 
+
+
+

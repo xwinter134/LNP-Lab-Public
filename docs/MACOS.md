@@ -208,7 +208,7 @@ Experiments › New, then each type in this order, so the first one is E1 (item 
   samples are named for E3, so they may be unmatched, with a menu to send each one to a formulation or the inbox.
   Leave it without importing.
 - [ ] Type a result by hand for a DLS sample that is due, with PDI 5. **Look for:** "Not saved … PDI 5 is outside
-  0–1 — did you mean 0.05?" and the field marked light red; with 0.05 it saves.
+  0–1, did you mean 0.05?" and the field marked light red; with 0.05 it saves.
 
 ### 6. The results figures and SVG/PNG export
 

@@ -6,10 +6,10 @@ const texts = (r) => r.errors.map((e) => e.text);
 
 test('a PDI of 5 is refused, and the message says what was probably meant', () => {
   const r = checkValues('dls', { zave_nm: 82.4, pdi: 5 });
-  assert.deepEqual(texts(r), ['PDI 5 is outside 0–1 — did you mean 0.05?']);
+  assert.deepEqual(texts(r), ['PDI 5 is outside 0–1, did you mean 0.05?']);
   assert.equal(r.errors[0].key, 'pdi');
   assert.match(checkValues('dls', { pdi: 12 }).errors[0].text, /did you mean 0\.12\?/);
-  assert.match(checkValues('dls', { pdi: -0.05 }).errors[0].text, /outside 0–1 — did you mean 0\.05\?/);
+  assert.match(checkValues('dls', { pdi: -0.05 }).errors[0].text, /outside 0–1, did you mean 0\.05\?/);
   // the bounds themselves are possible values
   assert.deepEqual(checkValues('dls', { zave_nm: 82, pdi: 0 }).errors, []);
   assert.deepEqual(checkValues('dls', { zave_nm: 82, pdi: 1 }).errors, []);
@@ -18,7 +18,7 @@ test('a PDI of 5 is refused, and the message says what was probably meant', () =
 test('Z-ave must be above 0 and at most 10 000 nm', () => {
   assert.match(texts(checkValues('dls', { zave_nm: 0 }))[0], /Z-ave 0 nm must be above 0/);
   assert.match(texts(checkValues('dls', { zave_nm: -80 }))[0], /must be above 0/);
-  assert.equal(texts(checkValues('dls', { zave_nm: 82400 }))[0], 'Z-ave 82400 nm is above 10000 nm — did you mean 82.4?');
+  assert.equal(texts(checkValues('dls', { zave_nm: 82400 }))[0], 'Z-ave 82400 nm is above 10000 nm, did you mean 82.4?');
   assert.deepEqual(checkValues('dls', { zave_nm: 10000 }).errors, []);
 });
 
@@ -30,11 +30,11 @@ test('a bad run is named, and the mean it spoils is not reported a second time',
 });
 
 test('EE outside 0–100 %, |zeta| above 200 mV and negative concentrations are refused', () => {
-  assert.equal(texts(checkValues('ee', { ee_pct: 925 }))[0], 'EE 925 % is outside 0–100 % — did you mean 92.5?');
+  assert.equal(texts(checkValues('ee', { ee_pct: 925 }))[0], 'EE 925 % is outside 0–100 %, did you mean 92.5?');
   assert.equal(texts(checkValues('ee', { ee_pct: 101 }))[0], 'EE 101 % is outside 0–100 %');
   assert.equal(checkValues('ee', { ee_pct: -1 }).errors.length, 1);
   assert.deepEqual(checkValues('ee', { ee_pct: 100 }).errors, []);
-  assert.equal(texts(checkValues('zeta', { zeta_mV: -350 }))[0], 'Zeta -350 mV is outside ±200 mV — did you mean -35?');
+  assert.equal(texts(checkValues('zeta', { zeta_mV: -350 }))[0], 'Zeta -350 mV is outside ±200 mV, did you mean -35?');
   assert.deepEqual(checkValues('zeta', { zeta_mV: -200 }).errors, []);
   assert.equal(texts(checkValues('ee', { ee_pct: 95, free_mg_mL: -0.001 }))[0], 'Free RNA -0.001 mg/mL cannot be negative');
   assert.equal(texts(checkValues('content', { rna_mg_mL: -0.1 }))[0], 'RNA content -0.1 mg/mL cannot be negative');
@@ -48,7 +48,7 @@ test('EE outside 0–100 %, |zeta| above 200 mV and negative concentrations are 
 test('probable unit slips are warnings, not refusals', () => {
   const f = checkValues('ee', { ee_pct: 0.95 });
   assert.deepEqual(f.errors, []);
-  assert.match(f.warnings[0].text, /looks like a fraction — was it 95 %/);
+  assert.match(f.warnings[0].text, /looks like a fraction, was it 95 %/);
   const u = checkValues('content', { rna_mg_mL: 45 });
   assert.deepEqual(u.errors, []);
   assert.match(u.warnings[0].text, /was it µg\/mL \(0\.045 mg\/mL\)/);

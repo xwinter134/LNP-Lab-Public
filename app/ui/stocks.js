@@ -50,9 +50,9 @@ export async function render(el, ctx) {
       ['Lot', 'Composition', { label: 'mM', right: true }, { label: 'mL', right: true }, { label: 'mg/mL', right: true }, 'Date', 'Status', 'Expiry', 'Freeze–thaw', ''],
       stocks.map((s) => {
         const exp = s.expiry ? (s.expiry < today ? chip('expired', 'warn') : s.expiry <= addDays(today, 7) ? chip('expires ' + fmtDate(s.expiry), 'warn') : chip(fmtDate(s.expiry))) : '';
-        return { attrs: `data-stock="${esc(s.id)}"`, cells: [raw(`<a href="#/stocks?id=${s.id}"><b>${s.id}</b></a>`), `#${s.compositionId} ${s.name || ''}`, fmt(s.molarity_mM, 1), fmt(s.volume_mL, 1), fmt(s.lipidMgPerMl, 1), fmtDate(s.date), raw(chip(s.status, s.status === 'made' ? 'ok' : 'info')), raw(exp),
+        return { attrs: `data-stock="${esc(s.id)}"`, cells: [raw(`<a href="#/stocks?id=${esc(s.id)}"><b>${esc(s.id)}</b></a>`), `#${s.compositionId} ${s.name || ''}`, fmt(s.molarity_mM, 1), fmt(s.volume_mL, 1), fmt(s.lipidMgPerMl, 1), fmtDate(s.date), raw(chip(s.status, s.status === 'made' ? 'ok' : 'info')), raw(exp),
           raw(`${thawChip(s, limit) || '<span class="muted">0</span>'} <button type="button" class="ghost thawRow" data-thaw-stock="${esc(s.id)}" title="Log a freeze–thaw cycle of ${esc(s.id)}, today"${thawedOn(s, today) ? ' disabled' : ''}>${thawedOn(s, today) ? 'thawed today' : 'Thawed today'}</button>`),
-          raw(`<a href="#/stocks?id=${s.id}">Open</a>`)] };
+          raw(`<a href="#/stocks?id=${esc(s.id)}">Open</a>`)] };
       }),
       { empty: 'No stock lots yet. Click "New stock".' });
   }
@@ -75,7 +75,7 @@ export async function render(el, ctx) {
   /** The form, for a stock on record or a new one. Returns true when it is going on with the draft of a new stock. */
   function renderEditor(stock) {
     const state = stock ? JSON.parse(JSON.stringify(stock)) : {
-      compositionId: ref.compositions[ref.compositions.length - 1]?.id, molPct: null, molarity_mM: settings.defaultLipidStock_mM,
+      compositionId: ref.active.compositions[ref.active.compositions.length - 1]?.id, molPct: null, molarity_mM: settings.defaultLipidStock_mM,
       volume_mL: settings.defaultStockVolume_mL, date: todayISO(), operator: settings.operator, actual: {}, lots: {},
       container: '100 mL glass vial', filter: 'PES 0.2 µm syringe filter', notes: '',
     };
@@ -156,12 +156,12 @@ export async function render(el, ctx) {
       const { plan, rec, lipidsIn, err } = compute();
       const limit = settings.ftWarnCycles;
       // A composition deleted under Materials since: the stock keeps its mol% and still names it, marked so.
-      const compOptions = [...ref.compositions.map((c) => ({ value: c.id, label: compositionLabel(c, ref) })),
+      const compOptions = [...ref.pick('compositions', state.compositionId).map((c) => ({ value: c.id, label: compositionLabel(c, ref) })),
         ...(comp ? [] : [{ value: state.compositionId, label: `#${state.compositionId} (deleted; this stock keeps its recipe)` }])];
       // One card per lipid rather than a wide table. At a balance you read one number, weigh it, type what
       // the balance said, and move on; a row of ten columns makes you find that number again each time.
       const cards = plan ? plan.rows.map((r) => {
-        const lotsFor = ref.lipidLots.filter((x) => x.lipidKey === r.key);
+        const lotsFor = ref.pick('lipidLots', state.lots[r.key]).filter((x) => x.lipidKey === r.key);
         const a = rec.rows.find((x) => x.key === r.key);
         const dev = a?.deviationPct;
         const devClass = dev == null ? '' : Math.abs(dev) > 2 ? 'dev warn' : 'dev ok';
@@ -174,17 +174,17 @@ export async function render(el, ctx) {
         const lotThaw = chosen ? `<div class="wcThaw" data-lot-thaw-of="${esc(chosen.id)}">${thawChip(chosen, limit) || '<span class="muted">0 F/T</span>'} ${thawedOn(chosen, todayISO())
           ? '<span class="muted">thaw logged today</span>'
           : `<button type="button" class="ghost" data-lotthaw="${esc(chosen.id)}" title="Log a freeze–thaw cycle of lot ${esc(chosen.lot)}: it was thawed for this weigh-in">Log thaw of ${esc(chosen.lot)}</button>`}</div>` : '';
-        return `<div class="weighCard" data-key="${r.key}">
+        return `<div class="weighCard" data-key="${esc(r.key)}">
           <div class="wcHead"><b>${esc(r.name)}</b><span class="wcClass">${lipidClassChip(ref.lipidByKey[r.key]?.class)}</span></div>
-          <div class="wcPct"><input type="number" step="0.1" name="pct_${r.key}" value="${r.pct}" class="advanced"><span class="simpleOnly">${pctText(r.pct)}</span> mol% · ${fmt(r.mw, 2)} g/mol</div>
+          <div class="wcPct"><input type="number" step="0.1" name="pct_${esc(r.key)}" value="${esc(r.pct)}" class="advanced"><span class="simpleOnly">${pctText(r.pct)}</span> mol% · ${fmt(r.mw, 2)} g/mol</div>
           <div class="wcTarget">${fmt(r.weighG, 4)}<span>g</span></div>
           <div class="wcMmol">${fmt(r.mmol, 4)} mmol</div>
           <label class="wcActual">weighed
-            <input type="number" step="0.00001" name="actual_${r.key}" value="${state.actual[r.key] ?? ''}" placeholder="g">
+            <input type="number" step="0.00001" name="actual_${esc(r.key)}" value="${esc(state.actual[r.key] ?? '')}" placeholder="g">
           </label>
-          <div class="${devClass}" data-dev="${r.key}">${dev == null ? '&nbsp;' : `${dev > 0 ? '+' : ''}${fmt(dev, 1)} % · ${fmt(a.mmolActual, 4)} mmol`}</div>
+          <div class="${devClass}" data-dev="${esc(r.key)}">${dev == null ? '&nbsp;' : `${dev > 0 ? '+' : ''}${fmt(dev, 1)} % · ${fmt(a.mmolActual, 4)} mmol`}</div>
           <div class="wcLot">${lotsFor.length || gone
-            ? `<select name="lot_${r.key}"><option value="">no lot recorded</option>${lotsFor.map((x) => `<option value="${x.id}" ${lipidsIn[r.key].lot?.id === x.id ? 'selected' : ''}>${esc(x.lot)}${tracked ? esc(ftTag(ctx.store.get('lipidLots', x.id) || x, limit)) : ''}</option>`).join('')}${gone ? `<option value="${esc(gone.id)}" selected>${esc(gone.lot)} (deleted)</option>` : ''}</select>`
+            ? `<select name="lot_${esc(r.key)}"><option value="">no lot recorded</option>${lotsFor.map((x) => `<option value="${esc(x.id)}" ${lipidsIn[r.key].lot?.id === x.id ? 'selected' : ''}>${esc(x.lot)}${tracked ? esc(ftTag(ctx.store.get('lipidLots', x.id) || x, limit)) : ''}</option>`).join('')}${gone ? `<option value="${esc(gone.id)}" selected>${esc(gone.lot)} (deleted)</option>` : ''}</select>`
             : '<span class="muted">no lot recorded</span>'}</div>
           ${lotThaw}
         </div>`;
@@ -194,7 +194,7 @@ export async function render(el, ctx) {
       // Its card holds only that mol%; once it is above 0 the lipid is weighed like the others.
       const unweighed = plan ? Object.keys(state.molPct).filter((k) => !(state.molPct[k] > 0)).map((k) => `<div class="weighCard advanced" data-key="${esc(k)}">
           <div class="wcHead"><b>${esc(ref.lipidByKey[k]?.name || k)}</b><span class="wcClass">${lipidClassChip(ref.lipidByKey[k]?.class)}</span></div>
-          <div class="wcPct"><input type="number" step="0.1" min="0" name="pct_${esc(k)}" value="${state.molPct[k] ?? 0}" aria-label="${esc(ref.lipidByKey[k]?.name || k)} mol%"> mol% · ${fmt(ref.lipidByKey[k]?.mw, 2)} g/mol</div>
+          <div class="wcPct"><input type="number" step="0.1" min="0" name="pct_${esc(k)}" value="${esc(state.molPct[k] ?? 0)}" aria-label="${esc(ref.lipidByKey[k]?.name || k)} mol%"> mol% · ${fmt(ref.lipidByKey[k]?.mw, 2)} g/mol</div>
           <div class="muted">Give it a mol% to weigh it in. The other lipids keep theirs, so lower one of them to bring the total back to 100 %.</div>
         </div>`).join('') : '';
 
@@ -204,8 +204,8 @@ export async function render(el, ctx) {
           <div class="wcStep ${rec.complete ? '' : 'pending'}"><span class="n">2</span><div><b>Add ethanol</b><div class="muted">${rec.complete ? `${fmt(rec.ethanolG, 3)} g = ${fmt(rec.ethanolMl, 2)} mL` : 'enter every weighed mass first'}</div></div></div>
           <div class="wcStep ${rec.complete ? '' : 'pending'}"><span class="n">3</span><div><b>Result</b><div class="muted">${rec.complete ? `${fmt(rec.finalVolumeMl, 2)} mL at ${fmt(rec.molarity_mM, 2)} mM · ${fmt(plan.lipidMgPerMl, 2)} mg/mL` : `target ${fmt(plan.lipidMgPerMl, 2)} mg/mL`}</div></div></div>
         </div>
-        ${plan.warnings.map((w) => `<div class="note warn">${w}</div>`).join('')}
-        <div class="advanced"><h2 style="margin-top:12px">Mass fractions (for HPLC lipid content)</h2>${table(['Lipid', { label: 'w/w %', right: true }], plan.rows.map((r) => ({ cells: [r.name, fmt(massFractions(plan)[r.key] * 100, 2)] })))}</div>` : `<div class="note warn">${err}</div>`;
+        ${plan.warnings.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}
+        <div class="advanced"><h2 style="margin-top:12px">Mass fractions (for HPLC lipid content)</h2>${table(['Lipid', { label: 'w/w %', right: true }], plan.rows.map((r) => ({ cells: [r.name, fmt(massFractions(plan)[r.key] * 100, 2)] })))}</div>` : `<div class="note warn">${esc(err)}</div>`;
 
       // Through swapHtml: the user is usually in a field of this form when it is rebuilt, and must stay there.
       if (!swapHtml(box, html`<div class="card" id="stockForm">
@@ -343,7 +343,7 @@ export async function render(el, ctx) {
     // A menu of the lipids not yet in the recipe, not prompt(): the macOS app's window shows no prompt() and
     // answers null at once, so a lipid could never be added there.
     function addLipidMenu() {
-      const free = ref.lipids.filter((l) => !(l.key in state.molPct));
+      const free = ref.active.lipids.filter((l) => !(l.key in state.molPct));
       return free.length ? `<select id="addLipid" aria-label="Add lipid row" style="width:auto"><option value="">Add lipid row …</option>${free.map((l) => `<option value="${esc(l.key)}">${esc(l.name)}</option>`).join('')}</select>` : '';
     }
 
@@ -429,13 +429,13 @@ export async function render(el, ctx) {
       const { plan } = compute();
       if (!plan) return;
       const f = readForm(box);
-      const body = `<h1>Lipid stock weigh-in · ${state.id || 'new'}</h1>
-        <div class="muted">Composition #${state.compositionId} ${comp?.synonym || ''} · ${fmt(state.molarity_mM, 1)} mM · ${fmt(state.volume_mL, 1)} mL · ${f.date} · operator ${f.operator}</div>
+      const body = `<h1>Lipid stock weigh-in · ${esc(state.id || 'new')}</h1>
+        <div class="muted">Composition #${esc(state.compositionId)} ${esc(comp?.synonym || '')} · ${fmt(state.molarity_mM, 1)} mM · ${fmt(state.volume_mL, 1)} mL · ${esc(f.date)} · operator ${esc(f.operator)}</div>
         <h2>Weigh-in</h2><table><tr><th>Lipid</th><th>Lot</th><th class="r">mol%</th><th class="r">MW</th><th class="r">mmol</th><th class="r">Target g</th><th>Actual g</th></tr>
-        ${plan.rows.map((r) => `<tr><td>${r.name}</td><td>${state.lots[r.key] ? (ref.lipidLots.find((x) => x.id === state.lots[r.key])?.lot || '') : '<span class="blank"></span>'}</td><td class="r">${pctText(r.pct)}</td><td class="r">${fmt(r.mw, 2)}</td><td class="r">${fmt(r.mmol, 4)}</td><td class="r"><b>${fmt(r.weighG, 4)}</b></td><td><span class="blank" style="min-width:90px"></span></td></tr>`).join('')}
+        ${plan.rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${state.lots[r.key] ? esc(ref.lipidLots.find((x) => x.id === state.lots[r.key])?.lot || '') : '<span class="blank"></span>'}</td><td class="r">${pctText(r.pct)}</td><td class="r">${fmt(r.mw, 2)}</td><td class="r">${fmt(r.mmol, 4)}</td><td class="r"><b>${fmt(r.weighG, 4)}</b></td><td><span class="blank" style="min-width:90px"></span></td></tr>`).join('')}
         <tr><th colspan="5">Total</th><th class="r">${fmt(plan.weighTotalG, 4)}</th><th></th></tr></table>
         <h2>Ethanol</h2><p>Pre-warm absolute ethanol in the water bath. Ethanol to add (g) = (Σ actual mmol / ${fmt(plan.totalMmol, 4)} mmol × ${fmt(state.volume_mL, 1)} mL × 0.79 g/mL) − Σ actual g. Add to the lipids and mix 1–3 h at 35 °C.</p>
-        <table><tr><th>Ethanol lot</th><th>Ethanol weighed (g)</th><th>Mixing time (h)</th><th>Filtration</th><th>Container</th></tr><tr><td><span class="blank"></span></td><td><span class="blank"></span></td><td><span class="blank"></span></td><td>${f.filter ?? state.filter}</td><td>${f.container ?? state.container}</td></tr></table>
+        <table><tr><th>Ethanol lot</th><th>Ethanol weighed (g)</th><th>Mixing time (h)</th><th>Filtration</th><th>Container</th></tr><tr><td><span class="blank"></span></td><td><span class="blank"></span></td><td><span class="blank"></span></td><td>${esc(f.filter ?? state.filter)}</td><td>${esc(f.container ?? state.container)}</td></tr></table>
         <p class="muted">Expected lipid content ${fmt(plan.lipidMgPerMl, 1)} mg/mL</p>
         <div class="sig"><div>Date / signature operator</div><div>Date / signature review</div></div>`;
       printHtml(`Weigh-in ${state.id || ''}`, body);

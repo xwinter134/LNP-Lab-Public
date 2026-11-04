@@ -4,7 +4,8 @@
 // produced it, what to expect from the runs, and what commonly goes wrong, with the terms linked to the
 // reference. Someone who disagrees with the advice should be able to see exactly where they disagree.
 import { header, esc } from './kit.js';
-import { getRef } from '../refdata.js';
+import { getRef, getSettings } from '../refdata.js';
+import { renderTrouble } from './trouble.js';
 import { AIMS, SYMPTOMS, BUDGETS, SCOPES, advise } from '../calc/advise.js';
 import { ALL_FACTORS } from '../calc/ml/space.js';
 import { buildRows } from '../calc/ml/dataset.js';
@@ -43,6 +44,9 @@ export async function render(el, ctx) {
     wireLearn(el.querySelector('#advRoot'));
     return;
   }
+
+  // Spec 9.4, behind its setting: the troubleshooting path is an assistant with its own three steps.
+  if (state.aim === 'trouble' && getSettings(ctx).troubleAssistant) return renderTrouble(el, ctx);
 
   // Which question is still unanswered decides what is on screen.
   const needsSymptom = state.aim === 'trouble' && !state.symptom;

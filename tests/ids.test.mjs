@@ -52,12 +52,15 @@ test('the session: E10 deleted, the next experiment is E11, not E10 again', () =
   assert.equal(s.get('batches', 'E10-F1').experimentId, 'E10');
 });
 
-test('a result still names its formulation after the trash entry has expired, so its number stays taken', () => {
+test('a result still names its formulation after the trash entry has gone, so its number stays taken', () => {
   const s = lab();
   deleteExperiment(s, 'E10', new Date('2026-08-01T10:00:00Z'));
-  // A later delete drops trash entries older than TRASH_DAYS: E10 is gone for good, its result is not.
+  // A later delete drops trash entries older than TRASH_DAYS, but not this one: m1 still names E10-F1 (spec 12.2).
   deleteExperiment(s, 'E3', new Date(Date.parse('2026-08-01T10:00:00Z') + (TRASH_DAYS + 1) * 864e5));
-  assert.ok(!JSON.stringify(s.all('trash')).includes('"E10"'), 'the E10 entry has expired');
+  assert.ok(JSON.stringify(s.all('trash')).includes('"E10"'), 'the E10 entry is kept while its result names it');
+  // An entry an earlier version let expire, or a trash cleared by hand: E10 is gone for good, its result is not.
+  s.replace('trash', s.all('trash').filter((t) => !JSON.stringify(t).includes('"E10"')));
+  assert.ok(!JSON.stringify(s.all('trash')).includes('"E10"'), 'the E10 entry has gone');
   assert.equal(nextExperimentId(usedIds(s, 'experiment')), 'E11', 'm1 still names E10-F1');
   assert.ok(usedIds(s, 'formulation').includes('E10-F1'));
   assert.deepEqual(orphanedResults(s), { missing: [{ id: 'm1', batchId: 'E10-F1' }], reused: [] });

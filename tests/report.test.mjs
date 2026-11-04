@@ -96,7 +96,7 @@ test('a reference experiment: header, plan, statistics, data table with mean ± 
   assert.match(t, /Type Reference reproducibility · all measured/);
   assert.match(t, /Dates started 20 Oct 2026 · production 20 Oct 2026 · measured 21 Oct 2026 – 22 Oct 2026/);
   assert.match(t, /Operator AB /, 'whoever entered the results, before the operator in Settings');
-  assert.match(t, /Composition #1 MC3 reference \(Onpattro-like\) — DLin-MC3-DMA 50 \/ DSPC 10 \/ Cholesterol 38\.5 \/ DMG-PEG2000 1\.5/);
+  assert.match(t, /Composition #1 MC3 reference \(Onpattro-like\), DLin-MC3-DMA 50 \/ DSPC 10 \/ Cholesterol 38\.5 \/ DMG-PEG2000 1\.5/);
   assert.match(t, /Lots lipid stock Stock-004 \(#1, 50\.0 mM\) · mRNA RNA-7 \(FLuc mRNA, 1\.02 mg\/mL\)/);
   // the cargo names the RNA (calc/cargo.js): an older record without one is mRNA
   assert.match(t, /Process FRR 3 : 1 · total flow 112\.5 mL\/min · quench ×2 · lipid stock 50 mM · mRNA per batch 3 mg · RNA working conc\. 0\.40 mg\/mL · N\/P \d/);
@@ -120,7 +120,7 @@ test('a comparison made in triplicate: the per-arm table and the test between ar
   const z = [80, 81, 82, 90, 92, 89], p = [0.10, 0.12, 0.11, 0.11, 0.10, 0.12];
   const ms = batches.map((b, i) => dls(b.id, [[z[i] - 1, p[i]], [z[i] + 1, p[i]]]));
   const t = words(experimentReport({ exp: experiment, batches, measurements: ms, ref, settings, now: NOW }).body);
-  assert.match(t, /Compositions #1 MC3 reference[\s\S]*#2 More PEG — DLin-MC3-DMA 50 \/ DSPC 10 \/ Cholesterol 37 \/ DMG-PEG2000 3/);
+  assert.match(t, /Compositions #1 MC3 reference[\s\S]*#2 More PEG, DLin-MC3-DMA 50 \/ DSPC 10 \/ Cholesterol 37 \/ DMG-PEG2000 3/);
   assert.match(t, /2 compositions compared under one process, #1 MC3 reference \(Onpattro-like\) \(3 batches\) and #2 More PEG \(3 batches\): 6 formulations in all/);
   assert.match(t, /#2 \(E1-F4, E1-F5, E1-F6\) against #1: Z-ave \+9\.3 nm/);
   assert.match(t, /Welch’s t-test on the batch means \(n = 3 and 3 batches\): #2 differs from #1 in Z-ave \(t = 8\.85, df = 3\.4, p = 0\.0017\)/);

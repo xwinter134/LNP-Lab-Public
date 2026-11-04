@@ -66,7 +66,8 @@ async function bench(batchId, opts = {}) {
 async function charts(scope = '#main') { return page.evaluate((sc) => [...document.querySelectorAll(`${sc} svg`)].filter((s) => { const r = s.getBoundingClientRect(); return r.width >= 160 && r.height >= 90; }).length, scope); }
 async function newExperiment(type, cardText) {
   await S.menu('experiments', 'Experiments in the sidebar');
-  await S.click('#main a.btn.primary[href="#/experiments?new=1"]', 'New experiment');
+  // "Plan an experiment" leads to the planner now; the session picks the type straight from the list of types.
+  await page.goto(base + '#/experiments?new=1'); await S.settle(600);
   await S.click(`#main a[href="#/experiments?new=1&type=${type}"]`, `type card: ${cardText}`);
 }
 async function createAndRead(name) {

@@ -12,6 +12,8 @@
 
 /* ---------------- text ---------------- */
 
+import { csvLine } from './csv.js';
+
 // The characters this app actually puts in a label and their WinAnsiEncoding byte. Anything else outside
 // ASCII is transliterated rather than dropped silently, so a degree sign never becomes an invisible gap.
 const WIN_ANSI = {
@@ -204,10 +206,6 @@ export function tableTsv(columns, rows) {
 
 /** The same as comma-separated values, quoted where a value needs it. */
 export function tableCsv(columns, rows) {
-  const q = (v) => {
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const head = columns.map((c) => q(c.sub ? `${c.label} (${c.sub})` : c.label)).join(',');
-  return [head, ...rows.map((r) => r.map(q).join(','))].join('\n');
+  const head = csvLine(columns.map((c) => (c.sub ? `${c.label} (${c.sub})` : c.label)));
+  return [head, ...rows.map((r) => csvLine(r))].join('\n');
 }

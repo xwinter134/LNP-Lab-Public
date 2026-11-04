@@ -1,0 +1,10 @@
+exp_key,form_key,test,stage,date,zave_nm,pdi,zave_sd,zeta_mV,ee_pct,total_mg_mL,free_mg_mL,replicate,source_file,sheet,notes
+GH-2024-03,F1,dls,final,2024-03-13,98.2,0.12,1.1,,,,,,DLS_2024-03-13.xlsx,Results,
+GH-2024-03,F2,dls,final,2024-03-13,81.5,0.09,0.8,,,,,,DLS_2024-03-13.xlsx,Results,
+GH-2024-03,F3,dls,final,2024-03-14,74.0,8.5,,,,,,,DLS_2024-03-14.xlsx,Results,PDI 8.5: a typing slip for 0.085?
+GH-2024-03,F1,ee,final,2024-03-13,,,,,93.1,0.098,0.0068,,RiboGreen_0313.xlsx,Plate1,
+GH-2024-03,F2,ee,final,2024-03-13,,,,,95.4,0.101,0.0046,,RiboGreen_0313.xlsx,Plate1,
+GH-2024-05,A,dls,final,2024-05-03,88,0.15,,,,,,,DLS_0503.csv,,
+GH-2024-05,B,dls,final,2024-05-03,79,0.11,,,,,,,DLS_0503.csv,,
+GH-2024-05,B,zeta,final,2024-05-03,,,,-3.2,,,,,Zeta_0503.csv,,
+GH-2024-05,C,dls,final,2024-05-03,90,0.2,,,,,,,DLS_0503.csv,,formulation was refused

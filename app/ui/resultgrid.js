@@ -42,7 +42,9 @@ let gridRuns = false;
 const GRID_RUNS = 3;
 
 export function saveMeasurement(ctx, settings, m) {
-  const rec = { id: uid(), ...m, slotId: m.slot?.id || null, flags: qcFlags(m.test, m.values, settings.qc) };
+  // Where it came from (spec 4.3): an instrument file names itself in `raw`, anything else was typed in.
+  const prov = m.provenance || (m.raw?.sha256 ? { source: 'instrument-import', file: { name: m.raw.fileName || null, sha256: m.raw.sha256 }, importedAt: new Date().toISOString(), importedBy: m.operator || undefined } : { source: 'manual' });
+  const rec = { id: uid(), ...m, provenance: prov, slotId: m.slot?.id || null, flags: qcFlags(m.test, m.values, settings.qc) };
   delete rec.slot;
   // The result, the slot it closes and the formulation's status are one write: stored together, or undone
   // together and said so, never a result whose slot still reads as open (usability cycle 4, S1).
@@ -263,5 +265,5 @@ function storedCell(m, c) {
   const dp = c.key === 'pdi' ? 3 : c.key === 'rna_mg_mL' || c.key === 'total_mg_mL' ? 3 : 1;
   const shown = x == null ? '–' : fmt(x, dp);
   const flagged = (m.flags || []).length;
-  return `<a class="gstored${flagged ? ' flagged' : ''}" href="#/measurements?id=${esc(m.id)}" title="Stored ${esc(fmtDate(m.date))}${flagged ? ' · ' + esc(m.flags.join(', ')) : ''} — open to correct it">${shown}</a>`;
+  return `<a class="gstored${flagged ? ' flagged' : ''}" href="#/measurements?id=${esc(m.id)}" title="Stored ${esc(fmtDate(m.date))}${flagged ? ' · ' + esc(m.flags.join(', ')) : ''}, open to correct it">${shown}</a>`;
 }

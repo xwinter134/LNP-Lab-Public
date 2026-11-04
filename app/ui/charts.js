@@ -116,6 +116,73 @@ export function scatterChart({ points, xlab = '', ylab = '', title = '', refX = 
   return axes({ w, h, L, R, T, B, yt, sy, xlab, ylab, title }) + refs + dots + xl + '</svg>';
 }
 
+/**
+ * Fold over a reference, one column per group, on a log axis (spec 8.4): every animal or well as a point, the
+ * geometric mean as a bar from 1-fold, its 95 % confidence interval as a whisker, the reference as a dashed
+ * line at 1-fold, and n under each label. A log axis because a 10-fold gain and a 10-fold loss are the same
+ * size of effect, and because biological signals spread in proportion to their size.
+ * groups: [{label, points: [fold], mean, lo, hi, n, color, note}]
+ */
+export function foldChart({ groups, ylab = 'fold over reference', title = '', w = 460, h = 260 }) {
+  const all = groups.flatMap((g) => [...(g.points || []), g.mean, g.lo, g.hi]).filter((v) => Number.isFinite(v) && v > 0);
+  if (!all.length) return '';
+  const L = 54, R = 12, T = 14, B = groups.some((g) => String(g.label).length > 7) ? 62 : 46;
+  let lo = Math.floor(Math.log10(Math.min(1, ...all))), hi = Math.ceil(Math.log10(Math.max(1, ...all)));
+  if (hi - lo < 1) { lo -= 1; hi += 1; }
+  const sy = (v) => T + (1 - (Math.log10(v) - lo) / (hi - lo)) * (h - T - B);
+  const ticks = [];
+  for (let e = lo; e <= hi; e++) ticks.push(10 ** e);
+  const lab = (v) => (v >= 1 ? `${v >= 1000 ? `10${sup(Math.log10(v))}` : v}×` : v >= 0.001 ? `${v}×` : `10${sup(Math.log10(v))}×`);
+  const slot = (w - L - R) / groups.length, bw = Math.min(40, slot * 0.55);
+  const axis = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title || ylab)}" style="width:100%;max-width:${w}px;height:auto;display:block">
+    ${ticks.map((v) => `<line x1="${L}" x2="${w - R}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" class="ax" opacity=".45"/><text x="${L - 6}" y="${(sy(v) + 4).toFixed(1)}" class="lb" text-anchor="end">${lab(v)}</text>`).join('')}
+    <line x1="${L}" y1="${T}" x2="${L}" y2="${h - B}" class="ax"/><line x1="${L}" y1="${h - B}" x2="${w - R}" y2="${h - B}" class="ax"/>
+    <text x="12" y="${(T + h - B) / 2}" class="lb" text-anchor="middle" transform="rotate(-90 12 ${(T + h - B) / 2})">${esc(ylab)}</text>
+    <line x1="${L}" x2="${w - R}" y1="${sy(1).toFixed(1)}" y2="${sy(1).toFixed(1)}" stroke="var(--warn)" stroke-width="1.2" stroke-dasharray="5 4"/><text x="${L + 4}" y="${(sy(1) - 4).toFixed(1)}" class="lb" text-anchor="start">reference</text>`;
+  const body = groups.map((g, i) => {
+    const cx = L + slot * (i + 0.5), c = g.color || seriesColor(0);
+    const name = String(g.label);
+    const tick = name.length > 7
+      ? `<text x="${cx}" y="${h - B + 12}" class="lb" text-anchor="end" transform="rotate(-35 ${cx} ${h - B + 12})">${esc(name.length > 14 ? name.slice(0, 13) + '…' : name)}</text>`
+      : `<text x="${cx}" y="${h - B + 15}" class="lb" text-anchor="middle">${esc(name)}</text>`;
+    const nTxt = `<text x="${cx}" y="${h - 4}" class="lb" text-anchor="middle">n = ${g.n ?? (g.points || []).length}</text>`;
+    const bar = Number.isFinite(g.mean) && g.mean > 0 ? `<rect x="${(cx - bw / 2).toFixed(1)}" y="${Math.min(sy(g.mean), sy(1)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(sy(g.mean) - sy(1))).toFixed(1)}" rx="3" fill="${c}" opacity=".35"><title>${esc(name)}: ${fmtTick(g.mean)}-fold${g.note ? ` · ${g.note}` : ''}</title></rect>
+      <line x1="${cx - bw / 2}" x2="${cx + bw / 2}" y1="${sy(g.mean).toFixed(1)}" y2="${sy(g.mean).toFixed(1)}" stroke="${c}" stroke-width="2.4"/>` : '';
+    const ci = Number.isFinite(g.lo) && Number.isFinite(g.hi) && g.lo > 0 ? `<line x1="${cx}" x2="${cx}" y1="${sy(g.hi).toFixed(1)}" y2="${sy(g.lo).toFixed(1)}" stroke="var(--ink)" stroke-width="1.4"/><line x1="${cx - 6}" x2="${cx + 6}" y1="${sy(g.hi).toFixed(1)}" y2="${sy(g.hi).toFixed(1)}" stroke="var(--ink)" stroke-width="1.4"/><line x1="${cx - 6}" x2="${cx + 6}" y1="${sy(g.lo).toFixed(1)}" y2="${sy(g.lo).toFixed(1)}" stroke="var(--ink)" stroke-width="1.4"/>` : '';
+    const pts = (g.points || []).filter((p) => Number.isFinite(p) && p > 0).map((p, j, a) => `<circle cx="${(cx + jitter(j, a.length, bw * 0.6)).toFixed(1)}" cy="${sy(p).toFixed(1)}" r="3.2" fill="var(--card)" stroke="${c}" stroke-width="1.4"><title>${esc(name)}: ${fmtTick(p)}-fold</title></circle>`).join('');
+    return bar + ci + pts + tick + nTxt;
+  }).join('');
+  return axis + body + '</svg>';
+}
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const sup = (e) => String(Math.round(e)).split('').map((c) => SUP[c] || c).join('');
+
+/**
+ * Stacked shares, one bar per group, each part a share of 100 % (cell tropism, spec 8.4). Every part is named
+ * in the legend and in its tooltip, so the colours are never the only key.
+ * bars: [{label, parts: [{name, share}]}]
+ */
+export function stackedShares({ bars, title = '', w = 460, h = 240 }) {
+  if (!bars.length) return '';
+  const L = 44, R = 12, T = 12, B = 40;
+  const names = [...new Set(bars.flatMap((b) => b.parts.map((p) => p.name)))];
+  const sy = (v) => T + (1 - v) * (h - T - B);
+  const slot = (w - L - R) / bars.length, bw = Math.min(46, slot * 0.6);
+  const axis = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title || 'shares')}" style="width:100%;max-width:${w}px;height:auto;display:block">
+    ${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${w - R}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" class="ax" opacity=".45"/><text x="${L - 6}" y="${(sy(v) + 4).toFixed(1)}" class="lb" text-anchor="end">${Math.round(v * 100)} %</text>`).join('')}`;
+  const body = bars.map((b, i) => {
+    const cx = L + slot * (i + 0.5);
+    let acc = 0;
+    const segs = b.parts.map((p) => {
+      const y0 = sy(acc + p.share), y1 = sy(acc); acc += p.share;
+      const c = seriesColor(names.indexOf(p.name));
+      return p.share > 0 ? `<rect x="${(cx - bw / 2).toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, y1 - y0).toFixed(1)}" fill="${c}" opacity=".85"><title>${esc(b.label)} · ${esc(p.name)}: ${Math.round(p.share * 100)} %</title></rect>` : '';
+    }).join('');
+    return segs + `<text x="${cx}" y="${h - B + 15}" class="lb" text-anchor="middle">${esc(String(b.label).slice(0, 12))}</text>`;
+  }).join('');
+  return axis + body + '</svg>';
+}
+
 /** A legend row: identity is never colour alone, so every series is named next to its swatch. */
 export const legend = (items) => `<div class="fig-legend">${items.map((it, i) => `<span><i style="background:${it.color || seriesColor(i)}"></i>${esc(it.name)}</span>`).join('')}</div>`;
 

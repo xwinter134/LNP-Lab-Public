@@ -191,6 +191,19 @@ export function holmSidak(ps) {
 }
 
 /**
+ * Holm's step-down adjustment (Bonferroni–Holm), returned in the order given. The biological layers use it for
+ * "each group against the reference" (spec 8.4): it assumes nothing about how the comparisons depend on each
+ * other, which they do, since every one of them shares the reference group. Nulls stay null.
+ */
+export function holm(ps) {
+  const idx = ps.map((p, i) => [p, i]).filter(([p]) => Number.isFinite(p)).sort((a, b) => a[0] - b[0]);
+  const m = idx.length, out = ps.map(() => null);
+  let run = 0;
+  idx.forEach(([p, i], j) => { run = Math.max(run, Math.min(1, (m - j) * p)); out[i] = run; });
+  return out;
+}
+
+/**
  * Every pair of groups after a one-way ANOVA, as Prism does it: a t test on the ANOVA's pooled variance and
  * residual degrees of freedom, with Holm–Šídák adjusted p values.
  * @returns {Array<{i, j, diff, t, p, pAdj}>}

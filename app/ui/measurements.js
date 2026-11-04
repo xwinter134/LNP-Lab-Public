@@ -6,7 +6,9 @@
 // the top. So it now leads with what is due across every experiment, one line per experiment and stage; the
 // import card and the manual form are one line each until they are used; and the results list is filtered and
 // paged, and since cycle 5 one line (how many, how many flagged, the last added) until it is opened.
-import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask } from './kit.js';
+import { raw, fmt, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, sha256Hex, uid, esc, download, ask, registerDirty, fieldsChanged } from './kit.js';
+import { provenanceLine } from '../calc/provenance.js';
+import { provenanceBadge } from './provenance.js';
 import { parseISO } from '../calc/dates.js';
 import { getSettings } from '../refdata.js';
 import { info, wireLearn } from './learn.js';
@@ -19,6 +21,8 @@ import { mountImportEval, linkAssignedToImport } from './importeval.js';
 import { GRID_FIELDS, cellNumber, saveMeasurement, gridHtml, wireGrid } from './resultgrid.js';
 
 export { saveMeasurement };
+import { entryCard, wireEntry, previewCellHtml } from './entrygrid.js';
+import { COLUMN_BY_ID, GRID_COLUMNS } from '../calc/gridentry.js';
 
 /**
  * The tests a table can be imported as, and the columns the preview shows for each. The preview used to show
@@ -135,8 +139,11 @@ export async function render(el, ctx) {
           <textarea id="pasteBox" rows="5" placeholder="Sample Name,Z-Average (d.nm),PdI&#10;E3-F2_final,82.4,0.08"></textarea>
           <button id="pasteGo">Read what I pasted</button></details></div>
       <div id="importPreview"></div></div>` +
+    // Spec 9.3, behind its setting: the grid of an experiment's formulations, above the one-result form, which
+    // stays for what a grid cell cannot hold (potency with its cell line, remarks, a file reference).
+    (settings.entryGrid ? entryCard(ctx, settings, experiments, batches, stored) : '') +
     manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today) +
-    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${r.sampleName}</span>`), summarize(r), raw(`<select data-assign="${r.id}"><option value="">—</option>${openSlots.map((s) => `<option value="${s.id}">${s.sampleName} · ${s.test}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${r.id}" style="padding:4px 8px">Assign</button> <button data-drop="${r.id}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
+    (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>`), summarize(r), raw(`<select data-assign="${esc(r.id)}"><option value="">–</option>${openSlots.map((s) => `<option value="${esc(s.id)}">${esc(s.sampleName)} · ${esc(s.test)}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${esc(r.id)}" style="padding:4px 8px">Assign</button> <button data-drop="${esc(r.id)}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
     resultsCard(measurements, experiments, filters, filterBatch, added);
   // The "?" marks in the title. wireLearn guards against wiring the same element twice.
   wireLearn(el);
@@ -145,6 +152,8 @@ export async function render(el, ctx) {
 
   // ---- what is due ----
   wireDue(el, ctx, settings, lines, w, openSlots);
+
+  if (settings.entryGrid) wireEntry(el, ctx, settings, experiments, batches, stored, { save: (m) => saveMeasurement(ctx, settings, m), redraw: () => render(el, ctx) });
 
   // ---- manual entry ----
   const body = el.querySelector('#manualBody');
@@ -164,6 +173,9 @@ export async function render(el, ctx) {
   };
   if (ctx.params.slot) fromSlot(ctx.params.slot);
   drawFields();
+  // Leaving with a value typed and not saved asks first (spec 9.1). Choosing the sample is not typing; the values,
+  // remarks and file reference are. A save draws the screen again, and the check goes with the old form.
+  registerDirty(body, 'a result typed into "Type one result"', () => fieldsChanged(el.querySelector('#testFields')) || fieldsChanged(body, '[name=remarks], [name=fileRef]'));
   el.querySelector('[name=test]').addEventListener('change', drawFields);
   // The select is on the folded line itself, so choosing a sample is what opens the form: no extra click.
   el.querySelector('[name=slotId]').addEventListener('change', (e) => { openManual(); fromSlot(e.target.value); drawFields(); });
@@ -295,7 +307,7 @@ export async function render(el, ctx) {
       const b = order.map((t) => r.per[t]?.match).find((m) => m?.batchId);
       if (b) return `${chip(b.batchId, 'info')} <span class="muted">batch, no open slot</span>`;
       const pick = guess?.row === r ? guess.name : '';
-      return `<select data-target="${i}"><option value="">— choose or inbox —</option><option value="__ignore">ignore (blank)</option>
+      return `<select data-target="${i}"><option value="">Choose, or inbox</option><option value="__ignore">ignore (blank)</option>
         ${missing.length ? `<optgroup label="Missing from this file">${missing.map((x) => opt(x.sampleName, pick)).join('')}</optgroup>` : ''}
         ${otherOpen.length ? `<optgroup label="${missing.length ? 'Other open samples' : 'Open samples'}">${otherOpen.map((n) => opt(n, pick)).join('')}</optgroup>` : ''}</select>${pick ? ' <span class="muted onlyLeft">only one left</span>' : ''}`;
     };
@@ -304,8 +316,10 @@ export async function render(el, ctx) {
     const groups = tests.map((t) => ({ test: t, cols: IMPORT_COLS[t].filter((c, j) => j === 0 || rows.some((r) => r.per[t]?.s[c.key] != null)) }));
     const multi = tests.length > 1;
     const th = (label, sub, cls = '', right = false) => `<th class="${cls}" ${right ? 'style="text-align:right"' : ''}>${esc(label)}${sub ? `<div class="muted" style="font-weight:400;font-size:11px;margin-top:1px">${esc(sub)}</div>` : ''}</th>`;
-    const head = `${multi ? `<tr class="grp"><th colspan="2"></th>${groups.map((g) => `<th class="g0" colspan="${g.cols.length}">${esc(TEST_LABEL[g.test] || g.test)}</th>`).join('')}<th colspan="3"></th></tr>` : ''}
-      <tr>${th('Sample name in file')}${th('Target')}${groups.map((g) => g.cols.map((c, j) => th(c.label, c.sub, j === 0 && multi ? 'g0' : '', true)).join('')).join('')}${th('n', '', '', true)}${th('QC')}${th('Import')}</tr>`;
+    // The two tables share their columns and differ in the first two: the grid of matched rows leads with the
+    // formulation, as the results grid does; the rows that matched nothing lead with the name and where to put it.
+    const head = (first, second) => `${multi ? `<tr class="grp"><th colspan="2"></th>${groups.map((g) => `<th class="g0" colspan="${g.cols.length}">${esc(TEST_LABEL[g.test] || g.test)}</th>`).join('')}<th colspan="3"></th></tr>` : ''}
+      <tr>${th(first)}${th(second)}${groups.map((g) => g.cols.map((c, j) => th(c.label, c.sub, j === 0 && multi ? 'g0' : '', true)).join('')).join('')}${th('n', '', '', true)}${th('QC')}${th('Import')}</tr>`;
     // The same file again (usability cycle 6, I5): its SHA-256 is on record with the results it stored, and
     // imported twice each of them would be stored twice and counted twice in every mean and fit. So nothing is
     // ticked until the person answers, to a question, that they mean to import it again.
@@ -316,16 +330,49 @@ export async function render(el, ctx) {
     let again = false;
     // Rows read from several names (E3-F2_final 1, 2 and 3) say so under the name, so a person sees what was averaged.
     const FROM_SHOWN = 6;
+    // Spec 9.3: the preview is drawn as the results grid is (app/ui/entrygrid.js), so a file read in and a sheet
+    // typed in look the same: one row per formulation of the experiment the file matched, a column per quantity,
+    // the replicates in a cell with their mean and SD under them, and the grid's colours. The rows that matched
+    // nothing follow in a table of their own, with where to put each. Only the drawing changed: what is matched,
+    // ticked, refused and stored is decided above, and every row keeps its index `i` for the import below.
+    const gridCell = (test, c, p) => {
+      const col = GRID_COLUMNS.find((x) => x.test === test && x.key === c.key);
+      if (!col) return esc(fmt(p.s[c.key], c.d));
+      const bad = p.check.errors.filter((e) => e.key === c.key).map((e) => e.text);
+      const warn = [...p.check.warnings.filter((w) => w.key === c.key).map((w) => w.text),
+        ...p.flags.filter((f) => f.level === 'warn' && f.text.toLowerCase().startsWith(COLUMN_BY_ID[col.id].label.toLowerCase())).map((f) => f.text)];
+      return previewCellHtml(p.values, col.id, bad.length ? 'bad' : warn.length ? 'warn' : '', bad.length ? bad : warn);
+    };
     const fromNames = (r) => (r.names.some((x) => x !== r.sampleName) ? `<div class="muted runsOf" style="font-size:11px">from ${r.names.slice(0, FROM_SHOWN).map(esc).join(', ')}${r.names.length > FROM_SHOWN ? ` and ${r.names.length - FROM_SHOWN} more` : ''}</div>` : '');
-    const body = rows.map((r, i) => {
+    const nameCell = (r) => `<td class="impSample"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>${fromNames(r)}</td>`;
+    const rest = (r, i) => {
       const cells = groups.map((g) => g.cols.map((c, j) => {
         const p = r.per[g.test];
         const cls = [j === 0 && multi ? 'g0' : '', p?.has && p.check.errors.length ? 'refused' : ''].filter(Boolean).join(' ');
-        return `<td class="${cls}" style="text-align:right">${esc(fmt(p?.s[c.key], c.d))}</td>`;
+        return `<td class="${cls}" style="text-align:right">${p ? gridCell(g.test, c, p) : esc(fmt(undefined, c.d))}</td>`;
       }).join('')).join('');
       const qc = r.withValue.flatMap((t) => { const p = r.per[t]; return [...p.check.errors.map((e) => chip(e.text, 'bad')), ...p.check.warnings.map((w) => chip(w.text, 'warn')), ...p.flags.map((f) => chip(f.text, f.level === 'warn' ? 'warn' : 'info'))]; }).join(' ') || chip('ok', 'ok');
-      return `<tr ${r.refused.length && !r.ok.length ? 'class="refused"' : ''} data-row="${i}"><td><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>${fromNames(r)}</td><td>${targetCell(r, i)}</td>${cells}<td style="text-align:right">${r.n}</td><td>${qc}</td><td><input type="checkbox" data-imp="${i}" ${r.ok.length && !dup ? 'checked' : ''} style="width:auto"></td></tr>`;
-    }).join('') || `<tr><td colspan="${5 + groups.reduce((a, g) => a + g.cols.length, 0)}" class="muted">No sample names in this table.</td></tr>`;
+      return `${cells}<td style="text-align:right">${r.n}</td><td>${qc}</td><td><input type="checkbox" data-imp="${i}" ${r.ok.length && !dup ? 'checked' : ''} style="width:auto"></td>`;
+    };
+    const trOpen = (r, i, extra = '') => `<tr ${r.refused.length && !r.ok.length ? 'class="refused"' : ''} data-row="${i}"${extra}>`;
+    // A matched row's formulation and where it lands (the slot, or the formulation alone), in the experiment's order.
+    const placeOf = (r) => {
+      const order = [...r.withValue, ...tests.filter((t) => !r.withValue.includes(t))];
+      const m = order.map((t) => r.per[t]?.match).find((x) => x?.slot) || order.map((t) => r.per[t]?.match).find((x) => x?.batchId);
+      const batchId = m?.slot?.batchId || m?.batchId || null;
+      const exp = experiments.find((e) => (m?.experiment && e.id === m.experiment.id) || e.batchIds?.includes(batchId));
+      return { batchId, exp, at: exp ? exp.batchIds.indexOf(batchId) : -1 };
+    };
+    const expAt = new Map(experiments.map((e, k) => [e.id, k]));
+    const matchedRows = rows.map((r, i) => ({ r, i, ...placeOf(r) })).filter((x) => x.r.matched)
+      .sort((x, y) => (expAt.get(x.exp?.id) ?? 1e9) - (expAt.get(y.exp?.id) ?? 1e9) || x.at - y.at || x.i - y.i);
+    const gridBody = matchedRows.map(({ r, i, batchId }) => `${trOpen(r, i, ` data-batch="${esc(batchId || '')}"`)}<td class="impBatch">${batchId ? `<a href="#/formulation?batch=${esc(batchId)}">${esc(batchId)}</a>` : ''}<div class="muted" style="font-size:11px">${targetCell(r, i)}</div></td>${nameCell(r)}${rest(r, i)}</tr>`).join('');
+    const strayBody = rows.map((r, i) => (r.matched ? '' : `${trOpen(r, i)}${nameCell(r)}<td>${targetCell(r, i)}</td>${rest(r, i)}</tr>`)).join('');
+    const nCols = 5 + groups.reduce((a, g) => a + g.cols.length, 0);
+    const tables = !rows.length
+      ? `<div style="overflow-x:auto"><table class="impTable egrid"><thead>${head('Sample name in file', 'Target')}</thead><tbody><tr><td colspan="${nCols}" class="muted">No sample names in this table.</td></tr></tbody></table></div>`
+      : `${gridBody ? `<div style="overflow-x:auto"><table class="impTable egrid${multi ? ' multi' : ''}" id="importGrid"><thead>${head('Formulation', 'Sample name in file')}</thead><tbody>${gridBody}</tbody></table></div>` : ''}
+        ${strayBody ? `<h3 style="margin:12px 0 4px" id="importStrayHead">Not matched (${rows.length - matched})</h3><div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}" id="importStrays"><thead>${head('Sample name in file', 'Target')}</thead><tbody>${strayBody}</tbody></table></div>` : ''}`;
 
     // What the file did not bring, for the experiments it matched into: said up front, so a gap is seen before
     // the import and not when the experiment page still shows a sample as open.
@@ -354,7 +401,7 @@ export async function render(el, ctx) {
     const when = el.querySelector('#importDate')?.value || todayISO(), who = el.querySelector('#importOperator')?.value ?? settings.operator ?? '';
     el.querySelector('#importPreview').innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 6px"><b>${esc(file.name)}</b><span class="muted" id="importReadAs">${readAs} · ${parsed.rows.length} row${parsed.rows.length === 1 ? '' : 's'} → ${samples.length} sample${samples.length === 1 ? '' : 's'} · SHA-256 ${hash.slice(0, 8)}…</span>${chip(`${matched} matched`, 'ok')} ${chip(`${rows.length - matched} unmatched`, rows.length - matched ? 'warn' : '')}${refusedRows.length ? ' ' + chip(`${refusedRows.length} refused`, 'bad') : ''}</div>
       ${dupHtml}${missingHtml}${apartHtml}
-      <div style="overflow-x:auto"><table class="impTable${multi ? ' multi' : ''}"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      ${tables}
       ${refusedNote ? `<div class="note warn">${refusedNote}</div>` : ''}
       <div class="impGo"><button class="primary" id="doImport">Import selected</button>
         <label class="inline">measured <input type="date" id="importDate" value="${esc(when)}" aria-label="Date measured, unless the file gives one"></label>
@@ -445,12 +492,13 @@ export async function render(el, ctx) {
 function detail(el, ctx, settings, id) {
   const m = ctx.store.get('measurements', id);
   if (!m) { el.innerHTML = header('Measurements', 'Not found'); return; }
-  el.innerHTML = header(raw(`<a href="#/measurements">Measurements</a> › ${esc(m.sampleName || m.batchId)}`), `${m.test.toUpperCase()} · ${m.sampleName || m.batchId}`, `${m.batchId ? `<a class="btn" href="#/formulation?batch=${esc(m.batchId)}">The formulation</a>` : ''}${m.experimentId ? `<a class="btn" href="#/experiments?id=${esc(m.experimentId)}">The plan</a>` : ''}<button id="editResult">Edit</button><button id="del" style="color:var(--warn)">Delete</button>`) +
-    `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', m.operator || '–'], ['Stage', m.stage || '–'], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
-      ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${f.text}</div>`).join('')}
+  el.innerHTML = header(raw(`<a href="#/measurements">Measurements</a> › ${esc(m.sampleName || m.batchId)}`), `${m.test.toUpperCase()} · ${m.sampleName || m.batchId}`, `${provenanceBadge(m, { id: 'provMeasurement' })}${m.batchId ? `<a class="btn" href="#/formulation?batch=${esc(m.batchId)}">The formulation</a>` : ''}${m.experimentId ? `<a class="btn" href="#/experiments?id=${esc(m.experimentId)}">The plan</a>` : ''}<button id="editResult">Edit</button><button id="del" style="color:var(--warn)">Delete</button>`) +
+    `<div class="card"><div class="grid g4">${[['Date', fmtDate(m.date)], ['Operator', esc(m.operator || '–')], ['Stage', esc(m.stage || '–')], ['Result', summarize(m)]].map(([l, v]) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="font-size:15px">${v}</div></div>`).join('')}</div>
+      ${(m.flags || []).map((f) => `<div class="note ${f.level === 'warn' ? 'warn' : ''}">${esc(f.text)}</div>`).join('')}
       <div id="resultValues">${valuesView(m)}</div>
-      ${m.raw ? `<p class="muted">Raw: ${m.raw.fileName || ''} ${m.raw.sha256 ? '· SHA-256 ' + m.raw.sha256.slice(0, 16) + '…' : ''} ${m.raw.parser ? '· parser ' + m.raw.parser + ' v' + m.raw.parserVersion : ''}</p>` : ''}
-      ${m.remarks ? `<p>${m.remarks}</p>` : ''}</div>`;
+      <p class="muted">Source: ${esc(provenanceLine(m))}</p>
+      ${m.raw ? `<p class="muted">Raw: ${esc(m.raw.fileName || '')} ${m.raw.sha256 ? '· SHA-256 ' + esc(String(m.raw.sha256).slice(0, 16)) + '…' : ''} ${m.raw.parser ? '· parser ' + esc(m.raw.parser) + ' v' + esc(m.raw.parserVersion ?? '') : ''}</p>` : ''}
+      ${m.remarks ? `<p>${esc(m.remarks)}</p>` : ''}</div>`;
   el.querySelector('#editResult').addEventListener('click', () => {
     el.querySelector('#editResult').disabled = true;
     el.querySelector('#resultValues').innerHTML = editForm(m);
@@ -481,7 +529,7 @@ function historyHtml(m) {
   if (!h.length) return '';
   const lines = h.map((x, i) => {
     const was = describeCorrection(m.test, x.values || {}, h[i + 1]?.values || m.values || {});
-    return `<li>Corrected ${esc(fmtDate(x.at))}${x.by ? ` by ${esc(x.by)}` : ''}: ${esc(x.reason)}${was ? ` — was ${esc(was)}` : ''}</li>`;
+    return `<li>Corrected ${esc(fmtDate(x.at))}${x.by ? ` by ${esc(x.by)}` : ''}: ${esc(x.reason)}${was ? `, was ${esc(was)}` : ''}</li>`;
   }).reverse();
   return `<div id="resultHistory"><h3>Corrections</h3><ul class="history">${lines.join('')}</ul></div>`;
 }
@@ -541,6 +589,8 @@ function wireEdit(el, ctx, settings, m) {
     }
   });
   form.addEventListener('input', (e) => e.target.classList?.remove('invalid'));
+  // A correction typed and not saved is asked about before leaving (spec 9.1); Save and Cancel draw the record again.
+  registerDirty(form, 'a correction of this result', () => [...form.querySelectorAll('input[data-orig]')].some((i) => !i.readOnly && i.value !== i.dataset.orig) || !!el.querySelector('#editReason')?.value.trim());
   el.querySelector('#cancelEdit').addEventListener('click', () => detail(el, ctx, settings, m.id));
   el.querySelector('#saveEdit').addEventListener('click', () => {
     const errors = [];
@@ -618,7 +668,7 @@ function dueCard(ctx, settings, lines, w, openSlots, today) {
     // Nothing within the week, so the first open slot (they are sorted by due date) is the next thing.
     const n = openSlots[0], exp = w?.choices.find((c) => c.id === n.experimentId)?.exp;
     const count = vials(openSlots.filter((s) => s.experimentId === n.experimentId && s.stage === n.stage && s.dueDate === n.dueDate)).length;
-    body = `<p style="margin:0">Nothing is due in the next ${DUE_AHEAD} days. Next: <a href="#/experiments?id=${encodeURIComponent(n.experimentId)}">${esc(n.experimentId)}</a>${exp?.name ? ` · ${esc(exp.name)}` : ''} — ${esc(n.stage)}, ${plural(count, 'sample')}, due ${esc(dayLabel(n.dueDate))} (in ${plural(daysBetween(today, n.dueDate), 'day')}).</p>`;
+    body = `<p style="margin:0">Nothing is due in the next ${DUE_AHEAD} days. Next: <a href="#/experiments?id=${encodeURIComponent(n.experimentId)}">${esc(n.experimentId)}</a>${exp?.name ? ` · ${esc(exp.name)}` : ''}, ${esc(n.stage)}, ${plural(count, 'sample')}, due ${esc(dayLabel(n.dueDate))} (in ${plural(daysBetween(today, n.dueDate), 'day')}).</p>`;
   } else {
     // The line whose grid is open below is marked, so the grid reads as that line's and not the experiment's.
     const open = ctx.params.grid && w?.scope ? `${w.scope.due}|${w.want.id}|${w.scope.stage}` : '';
@@ -680,9 +730,9 @@ function dueLineHtml(l, i, today, hide, on = false) {
   const gridable = l.rows.some((r) => r.tests.some((t) => GRID_FIELDS[t]));
   const dates = l.first === l.last ? fmtDate(l.first) : `${fmtDate(l.first)} to ${fmtDate(l.last)}`;
   return `<div class="dueLine${on ? ' on' : ''}" data-line="${i}"${on ? ' aria-current="true"' : ''}${hide && !on ? ' hidden' : ''}>
-    <span class="dueWhat"><a href="#/experiments?id=${encodeURIComponent(l.experimentId)}">${esc(l.experimentId)}</a>${l.exp?.name ? ` · ${esc(l.exp.name)}` : ''} — ${esc(l.stage)},
+    <span class="dueWhat"><a href="#/experiments?id=${encodeURIComponent(l.experimentId)}">${esc(l.experimentId)}</a>${l.exp?.name ? ` · ${esc(l.exp.name)}` : ''}, ${esc(l.stage)},
       <button type="button" class="dueN" data-due-names="${i}" aria-expanded="false" title="Show the sample names">${plural(l.rows.length, 'sample')}</button>
-      (${esc(l.tests.map((t) => TEST_LABEL[t] || t).join(', '))}) — <span class="dueWhen ${l.bucket}" title="Due ${esc(dates)}">${esc(dueWhen(l, today))}</span></span>
+      (${esc(l.tests.map((t) => TEST_LABEL[t] || t).join(', '))}), <span class="dueWhen ${l.bucket}" title="Due ${esc(dates)}">${esc(dueWhen(l, today))}</span></span>
     <span class="dueActs"><button type="button" data-due-copy="${i}" title="Copy these sample names, one per line, for the instrument's sample list">Copy names</button><button type="button" data-due-sheet="${i}" title="A CSV with these sample names and a column for every test still due">Blank sheet</button>${gridable ? `<button type="button" data-due-grid="${i}" title="Type these results in as a grid">Grid</button>` : ''}</span>
     <div class="dueNames" data-due-list="${i}" hidden>${l.rows.map((r) => `<code>${esc(r.sampleName)}</code>`).join(' ')}</div></div>`;
 }
@@ -815,10 +865,10 @@ function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today)
   }).join('');
   return `<div class="card" id="manualCard"><div id="manualForm">
     <div class="foldLine"><h2>Type one result</h2>
-      <select id="slotId" name="slotId" aria-label="Expected measurement (sorted by due date)"><option value="">— choose the sample, or free entry —</option>${groups}</select>
+      <select id="slotId" name="slotId" aria-label="Expected measurement (sorted by due date)"><option value="">Choose the sample, or free entry</option>${groups}</select>
       <button type="button" id="manualFree"${open ? ' hidden' : ''}>Free entry</button></div>
     <div id="manualBody"${open ? '' : ' hidden'}><div class="grid g4" style="margin-top:12px">
-      ${field({ id: 'batchId', label: 'Formulation (free entry)', type: 'select', value: filterBatch, options: [{ value: '', label: '—' }, ...batches.map((b) => ({ value: b.id, label: `${b.id} (${b.experimentId})` }))] })}
+      ${field({ id: 'batchId', label: 'Formulation (free entry)', type: 'select', value: filterBatch, options: [{ value: '', label: '–' }, ...batches.map((b) => ({ value: b.id, label: `${b.id} (${b.experimentId})` }))] })}
       ${field({ id: 'stage', label: 'Stage / timepoint', type: 'text', value: 'final', placeholder: 'final, IPC4, T7 …' })}
       ${field({ id: 'test', label: 'Test', type: 'select', value: ctx.params.test || 'dls', options: TESTS.map((t) => ({ value: t.id, label: t.name })).concat([{ value: 'endotoxin', label: 'Endotoxin' }]) })}
       </div><div id="testFields" class="grid g4" style="margin-top:10px"></div>
@@ -906,7 +956,7 @@ function resultsBody(list, f) {
   // The date once per day, as in a lab book: a page is mostly one or two days, and "27 Oct 2026" fifty times
   // over was the most repeated thing on the screen. The sample name is the link to the result; a separate
   // "Open" beside it went to the same place.
-  return table(['Date', 'Sample / batch', 'Stage', 'Test', 'Result', 'QC'], shown.map((m, i) => ({ cells: [i && shown[i - 1].date === m.date ? '' : fmtDate(m.date), raw(`<a href="#/measurements?id=${m.id}">${esc(m.sampleName || m.batchId || '–')}</a>`), m.stage || '', m.test, raw(`${esc(summarize(m))}${m.history?.length ? ` ${chip('corrected')}` : ''}`), raw((m.flags || []).map((x) => chip(x.text, x.level === 'warn' ? 'warn' : 'info')).join(' ') || chip('ok', 'ok'))] })), { empty: filtered ? 'No result matches these filters.' : 'No results yet.' })
+  return table(['Date', 'Sample / batch', 'Stage', 'Test', 'Result', 'QC'], shown.map((m, i) => ({ cells: [i && shown[i - 1].date === m.date ? '' : fmtDate(m.date), raw(`<a href="#/measurements?id=${esc(m.id)}">${esc(m.sampleName || m.batchId || '–')}</a>`), m.stage || '', m.test, raw(`${esc(summarize(m))}${m.history?.length ? ` ${chip('corrected')}` : ''}`), raw((m.flags || []).map((x) => chip(x.text, x.level === 'warn' ? 'warn' : 'info')).join(' ') || chip('ok', 'ok'))] })), { empty: filtered ? 'No result matches these filters.' : 'No results yet.' })
     + (count || nav ? `<div class="resPager">${count}${nav}</div>` : '');
 }
 

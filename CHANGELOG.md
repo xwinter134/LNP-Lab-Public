@@ -6,6 +6,119 @@ starts at 0.15.0; the entries before it describe how the app got there.
 
 The version you are running is shown at the foot of the sidebar.
 
+## 0.16.0: the next stage: Data, an optimizer that says what it rests on, old data in, and the biology
+
+The specification "LNP Lab: Spezifikation der nächsten Ausbaustufe", phases 1 to 6. Everything new is off until
+switched on in Settings, except the breadcrumbs, the Data screen and the optimizer's panel; with nothing switched on
+the app works as in 0.15. The decisions that are the lab's are listed in `docs/OPEN-POINTS.md`.
+
+**Finding your way** (spec 9.1)
+- **A trail under every title** (Plan › Plan an experiment › Questions › …), each step a link, with a Back arrow
+  beside it. Cmd+[ and Cmd+] (Ctrl elsewhere) and the mouse's back and forward buttons work in the Mac app too.
+- Leaving a form with typed, unsaved input asks first, whichever way you leave. `npm run back` walks 39 steps of
+  the planner, the troubleshooter, the wizards and the design catalogue and presses Back after each.
+
+**Buffers and materials** (spec 9.2, 9.5)
+- The role "Formulation" is now **Final / Storage**; older lots read the new word. New lots are named by code, pH
+  and date (`CIT50-pH4.0-20261031`, then `-2`); the code is suggested from the recipe and editable, and every
+  catalogue buffer has one. Older lots keep their Buffer-NNN name, and every new lot keeps its Buffer number as its
+  record id, so every formulation and process still finds its lot. The lots are one row per buffer, opening into
+  a table of its lots, with tabs by role.
+- **Nothing in use is deleted.** Whatever a record still names (lipids, lots, compositions, RNA lots, buffers,
+  devices, mixers, TFF modules, dialysis cassettes, filters) is archived instead: hidden from lists and pickers,
+  kept for the records that use them, restored under **Archived** on Materials. The trash keeps an entry while
+  anything names it, past 30 days and through Empty trash, and says what still names it.
+- Buffer lots record the measured pH, what is left and the expiry; the codes are the lab's own under
+  **Materials › Buffer catalog**. Each ionizable lipid can keep its structure as a **SMILES** string.
+
+**The data model** (spec 4)
+- **Process conditions** on each formulation: what 0.15 does not already record (ethanol share, temperature at
+  mixing, cryoprotectant and its concentration, the final RNA concentration) is typed there; what the process
+  designer, the RNA lot and the composition say (loading buffer, pH and strength, mixer and its type, downstream,
+  target buffer, sterile filtration, cargo, ionizable lipid, PEG-free) is shown, not asked again.
+- **Where each record came from:** formulations, results and compositions carry their source (typed in,
+  instrument file with its name and hash, imported tables with file, sheet and row); a small symbol on the
+  formulation, the result and the composition opens the details.
+- The update to this version adds the source and an empty conditions record to older records, guesses nothing,
+  marks none as edited, and keeps a copy of every record first, listed under **Settings › Before updates** with
+  Download and Restore. `scripts/migration-check.mjs` checks this on a copy of any database file.
+
+**Data** (spec 5)
+- A new screen with every formulation, filtered like a shop: facets with counts (lipids by class and PEG-free,
+  buffer, pH, mixer type, downstream, cargo, experiment, period, operator, source and import, what was measured,
+  size and PDI) and free text through the search. Above, the selection's numbers; in the middle a sortable table
+  with columns to choose; on the right the distributions, whose bars filter, and how complete each field is.
+- Every filter is in the address. **Use in optimizer** hands the selection over in words; **CSV** and **XLSX**
+  export it with where each record came from; **Save view** puts it in the sidebar, views are renamed, deleted
+  and compared. pH, size and PDI are ranges with two sliders; a link with `?ids=` opens a set of formulations.
+  10,000 formulations filter in 45 to 151 ms (`npm run scale:data`), under the 200 ms the spec allows.
+
+**Optimizer** (spec 7)
+- A **Data and model** panel above the **Data used** card: one ionizable lipid and one mixer type at a time (the
+  combination with most data first, unless you chose another), a data budget above 400 runs (100–800), the lipid
+  mode (one model per lipid, a lipid kernel in which lipids learn from each other, descriptors behind a switch, or
+  chosen by cross-validation), why each formulation is in or out, and a map of the runs used.
+- On opening it asks which lipid and mixer type is meant; the **Data used** card counts exactly what that
+  selection keeps, with "other lipid or mixer" and "data budget" as reasons.
+- A **fingerprint** on every round and every analysis (data hash, mode, kernel rank, descriptors, factors, goals,
+  seed, versions, fitted hyperparameters); **Reproduce** repeats one and says whether it matches; the experiment
+  report and the batch worksheet print it. **Prediction against measurement** holds each measured suggestion
+  against its interval.
+- **Intervals that hold:** a run's 95 % interval is calibrated by cross-validation. On the simulated lab 97 % of
+  suggested runs came back inside it (0.15: 78 %); the suggestions themselves are as good as in 0.15
+  (`docs/ML.md`, "Against 0.15").
+- The lipid kernel's rank 2 is now a different model from rank 1 (it started where it could not move), and the
+  rank can be chosen.
+- Loading buffer pH and molarity can be freed as factors. The noise prior no longer lets a fit without replicates
+  explain noise as structure; the stop rule says it was calibrated on a simulated lab. Fitting is about three
+  times faster at 300 runs. A biological result can be a goal, held out by study, with size and PDI as limits.
+  `npm run history` replays a finished campaign.
+
+**Bringing in old data** (spec 6, 10, 11.2)
+- `docs/HISTORICAL-DATA.md` and `scripts/import-tidy.mjs`: three tidy tables in, a quality report, a quarantine of
+  refused rows with reasons, and an import file out; nothing guessed, nothing imported twice.
+- An optional **MCP server** (`mcp/`) for Claude Desktop or Claude Code: Claude maps old sheets, the server checks
+  every row with the app's rules and writes only after you approve the report, in the Mac app only while LNP Lab
+  is closed. **Quarantine** holds refused rows to fix; **Settings › Imports** undoes an import whole.
+- One rule set: the import refuses exactly what the app refuses, and a likely slip (PDI 8.5) says what was
+  probably meant. Studies and their biological values come in the same way.
+- You approve, not Claude: writing an import asks you in the client's own dialog, or for a code shown only to you.
+  The server can be packed as an npm package (`lnp-lab-mcp`, not published) and reads a backup file for the
+  browser version.
+- **Claude insights** (personal build only), through the same server, since a third-party app may not sign in
+  with a Claude account. With either switched on, Claude reads the lab data; the switch says so the first time.
+
+**Entering and troubleshooting** (spec 9.3, 9.4)
+- **Results as a grid** of an experiment's formulations on Measurements (a switch), beside the data sheet of
+  Design & results: three replicates in a cell, a block pasted from Excel, warnings in colour, one Save with Undo.
+- **A troubleshooting assistant** (a switch): the batch's context, the causes weighed with reasons, your similar
+  batches, and a small experiment plan created in one click.
+
+**Biology** (spec 8)
+- Four layers, each switched on by itself (in vitro, in vivo potency, biodistribution, cell tropism): studies with
+  groups, a reference and controls; values typed, from plate reader exports or from IVIS images; results
+  normalised to the reference and tested against it with the effect size always shown.
+- **IVIS images:** the mice are found on the photograph and measured with the instrument's calibration
+  (`docs/BLI-BENCHMARK.md`: r = 0.90 against published values on 354 mice). A saved image can be reviewed: the
+  liver region moved, the mask corrected with a brush, every change logged with the algorithm's version. The
+  animal study module is shown in the design catalogue but locked.
+
+**Style** (spec 12.1)
+- No em dashes on any screen or in the documentation; an empty value shows "–", a choice still to make "Choose…".
+
+**In the browser from a link, and safer for it**
+- The app is published at <https://xwinter134.github.io/LNP-Lab-Public/> on every push to `next-stage`: no install,
+  no "unverified developer" warning. Each visitor's lab stays in their own browser.
+- **Text from a record is never read as markup.** Names, labels, sample names, remarks, file names, operators, lot
+  codes and other free text were put into the page as HTML in many places (first found on the calendar, the overview,
+  experiments, design & results, results, the measurements' inbox, the formulation record's buffer pickers), so a
+  crafted backup or instrument file could have run code in the lab of whoever opened it. A line-by-line audit of
+  every screen escaped them all; links kept in records are followed only inside the app or to http(s). A browser
+  scenario (`recordTextIsNeverMarkup`) puts a script into every free-text field of every kind of record, opens every
+  screen and every record's own page, and fails if any runs.
+- The published copy runs under a Content-Security-Policy (`scripts/pages-csp.mjs`): only its own scripts, named by
+  hash, and no other host. The Mac app and `npm start` load `index.html` unchanged.
+
 ## 0.15.0: siRNA or mRNA, one view, a real 3D surface, Insights you can ask anything
 
 From the user's second review (October 2026).

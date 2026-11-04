@@ -1,6 +1,6 @@
 [package]
 name = "lnp-lab"
-version = "0.15.0"
+version = "0.16.0"
 description = "LNP formulation planning, process design, evaluation and data management"
 edition = "2021"
 

@@ -46,15 +46,15 @@ export function nextStepStrip(exp, st, res) {
   if (exp.status === 'done') return '';
   let text, actions;
   if (st.planned) {
-    text = `Next step: make the formulations — ${st.planned} planned`;
+    text = `Next step: make the formulations, ${st.planned} planned`;
     actions = `<a class="btn" href="#/formulation?batch=${esc(st.firstPlanned)}">Open ${esc(st.firstPlanned)}</a>
       <button class="primary" id="nextMarkProduced" data-bulk="produced" title="Set every planned formulation of this experiment to produced">Mark all produced</button>`;
   } else if (st.open) {
     const when = st.overdue ? `, ${st.overdue} of them overdue` : st.nextDue ? `, the next on ${fmtDate(st.nextDue)}` : '';
-    text = `Next step: measure — ${st.open} result${st.open === 1 ? '' : 's'} still due${when}`;
+    text = `Next step: measure, ${st.open} result${st.open === 1 ? '' : 's'} still due${when}`;
     actions = `<a class="btn primary" href="#/doe?id=${esc(exp.id)}" title="The data sheet of this experiment, to type or paste the results into, beside its figures">Enter results</a><a class="btn" href="#/measurements?waiting=${esc(exp.id)}">What to measure</a>${res.measuredRows ? '<button id="nextShowResults">Results so far</button>' : ''}`;
   } else {
-    text = 'Next step: evaluate — every result is in';
+    text = 'Next step: evaluate, every result is in';
     actions = `<a class="btn primary" href="#/doe?id=${esc(exp.id)}">Design &amp; results</a><button id="nextShowResults">Results</button>`;
   }
   return `<div class="nextstep" id="nextStep"><span class="ns-text">${esc(text)}</span><span class="ns-act">${actions}</span></div>`;
@@ -106,7 +106,7 @@ function barFigures(exp, res, { qc, compLabel }) {
   if (st.kind === 'comparison') {
     legendItems = st.arms.map((a, i) => ({ name: `${a.compositionId != null ? compLabel(a.compositionId) : a.label} · ${a.batchIds.join(', ')}`, color: seriesColor(i) }));
     note = st.arms.some((a) => a.batchIds.length > 1)
-      ? 'Bars: mean ± SD per arm — between batches where the arm was made more than once (circles are the batch means), otherwise of the instrument’s repeat runs on its one batch (circles are the runs).'
+      ? 'Bars: mean ± SD per arm, between batches where the arm was made more than once (circles are the batch means), otherwise of the instrument’s repeat runs on its one batch (circles are the runs).'
       : 'Bars: mean ± SD of the instrument’s repeat runs on each arm’s one batch; circles are the runs.';
   } else {
     note = 'Bars: mean ± SD of the instrument’s repeat runs on each batch; circles are the runs.';
@@ -178,7 +178,7 @@ function ofatFigures(exp, res, { qc }) {
   }
   const repeated = st.levels.some((l) => l.batchIds.length > 1);
   return { figs, legend: null, note: repeated
-    ? 'Each point: mean ± SD at that level — between batches where the level was made more than once, otherwise of the instrument’s repeat runs on its one batch.'
+    ? 'Each point: mean ± SD at that level, between batches where the level was made more than once, otherwise of the instrument’s repeat runs on its one batch.'
     : 'Each point: mean ± SD of the instrument’s repeat runs on the one batch made at that level.' };
 }
 
@@ -461,7 +461,7 @@ function emptyState(exp, after = '') {
     : 'on the final product of each formulation';
   const what = tests.length ? `Measure ${andList(tests)} ${where}` : 'Enter or import the results for these formulations';
   return `<div class="card" id="resultsCard"><h2>Results</h2>
-    <p>Nothing measured yet. ${esc(what)}${first ? ` — name the samples on the instrument as the app expects them, <code>${esc(first.sampleName)}</code> …, and the export matches by itself` : ''}.
+    <p>Nothing measured yet. ${esc(what)}${first ? `, name the samples on the instrument as the app expects them, <code>${esc(first.sampleName)}</code> …, and the export matches by itself` : ''}.
     The data table, the statistics and the graphs appear here with the first result.</p>
     <a class="btn" href="#/measurements?waiting=${esc(exp.id)}">What to measure</a>${after}</div>`;
 }

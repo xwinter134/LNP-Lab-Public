@@ -5,3 +5,6 @@ src-tauri/target/
 src-tauri/gen/
 /literature/
 .claude/worktrees/
+
+# screenshots of the smoke lab (SCREENSHOTS=1 npm run smoke); the guide uses docs/guide/
+docs/screenshots/

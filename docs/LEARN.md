@@ -57,12 +57,12 @@ The batch budget is a hard constraint, not a preference. A design shrunk below i
 smaller version of the question, it answers nothing, so each design has a floor the planner will not go under:
 four corner runs and a centre point before a two-level screen can separate anything, about thirteen runs
 before a response surface is worth fitting, and two runs per factor at the very least. Below a floor the
-planner substitutes the best thing the budget can buy and says what it substituted and why — an explicit
+planner substitutes the best thing the budget can buy and says what it substituted and why, an explicit
 request to screen on three batches becomes a plain batch with nothing varied, or, if eight runs are already on
 file, the attribution the model reports over those, which answers the same question without spending a batch.
 
 Every recommendation carries four things the screen shows separately: **why this and not something else**,
-**what will happen**, **what usually goes wrong**, and **where you are starting from** — the last computed
+**what will happen**, **what usually goes wrong**, and **where you are starting from**, the last computed
 from your own records, including whether you have ever repeated a setting.
 
 ### Which factors it proposes
@@ -112,13 +112,24 @@ common practice rather than sourced to it.
 Numbers that remain unsourced are labelled as such in the entry rather than quietly left to look
 authoritative. The per-paper notes are in `docs/literature/`.
 
-- Hou X, Zaks T, Langer R, Dong Y. *Lipid nanoparticles for mRNA delivery.* Nat Rev Mater 2021;6(12):1078-1094. doi:10.1038/s41578-021-00358-0. Free (PMC8353930) — composition roles, size and biodistribution.
-- Jayaraman M, et al. *Maximizing the potency of siRNA lipid nanoparticles for hepatic gene silencing in vivo.* Angew Chem Int Ed 2012;51(34):8529-8533. doi:10.1002/anie.201203263. Free (PMC3470698) — apparent pKa and the 6.2 to 6.5 window.
-- Sato S, Sano S, et al. *Understanding the manufacturing process of lipid nanoparticles for mRNA delivery using machine learning.* Chem Pharm Bull 2024;72(6):529-539. doi:10.1248/cpb.c24-00089 — ethanol fraction, buffer pH and total flow as the dominant process parameters.
-- Maharjan R, Kim K H, Lee K, Han H-K, Jeong S H. *Machine learning-driven optimization of mRNA-lipid nanoparticle vaccine quality.* J Pharm Anal 2024;14(11):100996. doi:10.1016/j.jpha.2024.100996 — the response set and the desirability goals a formulation study actually uses.
-- Derringer G, Suich R. *Simultaneous optimization of several response variables.* J Qual Technol 1980;12(4):214-219 — desirability. No DOI found for this article.
+- Hou X, Zaks T, Langer R, Dong Y. *Lipid nanoparticles for mRNA delivery.* Nat Rev Mater 2021;6(12):1078-1094. doi:10.1038/s41578-021-00358-0. Free (PMC8353930); composition roles, size and biodistribution.
+- Jayaraman M, et al. *Maximizing the potency of siRNA lipid nanoparticles for hepatic gene silencing in vivo.* Angew Chem Int Ed 2012;51(34):8529-8533. doi:10.1002/anie.201203263. Free (PMC3470698); apparent pKa and the 6.2 to 6.5 window.
+- Sato S, Sano S, et al. *Understanding the manufacturing process of lipid nanoparticles for mRNA delivery using machine learning.* Chem Pharm Bull 2024;72(6):529-539. doi:10.1248/cpb.c24-00089; ethanol fraction, buffer pH and total flow as the dominant process parameters.
+- Maharjan R, Kim K H, Lee K, Han H-K, Jeong S H. *Machine learning-driven optimization of mRNA-lipid nanoparticle vaccine quality.* J Pharm Anal 2024;14(11):100996. doi:10.1016/j.jpha.2024.100996; the response set and the desirability goals a formulation study actually uses.
+- Derringer G, Suich R. *Simultaneous optimization of several response variables.* J Qual Technol 1980;12(4):214-219, desirability. No DOI found for this article.
 
 The design and modelling entries follow the same sources as the ML module; see `docs/ML.md`.
+
+### What the code itself cites
+
+The methods the app computes with are cited where they are used and listed, with their licence and patent
+check, in `docs/LICENSE-CHECK.md` and `NOTICE.md`. For the reader of this reference, the same list in one place:
+
+- Optimizer and models: Hvarfner, Hellsten, Nardi (ICML 2024); Binois, Gramacy, Ludkovski (JCGS 2018); Rasmussen and Williams, *Gaussian Processes for Machine Learning* (2006); Ginsbourger, Le Riche, Carraro (2010); Snoek, Larochelle, Adams (NeurIPS 2012); Letham et al. (Bayesian Anal 2019); Eriksson and Jankowiak (UAI 2021); Derringer and Suich (1980).
+- Designs and diagnostics: Plackett and Burman (Biometrika 1946); Ryan and Joiner (1976).
+- Buffers: CurTiPot by I. G. R. Gutz (USP), pKa data and the pH method with the Davies activity correction.
+- Statistics of groups and studies: Welch (Biometrika 1947), Holm (Scand J Stat 1979), Šidák (JASA 1967); agreement of the automatic and manual BLI values: Bland and Altman (Lancet 1986).
+- BLI images: Otsu (IEEE Trans Syst Man Cybern 1979) for the threshold; the Living Image file parsing follows labdataranger (MIT, KI Preclinical Imaging and Testing); radianceQuantifier (GPL-3.0) for the idea of finding mice on the photograph, no code; test data from BioImage Archive S-BIAD3647 (CC0). InVivoPLOT (Klose et al., Nat Commun 2018) is deliberately not rebuilt (spec 8.7).
 
 ## Testing
 

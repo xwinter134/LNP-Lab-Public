@@ -39,7 +39,9 @@ let dateFormat = null;
 export function fmtDate(iso) {
   if (!iso) return '–';
   const d = iso.length === 10 ? parseISO(iso) : new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
+  // A date that does not parse is shown as stored, minus the characters no date has: it comes from a record (an
+  // import, a backup), and many screens put this function's text straight into their markup.
+  if (Number.isNaN(d.getTime())) return String(iso).replace(/[<>&"']/g, '');
   dateFormat ||= new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return dateFormat.format(d);
 }
@@ -453,6 +455,63 @@ export function listDrafts(ctx, prefix) {
  */
 export const draftsStoring = new Set();
 
+/*
+ * Leaving a form with typed, unsaved input (spec 9.1). The drafts above keep the experiment wizard and the buffer
+ * designer; the forms that save with a button of their own (the results grid, the manual result and the
+ * correction of a stored one, the Materials editors, a study's value grid) lost what was typed when a link, the
+ * sidebar, Back or a crumb took the screen away. Each such form registers a check here; the router (app/main.js)
+ * asks every check before it draws the next screen, and when one says "unsaved", asks the user first, and puts
+ * the address back if they stay. In a browser the same checks answer `beforeunload`.
+ *
+ * A check belongs to an element of the form: once that element has left the page (the screen was drawn again,
+ * after a save or a Cancel), the check is dropped, so a form never has to say it is gone.
+ */
+const dirtyChecks = new Set();
+/**
+ * Register `check()` (true while the form holds typed input not saved) for the form `owner`; `what` names it in
+ * the question ("results typed into the grid"). Returns a function that unregisters it.
+ */
+export function registerDirty(owner, what, check) {
+  for (const e of dirtyChecks) if (e.owner && !e.owner.isConnected) dirtyChecks.delete(e);
+  const e = { owner, what, check };
+  dirtyChecks.add(e);
+  return () => dirtyChecks.delete(e);
+}
+/** What on screen holds unsaved input now: the `what` of every check that says so, each once. */
+export function unsavedWork() {
+  const out = [];
+  for (const e of [...dirtyChecks]) {
+    if (e.owner && !e.owner.isConnected) { dirtyChecks.delete(e); continue; }
+    let dirty = false;
+    try { dirty = !!e.check(); } catch { /* a check that throws says nothing */ }
+    if (dirty && !out.includes(e.what)) out.push(e.what);
+  }
+  return out;
+}
+/** The question asked before leaving them. */
+export const leaveQuestion = (whats) => `Not saved yet: ${whats.join('; ')}. Leave this screen anyway?`;
+
+/**
+ * Whether any field under `root` differs from what was drawn: a text box from its value attribute, a box from its
+ * checked attribute, a select from the option the markup selected. That is "typed and not saved" for a form drawn
+ * from its record and drawn again after each save, with no state of its own to compare. `selector` narrows it.
+ */
+export function fieldsChanged(root, selector = 'input, select, textarea') {
+  if (!root) return false;
+  for (const f of root.querySelectorAll(selector)) {
+    if (f.disabled || f.readOnly || /^(hidden|file|button|submit)$/.test(f.type || '')) continue;
+    if (f.type === 'checkbox' || f.type === 'radio') { if (f.checked !== f.defaultChecked) return true; continue; }
+    if (f.options && !f.multiple) {
+      const opts = [...f.options];
+      const was = Math.max(0, opts.findIndex((o) => o.defaultSelected));
+      if (opts.length && f.selectedIndex !== was) return true;
+      continue;
+    }
+    if (f.value !== f.defaultValue) return true;
+  }
+  return false;
+}
+
 export function on(root, selector, event, handler) {
   root.querySelectorAll(selector).forEach((el) => el.addEventListener(event, handler));
 }
@@ -525,5 +584,10 @@ export const sha256Hex = async (text) => {
  * Page header: breadcrumb, title and optional actions (html string). Either the crumb or the title may be
  * raw() when it needs markup — a crumb whose parts link back up the tree, a title with a "?" explainer.
  */
-export const header = (crumb, title, actions = '') => `<div class="crumb">${crumb instanceof Raw ? crumb.s : esc(crumb)}</div>
+export const header = (crumb, title, actions = '') => {
+  const c = crumb instanceof Raw ? crumb.s : esc(crumb ?? '');
+  // The global breadcrumb bar (app/ui/crumbs.js) already shows the full trail, so a screen can pass '' here to
+  // avoid a second, redundant crumb line under it.
+  return `${c ? `<div class="crumb">${c}</div>` : ''}
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px"><h1 style="flex:1 1 auto;margin:0">${title instanceof Raw ? title.s : esc(title)}</h1>${actions}</div>`;
+};

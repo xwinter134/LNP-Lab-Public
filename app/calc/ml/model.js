@@ -86,11 +86,15 @@ export const SPLITS = {
   composition: { label: 'By composition (leave one composition out)', note: 'tests whether it generalises to a lipid composition it has not seen' },
   time: { label: 'By date (train on the past, test on the future)', note: 'mimics how the model is actually used' },
   run: { label: 'Leave one run out', note: 'optimistic when runs come in correlated groups; use only when everything is one experiment' },
+  // Biological targets (spec 7.9, targets.js): animals and wells of one study share a day, a cell passage or a
+  // cohort, so a study is held out whole. Offered only while a biology layer is on (`biology`).
+  study: { label: 'By study (leave one study out)', note: 'the honest test for biological results: can it predict a study it has never seen?', biology: true },
 };
 
 /** Build folds for a split strategy. rows carry {experimentId, compositionId, date}. */
 export function buildFolds(rows, strategy) {
   if (strategy === 'experiment') { const f = groupFolds(rows.map((r) => r.experimentId || 'none')); return f.length > 1 ? f : looFolds(rows.length); }
+  if (strategy === 'study') { const f = groupFolds(rows.map((r) => r.studyId || r.experimentId || 'none')); return f.length > 1 ? f : looFolds(rows.length); }
   if (strategy === 'composition') { const f = groupFolds(rows.map((r) => r.compositionId ?? 'none')); return f.length > 1 ? f : looFolds(rows.length); }
   if (strategy === 'time') {
     const order = rows.map((r, i) => [r.date || '', i]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map((x) => x[1]);
@@ -157,7 +161,7 @@ const mae = (y, pred) => y.reduce((s, v, i) => s + Math.abs(v - pred[i]), 0) / y
  * whose spread differs and leak the held-out rows into the fold's noise level.
  */
 export function crossValidate(learner, X, y, folds, fitOpts = {}, noiseSd = null, noiseDf = null) {
-  const pred = new Array(y.length).fill(null);
+  const pred = new Array(y.length).fill(null), z2 = [];
   for (const f of folds) {
     const testSet = new Set(f.test);
     const trIdx = f.train ? f.train : X.map((_, i) => i).filter((i) => !testSet.has(i));
@@ -167,14 +171,41 @@ export function crossValidate(learner, X, y, folds, fitOpts = {}, noiseSd = null
     const opts = Number.isFinite(noiseSd) && s.sd > 0
       ? { ...fitOpts, noisePrior: { var: Math.max(1e-4, (noiseSd / s.sd) ** 2), df: noiseDf || 1 } }
       : fitOpts;
-    const model = (learner.cvFit || learner.fit)(Xtr, s.z, opts);
+    // The training indices go along for a learner that brings data of its own (lipidmode.js): it has to leave
+    // out whatever of that data belongs to the groups held out here.
+    const model = (learner.cvFit || learner.fit)(Xtr, s.z, opts, trIdx);
     if (!model) continue;
-    for (const i of f.test) pred[i] = model.predict(X[i]).mean * s.sd + s.mean;
+    for (const i of f.test) {
+      pred[i] = model.predict(X[i]).mean * s.sd + s.mean;
+      // How far each held-out result lay from its prediction, in units of what one new run there should scatter
+      // by (the model's uncertainty plus the noise): the calibration of the reported intervals (intervalScale).
+      if (model.kind === 'gp') {
+        const q = model.predict(X[i], { noiseless: false });
+        if (Number.isFinite(q?.sd) && q.sd > 0) z2.push(Math.min(25, ((y[i] - pred[i]) / (q.sd * s.sd)) ** 2));
+      }
+    }
   }
   const have = pred.map((p, i) => (p == null ? -1 : i)).filter((i) => i >= 0);
   if (have.length < 3) return { q2: null, rmse: null, mae: null, n: have.length, pred };
   const yy = have.map((i) => y[i]), pp = have.map((i) => pred[i]);
-  return { q2: r2(yy, pp), rmse: rmse(yy, pp), mae: mae(yy, pp), rho: spearman(yy, pp), n: have.length, pred };
+  return { q2: r2(yy, pp), rmse: rmse(yy, pp), mae: mae(yy, pp), rho: spearman(yy, pp), n: have.length, pred, z2 };
+}
+
+/**
+ * The factor the reported intervals are widened by so that they hold what they promise (spec 7.8). The
+ * held-out z-scores of the cross-validation say how much wider the scatter of new results was than the model
+ * thought; a fold model is fitted on fewer runs, so this is a mild over-estimate, which is the safe side for an
+ * interval. Never below 1 (the intervals are not narrowed on luck) and never above 3; with fewer than eight
+ * held-out results there is nothing to calibrate on. It widens what the screen shows and what a batch stores
+ * to be checked against its result, not the acquisition, which ranks candidates by a scale it does not need.
+ */
+export function intervalScale(z2) {
+  if (!z2 || z2.length < 8) return 1;
+  // Measured on four synthetic surfaces without replicates (tests/ml.test.mjs) and on the campaign lab
+  // (tests/usability/campaign.mjs): 80 to 90 % of new results inside the uncalibrated 95 % interval, 93 to 97 %
+  // inside the calibrated one. Widening further for the uncertainty of the mean itself pushed the campaign to 98 %.
+  const k = z2.length, m = z2.reduce((a, b) => a + b, 0) / k;
+  return Math.min(3, Math.max(1, Math.sqrt(m)));
 }
 
 /**
@@ -225,7 +256,9 @@ export function nullDistribution(learner, X, y, folds, { repeats = 8, seed = 101
   return { n: vals.length, median: vals[Math.floor(vals.length / 2)], high: vals[idx], isMax: idx === vals.length - 1, max: vals[vals.length - 1] };
 }
 
-export function evaluateResponse({ X, y, rows, strategy = 'experiment', learners = ['gp', 'quadratic', 'linear', 'dummy'], nullCheck = true, noiseSd = null, noiseDf = null }) {
+export function evaluateResponse({ X, y, rows, strategy = 'experiment', learners = ['gp', 'quadratic', 'linear', 'dummy'], nullCheck = true, noiseSd = null, noiseDf = null, learnerMap = LEARNERS }) {
+  // `learnerMap` lets a lipid mode (lipidmode.js) put its own Gaussian process in the place of the plain one, so
+  // it is cross-validated, null-checked and reported by exactly the same procedure as everything else.
   const folds = buildFolds(rows, strategy);
   // When repeated settings exist, their pooled scatter measures the noise. It anchors the noise prior rather
   // than fixing the value, because an estimate from one or two degrees of freedom is biased high and should
@@ -237,7 +270,7 @@ export function evaluateResponse({ X, y, rows, strategy = 'experiment', learners
   const fitOpts = noiseVar != null ? { noisePrior: { var: noiseVar, df: noiseDf || 1 } } : {};
   const results = [];
   for (const key of learners) {
-    const l = LEARNERS[key];
+    const l = learnerMap[key];
     const cv = crossValidate(l, X, y, folds, {}, key === 'gp' ? noiseSd : null, noiseDf);
     results.push({ key, label: l.label, note: l.note, ...cv });
   }
@@ -245,12 +278,13 @@ export function evaluateResponse({ X, y, rows, strategy = 'experiment', learners
   const ranked = results.filter((r) => r.key !== 'dummy' && r.q2 != null).sort((a, b) => b.q2 - a.q2);
   const best = ranked[0] || null;
   const s = standardise(y);
-  const fitted = best ? LEARNERS[best.key].fit(X, s.z, best.key === 'gp' ? fitOpts : {}) : null;
+  const fitted = best ? learnerMap[best.key].fit(X, s.z, best.key === 'gp' ? fitOpts : {}) : null;
   // The Gaussian process is always fitted, whether or not it wins the comparison: it is the only model here
   // that reports uncertainty, and suggestions need uncertainty. When another model cross-validates better the
   // screen says so, but the proposals still come from the one that knows what it does not know.
-  const gp = fitted?.kind === 'gp' ? fitted : LEARNERS.gp.fit(X, s.z, fitOpts);
+  const gp = fitted?.kind === 'gp' ? fitted : learnerMap.gp.fit(X, s.z, fitOpts);
   const gpCv = results.find((r) => r.key === 'gp');
+  const scale = intervalScale(gpCv?.z2);
   const collapse = collapseCheck(gp, X[0]?.length || 0);
   const foldPredictions = best ? results.find((r) => r.key === best.key)?.pred : null;
   // The level the FOLDS could fit, not the level the full dataset can: the comparison table reports
@@ -261,10 +295,10 @@ export function evaluateResponse({ X, y, rows, strategy = 'experiment', learners
   // The null check has to run the SAME procedure, including the measured noise level, or it is not a null for
   // the fit it is being compared against.
   const nul = nullCheck && best
-    ? nullDistribution(LEARNERS[best.key], X, y, folds, { repeats: X.length > 40 ? 6 : 8, noiseSd: best.key === 'gp' ? noiseSd : null, noiseDf })
+    ? nullDistribution(learnerMap[best.key], X, y, folds, { repeats: X.length > 40 ? 6 : 8, noiseSd: best.key === 'gp' ? noiseSd : null, noiseDf })
     : null;
   return { folds: folds.length, strategy, results, best, dummy, model: fitted, gp, gpQ2: gpCv?.q2 ?? null,
-    yMean: s.mean, ySd: s.sd, y, foldPredictions, hit, null: nul, ofat: oneFactorAtATime(X), noiseVar, noiseDf, quadLevel, collapse,
+    yMean: s.mean, ySd: s.sd, y, foldPredictions, hit, null: nul, ofat: oneFactorAtATime(X), noiseVar, noiseDf, quadLevel, collapse, intervalScale: scale,
     trust: verdict(best, dummy, X.length, X[0]?.length || 0, folds.length,
       { rho: best?.rho, nul, learnersTried: results.length, collapse: collapse || null }) };
 }

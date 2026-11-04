@@ -25,8 +25,8 @@ design has runs where both differ.
 ## Picking the lipids
 
 Any lipid in the registry, any number from two upwards, and more than one of the same class is fine. That last
-point is why this exists alongside the ML optimizer: the optimizer varies composition by *class* — ionizable,
-helper, sterol, PEG — so two ionizable lipids in one recipe are a single number to it, and a blend of the two
+point is why this exists alongside the ML optimizer: the optimizer varies composition by *class*, ionizable,
+helper, sterol, PEG, so two ionizable lipids in one recipe are a single number to it, and a blend of the two
 is a question it cannot pose. Here they are separate components with separate coefficients.
 
 Each lipid gets a lowest and a highest mol%. Switching into a blend mode fills the table from the composition
@@ -35,8 +35,8 @@ since the lower bounds then add to 70 and the upper to 130, which straddles 100.
 
 Two ways to get this wrong, both caught before you can build the design:
 
-- lower bounds adding to more than 100 — no blend satisfies them
-- upper bounds adding to less than 100 — no blend reaches the total
+- lower bounds adding to more than 100, no blend satisfies them
+- upper bounds adding to less than 100, no blend reaches the total
 
 ## Why the design is not a grid
 
@@ -52,13 +52,13 @@ bound, solve for the last, keep it if it lands inside its own bounds. Corners, e
 centroids and the overall centre make the **candidate pool**.
 
 The pool is not the design. Four lipids with real bounds give a few hundred candidates, and a crossed design
-multiplies that by the process grid — 2 500 is ordinary. These are blends worth considering, not batches worth
+multiplies that by the process grid, 2 500 is ordinary. These are blends worth considering, not batches worth
 making.
 
 ## Choosing the runs
 
 A **run budget** turns the pool into an experiment: the app keeps the runs that determine your model best, by
-D-optimal exchange — the subset whose information matrix has the largest determinant. The wizard suggests
+D-optimal exchange, the subset whose information matrix has the largest determinant. The wizard suggests
 `terms + 5`, because a design with exactly as many runs as terms fits perfectly and tells you nothing about
 whether the model is right, and five spare runs plus the centre replicates is enough to see a lack of fit.
 
@@ -99,7 +99,7 @@ trick; it is what makes the model fittable.
 | special cubic | `+ Σ βᵢⱼₖ xᵢxⱼxₖ` | three-way blending |
 
 A crossed model is every blending term on its own and multiplied by every process term. That is what says the
-*shape* of the blend response may itself depend on the process setting — the question the design was built to
+*shape* of the blend response may itself depend on the process setting, the question the design was built to
 ask.
 
 **The coefficients are predictions, not slopes.** A lipid's own coefficient is what the response would be at
@@ -107,8 +107,8 @@ that lipid's corner of the region; comparing two of them compares two corners. A
 far the blend departs from the straight line between those two corners: positive means blending them beats the
 average, negative means it falls short.
 
-One consequence worth knowing before it surprises you: on a narrow region — a PEG held between 1 and 2 mol%,
-say — a corner of the region sits far outside where the data is, so that lipid's coefficient is an
+One consequence worth knowing before it surprises you: on a narrow region, a PEG held between 1 and 2 mol%,
+say, a corner of the region sits far outside where the data is, so that lipid's coefficient is an
 extrapolation with a standard error to match. A coefficient of −2 968 ± 3 639 is not a bug. It is the model
 saying it has no idea what a blend of nothing but PEG would do, which is correct, and the reason to read the
 response trace rather than the coefficient table when the ranges are tight.
@@ -121,7 +121,7 @@ of a mostly empty simplex: technically correct, unreadable, and no help in choos
 labelled with how high that lipid goes there. Above three lipids there is no single picture of the design
 space, so the fallback is parallel coordinates with each axis on its own mol% range.
 
-**The response trace** is the mixture answer to a main-effects plot, which a blend cannot have — raising one
+**The response trace** is the mixture answer to a main-effects plot, which a blend cannot have: raising one
 lipid has to lower the others. Cox's construction moves one lipid along the line from a reference blend toward
 its own vertex, letting the rest fall in proportion. Two things have to be right or it misleads:
 
@@ -132,7 +132,7 @@ its own vertex, letting the rest fall in proportion. Two things have to be right
   extrapolating to blends the design never approached.
 
 Read a flat line confidently: that direction does nothing. Read a steep line as a direction worth moving in,
-not as a culprit — raising one lipid pushes the others down, so its trace carries their effects too.
+not as a culprit: raising one lipid pushes the others down, so its trace carries their effects too.
 
 **The Pareto, residual, normal and measured-against-predicted plots** mean the same here as anywhere; they are
 about the fit, not the factor space. The fitted-surface and single-factor-effect plots are *not* shown for a
@@ -145,7 +145,7 @@ extrapolation and the model has no business being believed there.
 
 ## What reaches the bench
 
-A blend run names every lipid outright, so it cannot travel as a class override — there is no "ionizable mol%"
+A blend run names every lipid outright, so it cannot travel as a class override: there is no "ionizable mol%"
 to set when the design is choosing between two ionizable lipids. The batch carries an explicit mol% map, and
 the formulation screen says so at the top of the record: *this run is the blend; weigh out what is listed here
 and not the registry recipe.* Lipids the design does not include are not in the blend, even when the registry
@@ -169,7 +169,7 @@ absorbing the remainder, which is described in `docs/ML.md`. A blend design and 
 different questions, and a blend design's runs feed the optimizer only through those class totals.
 
 **No ratio or component-amount designs.** Everything here holds the total fixed at 100 mol%. Designs in which
-the total itself varies — an amount-of-mixture design — are a different construction and are not implemented.
+the total itself varies, an amount-of-mixture design, are a different construction and are not implemented.
 
 ## Where the code is
 

@@ -26,8 +26,9 @@ if ! command -v cargo >/dev/null 2>&1; then
   . "$HOME/.cargo/env"
 fi
 
-TARGET=(--target universal-apple-darwin)
-if [ "${1:-}" = "--native" ]; then TARGET=(); else
+# A plain flag, not an array: macOS ships bash 3.2, where an empty array under `set -u` reads as unbound.
+UNIVERSAL=1
+if [ "${1:-}" = "--native" ]; then UNIVERSAL=0; else
   say "Adding the Apple Silicon and Intel targets …"
   rustup target add aarch64-apple-darwin x86_64-apple-darwin
 fi
@@ -39,9 +40,13 @@ say "Checking the app before building it …"
 npm test
 
 say "Building LNP Lab (the first build compiles everything and takes several minutes) …"
-npx tauri build "${TARGET[@]}"
-
-OUT=src-tauri/target/$([ ${#TARGET[@]} -gt 0 ] && echo universal-apple-darwin/)release/bundle
+if [ "$UNIVERSAL" = 1 ]; then
+  npx tauri build --target universal-apple-darwin
+  OUT=src-tauri/target/universal-apple-darwin/release/bundle
+else
+  npx tauri build
+  OUT=src-tauri/target/release/bundle
+fi
 say "Done."
 ls -1 "$OUT"/dmg/*.dmg "$OUT"/macos/*.app 2>/dev/null || true
 echo "Your records are kept in ~/Library/Application Support/org.lnplab.app/lnp-lab.db"

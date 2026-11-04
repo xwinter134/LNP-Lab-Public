@@ -19,6 +19,8 @@ import { processOf } from '../calc/process.js';
 import { PAGE_ROWS, moreLine, focusFirstNew } from './pager.js';
 import { wireFigures, SERIES } from './charts.js';
 import { customDefs, saveCustomDefs, newCustomId, customField, customInput, setCustom } from './customparams.js';
+import { claudeReportCard } from './claudereport.js';
+import { csvLine } from '../calc/csv.js';
 
 const RESPONSES = { zave_nm: { test: 'dls', label: 'Z-average (nm)' }, pdi: { test: 'dls', label: 'PDI' }, ee_pct: { test: 'ee', label: 'EE (%)' }, zeta_mV: { test: 'zeta', label: 'Zeta (mV)' } };
 const CLASSES = ['ionizable', 'helper', 'sterol', 'peg'];
@@ -143,11 +145,14 @@ const PALETTE = SERIES;
 /** Round axis numbers (the calc module's, which charts on this screen share). */
 function ticks(lo, hi, n = 5) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
-  if (lo === hi) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
+  if (lo > hi) [lo, hi] = [hi, lo];
+  // A span too small for the numbers' own precision (two points a rounding apart) is widened like a single
+  // value: a step below it never moves v on, and the loop used to fill memory until "Invalid array length".
+  if (hi - lo <= Math.max(Math.abs(lo), Math.abs(hi)) * 1e-9) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d; }
   const raw = (hi - lo) / n, p = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw) || raw;
   const out = [];
-  for (let v = Math.floor(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Number(v.toPrecision(10)));
+  for (let v = Math.floor(lo / step) * step; v <= hi + step * 1e-9 && out.length < 50; v += step) out.push(Number(v.toPrecision(10)));
   if (out[out.length - 1] < hi) out.push(Number((out[out.length - 1] + step).toPrecision(10)));
   return out;
 }
@@ -257,7 +262,7 @@ export async function render(el, ctx) {
     ${[y0, (y0 + y1) / 2, y1].map((v) => `<text x="${L - 6}" y="${sy(v) + 4}" class="lb" text-anchor="end">${fmt(v, resp === 'pdi' ? 2 : 0)}</text>`).join('')}
     ${lim.mean != null ? `<line x1="${L}" x2="${W - R}" y1="${sy(lim.mean)}" y2="${sy(lim.mean)}" class="mn" stroke-dasharray="2 4"/>` : ''}
     ${lim.ucl != null ? `<line x1="${L}" x2="${W - R}" y1="${sy(lim.ucl)}" y2="${sy(lim.ucl)}" class="lm" stroke-dasharray="4 4"/><line x1="${L}" x2="${W - R}" y1="${sy(lim.lcl)}" y2="${sy(lim.lcl)}" class="lm" stroke-dasharray="4 4"/>` : ''}
-    ${chartRows.map((r, i) => `<a href="${r.dlsId ? '#/measurements?id=' + r.dlsId : '#/formulation?batch=' + r.batchId}"><circle cx="${sx(i)}" cy="${sy(r[resp])}" r="4.5" fill="${colorOf(r[colorBy] || '–')}" ${lim.ucl != null && (r[resp] > lim.ucl || r[resp] < lim.lcl) ? 'class="ol" stroke-width="2"' : ''}><title>${r.batchId} · ${fmtDate(r.date)} · ${fmt(r[resp], 2)}</title></circle></a>`).join('')}
+    ${chartRows.map((r, i) => `<a href="${esc(r.dlsId ? '#/measurements?id=' + r.dlsId : '#/formulation?batch=' + r.batchId)}"><circle cx="${sx(i)}" cy="${sy(r[resp])}" r="4.5" fill="${colorOf(r[colorBy] || '–')}" ${lim.ucl != null && (r[resp] > lim.ucl || r[resp] < lim.lcl) ? 'class="ol" stroke-width="2"' : ''}><title>${esc(r.batchId)} · ${esc(fmtDate(r.date))} · ${fmt(r[resp], 2)}</title></circle></a>`).join('')}
     ${chartRows.length > 1 ? [0, Math.floor((chartRows.length - 1) / 2), chartRows.length - 1].map((i) => `<text x="${sx(i)}" y="${H - B + 16}" class="lb" text-anchor="middle">${fmtDate(chartRows[i].date)}</text>`).join('') : ''}
   </svg>` : '<p class="muted">No results yet for this selection.</p>';
   // What the chart holds, said under it: which setting, and what was left off and why.
@@ -298,7 +303,7 @@ export async function render(el, ctx) {
     ? `<p class="muted" style="margin:0">No QC limit for ${esc(RESPONSES[resp].label)} in <a href="#/settings">Settings</a>; capability is worked out against the size, PDI and EE limits there.</p>`
     : !cap ? `<p class="muted" style="margin:0">Needs three batches or more with some scatter on the chart (${chartRows.length} now).</p>`
       : `<div class="grid g2">${kpi('Cpk', fmt(cap.cpk, 2), cap.verdict)}${kpi('Mean ± SD', `${fmt(cap.mean, resp === 'pdi' ? 3 : 1)} ± ${fmt(cap.sd, resp === 'pdi' ? 3 : 1)}`, `n ${cap.n}${cap.cp != null ? `, Cp ${fmt(cap.cp, 2)}` : ''}`)}</div>
-      <p class="muted small" style="margin:6px 0 0" id="capSay">The ${cap.n} batches on the chart against ${capLim.lsl != null ? `${capLim.lsl}` : ''}${capLim.lsl != null && capLim.usl != null ? '–' : ''}${capLim.usl != null ? `${capLim.lsl == null ? 'at most ' : ''}${capLim.usl}` : ''}${capLim.lsl != null && capLim.usl == null ? ' or more' : ''} (Settings): ${cap.verdict === 'capable' ? 'the scatter fits well inside the limits (Cpk ≥ 1.33)' : cap.verdict === 'marginal' ? 'inside the limits, with little room (Cpk 1 to 1.33)' : 'batches outside the limits are to be expected (Cpk below 1)'}${cap.outside ? `; ${cap.outside} already outside` : ''}. Cpk is the distance from the mean to the nearer limit in units of 3 SD${cap.n < 10 ? `; from ${cap.n} batches it is a rough figure, since the SD itself is uncertain` : ''}.</p>`}</div>`;
+      <p class="muted small" style="margin:6px 0 0" id="capSay">The ${cap.n} batches on the chart against ${capLim.lsl != null ? `${esc(capLim.lsl)}` : ''}${capLim.lsl != null && capLim.usl != null ? '–' : ''}${capLim.usl != null ? `${capLim.lsl == null ? 'at most ' : ''}${esc(capLim.usl)}` : ''}${capLim.lsl != null && capLim.usl == null ? ' or more' : ''} (Settings): ${cap.verdict === 'capable' ? 'the scatter fits well inside the limits (Cpk ≥ 1.33)' : cap.verdict === 'marginal' ? 'inside the limits, with little room (Cpk 1 to 1.33)' : 'batches outside the limits are to be expected (Cpk below 1)'}${cap.outside ? `; ${cap.outside} already outside` : ''}. Cpk is the distance from the mean to the nearer limit in units of 3 SD${cap.n < 10 ? `; from ${cap.n} batches it is a rough figure, since the SD itself is uncertain` : ''}.</p>`}</div>`;
 
   /* ---------------- the explorer ---------------- */
   const catalogue = explorerParams(inView, ctx);
@@ -413,7 +418,7 @@ export async function render(el, ctx) {
   const customSay = defs.length ? `${defs.length} defined: ${defs.map((d) => d.name).join(', ')}; filled in on ${ctx.store.all('batches').filter((b) => defs.some((d) => b.custom?.[d.id] != null && b.custom[d.id] !== '')).length} formulations` : 'none yet: add your own, such as a lipid mix number or a room temperature';
 
   const sel = (id, label, value, options) => field({ id, label, type: 'select', value, options });
-  el.innerHTML = header('Evaluate', 'Insights', `<button id="exportCsv" title="Every formulation as one row: settings, materials, lots, custom parameters and results">Export CSV</button>`) +
+  el.innerHTML = header('Evaluate', 'Insights', `<button id="exportCsv" title="Every formulation as one row: settings, materials, lots, custom parameters and results">Export CSV</button>`) + claudeReportCard(ctx) +
     `<div class="card" id="insightSummary"><h2>What this shows</h2><ul class="drivers">${summary.sentences.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>
     <div class="card"><div class="grid g4" id="filters">
       ${sel('response', 'Response', resp, Object.entries(RESPONSES).map(([k, v]) => ({ value: k, label: v.label })))}
@@ -427,7 +432,7 @@ export async function render(el, ctx) {
         <div id="chartPick" style="max-width:520px">${sel('chart', 'On the chart', chartSel, chartOpts)}</div>
         ${chart}<p class="muted" id="chartNote">${esc(chartSay)}</p></div>
       <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="card"><h2>By ${colorBy === 'stockId' ? 'stock lot' : colorBy}</h2><p class="muted small" style="margin:0 0 6px">The ${chartRows.length} batches on the chart.</p>${table(['Group', { label: 'n', right: true }, { label: 'Mean', right: true }, { label: 'SD', right: true }, { label: 'Δ vs all', right: true }], groupStats.map((s) => ({ cells: [s.g, s.n, fmt(s.mean, 2), fmt(s.sd, 2), raw(s.mean != null && overall != null ? `<span class="${Math.abs(s.mean - overall) > (lim.sd || Infinity) ? 'chip warn' : ''}">${fmt(s.mean - overall, 2)}</span>` : '–')] })), { empty: 'No groups.' })}</div>
+        <div class="card"><h2>By ${colorBy === 'stockId' ? 'stock lot' : esc(colorBy)}</h2><p class="muted small" style="margin:0 0 6px">The ${chartRows.length} batches on the chart.</p>${table(['Group', { label: 'n', right: true }, { label: 'Mean', right: true }, { label: 'SD', right: true }, { label: 'Δ vs all', right: true }], groupStats.map((s) => ({ cells: [s.g, s.n, fmt(s.mean, 2), fmt(s.sd, 2), raw(s.mean != null && overall != null ? `<span class="${Math.abs(s.mean - overall) > (lim.sd || Infinity) ? 'chip warn' : ''}">${fmt(s.mean - overall, 2)}</span>` : '–')] })), { empty: 'No groups.' })}</div>
         ${capCard}
         ${fold('corr', `Correlation with ${RESPONSES[resp].label}`, corrSay, `${table(['Factor', { label: 'r', right: true }, { label: 'n', right: true }], corr.map((c) => ({ cells: [c.l, raw(`<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="height:8px;width:${Math.abs(c.r) * 80}px;background:${c.r > 0 ? 'var(--accent)' : 'var(--warn)'};border-radius:4px"></div>${fmt(c.r, 2)}</div>`), c.n] })), { empty: 'Needs at least 3 batches with varying factors.' })}
           <p class="muted">Pearson correlation across the filtered batches. Direction only; confirm with a designed experiment.</p>`)}
@@ -444,7 +449,7 @@ export async function render(el, ctx) {
   let limit = PAGE_ROWS;
   const drawRows = () => {
     const { shown } = pageOf(newest, limit);
-    rowBox.innerHTML = table(['Formulation', 'Date', 'Composition', 'Stock', 'Operator', { label: RESPONSES[resp].label, right: true }, 'N/P', 'FRR', 'TFR'], shown.map((r) => ({ cells: [raw(`<a href="#/formulation?batch=${r.batchId}">${r.batchId}</a>`), fmtDate(r.date), `#${r.compositionId}`, r.stockId || '–', r.operator || '–', fmt(r[resp], 2), r.np != null ? fmt(r.np, 1) : '–', r.frr != null ? fmt(r.frr, 1) : '–', r.tfr != null ? fmt(r.tfr, 1) : '–'] })), { empty: 'Nothing to show.' })
+    rowBox.innerHTML = table(['Formulation', 'Date', 'Composition', 'Stock', 'Operator', { label: RESPONSES[resp].label, right: true }, 'N/P', 'FRR', 'TFR'], shown.map((r) => ({ cells: [raw(`<a href="#/formulation?batch=${esc(r.batchId)}">${esc(r.batchId)}</a>`), fmtDate(r.date), `#${r.compositionId}`, r.stockId || '–', r.operator || '–', fmt(r[resp], 2), r.np != null ? fmt(r.np, 1) : '–', r.frr != null ? fmt(r.frr, 1) : '–', r.tfr != null ? fmt(r.tfr, 1) : '–'] })), { empty: 'Nothing to show.' })
       + moreLine({ id: 'insightMore', shown: shown.length, total: newest.length, noun: 'formulations' });
     rowBox.querySelector('#insightMore')?.addEventListener('click', () => {
       const from = limit;
@@ -477,8 +482,7 @@ export async function render(el, ctx) {
     const names = Object.fromEntries(customDefs(ctx.store).map((d) => [customField(d), `custom: ${d.name}${d.unit ? ` (${d.unit})` : ''}`]));
     // the setting goes out as the words the chart uses, so batches made the same way can be found again in a sheet
     const cell = (r, c) => (c === 'setting' ? settingKey(r.setting) : r[c]);
-    const q = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
-    const csv = [cols.map((c) => q(names[c] || c)).join(','), ...rowsAll.map((r) => cols.map((c) => q(cell(r, c))).join(','))].join('\n');
+    const csv = [csvLine(cols.map((c) => names[c] || c)), ...rowsAll.map((r) => csvLine(cols.map((c) => cell(r, c))))].join('\n');
     download('lnp-lab-batches.csv', csv, 'text/csv');
   });
   wireCustom(el, ctx, { go, cpExp, defs });

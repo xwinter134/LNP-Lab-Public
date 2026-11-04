@@ -9,6 +9,8 @@ import { modelsPick, roundVerdict } from './stopping.js';
 import { overallDesirability, paretoFront } from './objective.js';
 import { permutationImportance, ardImportance, collapseCheck, coverage } from './explain.js';
 import { usableRows, noiseFromReplicates, replicateGroups } from './dataset.js';
+import { lipidLearner } from './lipidmode.js';
+import { BUDGET } from './select.js';
 
 /** How much data before each stage of the module is worth showing. Stated openly rather than hidden in ifs. */
 export const READINESS = [
@@ -26,7 +28,14 @@ export const readinessFor = (n) => READINESS.filter((r) => n >= r.min).pop();
  * adjusting a goal weight or asking for six runs instead of four re-scores in milliseconds instead of
  * refitting every surface.
  */
-export function fitModels({ rows, space, goals, strategy = 'experiment', seed = 7 }) {
+/**
+ * @param {object} a  {rows, space, goals, strategy, seed}; and from the selection (select.js, lipidmode.js):
+ *   `noise` replicate scatter per response measured before the data budget merged the replicates, used in place
+ *   of what the (merged) rows would give; `lipidModel` {mode: 'kernel'|'descriptor', targetLipid, others: the
+ *   other lipids' rows, rank, descOf} to fit the lipid-aware Gaussian process on the chosen lipid's rows plus
+ *   the others'. Without either, exactly the fit this function always made.
+ */
+export function fitModels({ rows, space, goals, strategy = 'experiment', seed = 7, noise: noiseIn = null, lipidModel = null }) {
   const active = goals.filter((g) => g.on !== false);
   const names = active.map((g) => g.name);
   const used = usableRows(rows, space, names);
@@ -37,17 +46,32 @@ export function fitModels({ rows, space, goals, strategy = 'experiment', seed = 
     return out;
   }
   const X = used.map((r) => toUnit(r.factors, space));
+  const others = lipidModel ? usableRows(lipidModel.others || [], space, names) : [];
+  if (lipidModel) out.lipidModel = { mode: lipidModel.mode, targetLipid: lipidModel.targetLipid, others: others.length, rank: lipidModel.rank || 1 };
+  // Spec 7.8: the fit is O(n³) per optimiser step and was built for a few hundred runs at most.
+  if (used.length + others.length > BUDGET.warnAbove) {
+    out.warnings.push(`${used.length + others.length} points reach the model. Above ${BUDGET.warnAbove} each fit takes noticeably longer; a lower data budget in Settings keeps it quick.`);
+  }
   for (const g of active) {
     const idx = used.map((r, i) => (Number.isFinite(r.values[g.name]) ? i : -1)).filter((i) => i >= 0);
     if (idx.length < 4) { out.responses.push({ name: g.name, label: g.label, n: idx.length, skipped: 'fewer than four measured runs' }); continue; }
     const Xr = idx.map((i) => X[i]), yr = idx.map((i) => used[i].values[g.name]);
-    const noise = noiseFromReplicates(used, space, g.name);
-    const ev = evaluateResponse({ X: Xr, y: yr, rows: idx.map((i) => used[i]), strategy, noiseSd: noise?.sd ?? null, noiseDf: noise?.df ?? null });
+    const noise = noiseIn?.[g.name] || noiseFromReplicates(used, space, g.name);
+    let learnerMap;
+    if (lipidModel) {
+      const ox = others.filter((r) => Number.isFinite(r.values[g.name]));
+      if (ox.length) {
+        learnerMap = { ...LEARNERS, gp: lipidLearner({ mode: lipidModel.mode, targetLipid: lipidModel.targetLipid, rank: lipidModel.rank, descOf: lipidModel.descOf,
+          targetExp: idx.map((i) => used[i].experimentId ?? null),
+          extra: { X: ox.map((r) => toUnit(r.factors, space)), y: ox.map((r) => r.values[g.name]), lipid: ox.map((r) => r.lipid), exp: ox.map((r) => r.experimentId ?? null) } }) };
+      }
+    }
+    const ev = evaluateResponse({ X: Xr, y: yr, rows: idx.map((i) => used[i]), strategy, noiseSd: noise?.sd ?? null, noiseDf: noise?.df ?? null, ...(learnerMap ? { learnerMap } : {}) });
     const imp = ev.model ? permutationImportance(ev.model, Xr, standardise(yr).z, space, { seed: seed + 3 }) : [];
     out.responses.push({ name: g.name, label: g.label, unit: g.unit, n: idx.length, ...ev, noise,
       importance: imp, ard: ev.gp ? ardImportance(ev.gp, space) : [], collapse: ev.gp ? collapseCheck(ev.gp, space, { seed: seed + 11 }) : null,
       measured: yr, observed: { lo: Math.min(...yr), hi: Math.max(...yr) } });
-    if (ev.gp) out.models.push({ name: g.name, gp: ev.gp, yMean: ev.yMean, ySd: ev.ySd, kind: 'gp', X: Xr });
+    if (ev.gp) out.models.push({ name: g.name, gp: ev.gp, yMean: ev.yMean, ySd: ev.ySd, kind: 'gp', X: Xr, intervalScale: ev.intervalScale ?? 1 });
   }
   return out;
 }
@@ -103,7 +127,8 @@ export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', 
     // batch were chosen on, which pretend the earlier picks already came back at a random draw, and with the
     // measurement noise in. It is what the screen shows and the batch stores to be checked against its result.
     // On the campaign lab the surface's uncertainty about the mean held 57 % of the single results that came
-    // back, and a correct model read as wrong nearly half the time; this holds 81 % (usability cycle 5).
+    // back, and a correct model read as wrong nearly half the time; this held 81 % (usability cycle 5), 85 % with
+    // the present noise prior, and 97 % once widened by the cross-validated calibration (model.js, intervalScale).
     const forecast = (point) => predictAt(haveGP, space, point, { run: true });
     for (const p of out.suggestions.picks) p.forecast = forecast(p.point);
     for (const r of out.suggestions.confirm?.runs || []) r.forecast = forecast(r.point);
@@ -183,5 +208,10 @@ export function predictAt(models, space, point, { run = false } = {}) {
   if (!models?.length) return null;
   const u = toUnit(point, space);
   if (!u.every(Number.isFinite)) return null;
-  return predictAll(models.filter((m) => m.gp?.kind === 'gp'), u, { noiseless: !run });
+  const gps = models.filter((m) => m.gp?.kind === 'gp');
+  const out = predictAll(gps, u, { noiseless: !run });
+  // A run's forecast is widened by the cross-validated calibration (model.js, intervalScale), so its 95 %
+  // interval holds about 95 % of the results that come back.
+  if (run) for (const m of gps) if (out[m.name] && m.intervalScale > 1) { out[m.name].sd *= m.intervalScale; out[m.name].calibrated = m.intervalScale; }
+  return out;
 }
