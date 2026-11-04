@@ -590,7 +590,7 @@ export async function render(el, ctx) {
       <label style="font-weight:400;margin-left:auto">Storage ${txt('a_storage', a.storage || '5 °C', 90)}</label><label style="font-weight:400"><input type="checkbox" name="a_filled" ${a.filled ? 'checked' : ''} style="width:auto"> fill & finish done</label></div>`;
 
 
-    el.innerHTML = header(raw(`<a href="#/formulation">Formulations</a> › <a href="#/experiments?id=${esc(batch.experimentId)}">${esc(describeId(batch.experimentId))}</a>`),
+    el.innerHTML = header('',
       `${describeId(batch.id)}`,
       // The status is a small labelled control among the actions. As a bare select it took the global
       // width:100% and wrapped onto a line of its own, a page-wide dropdown under the title.

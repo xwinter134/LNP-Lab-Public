@@ -17,7 +17,7 @@ import { listImports, rollbackImport } from '../calc/importops.js';
 export const PRIVACY_NOTE = 'With this switched on, Claude reads your lab data: the files you give it and what the LNP Lab tools return from this lab. That data is sent to Anthropic, which runs Claude, as part of your conversation, under the terms of your Claude account. The LNP Lab server itself sends nothing over the network: it is only a local bridge between Claude and this app\'s records. Many labs treat formulation data as confidential, and some do not allow AI tools: check before you use it. LNP Lab works fully without it.';
 
 const MODULES = [
-  { key: 'mcpImport', label: 'Import with Claude (MCP server)', say: 'Claude Desktop or Claude Code reads old spreadsheets and, after you approve its quality report, adds them to this lab. Set up the server as mcp/README.md says.' },
+  { key: 'mcpImport', label: 'Import with Claude (MCP server)', say: 'Claude Desktop or Claude Code reads old spreadsheets and, after you approve its quality report, adds them to this lab. Set up the server as mcp/README.md says.', wip: true },
   { key: 'personalBuild', label: 'Claude insights', say: 'Claude reads the lab through the same server and writes a report of the main findings, shown on Insights.', personal: true },
 ];
 
@@ -25,13 +25,13 @@ const MODULES = [
 export function claudeCards(ctx) {
   const s = getSettings(ctx);
   const mods = MODULES.filter((m) => !m.personal || personalBuildAvailable());
-  const anyOn = mods.some((m) => s[m.key] === true);
+  const anyOn = mods.some((m) => !m.wip && s[m.key] === true);
   const imports = listImports(ctx.store);
   const card = `<div class="card" id="claudeCard"><h2>Claude (optional)</h2>
-    ${mods.map((m) => `<div style="margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-weight:500;color:var(--ink)"><input type="checkbox" data-module="${m.key}" style="width:auto"${s[m.key] === true ? ' checked' : ''}> ${esc(m.label)}</label>
+    ${mods.map((m) => `<div style="margin:6px 0${m.wip ? ';opacity:.55' : ''}"><label style="display:flex;align-items:center;gap:8px;font-weight:500;color:var(--ink)${m.wip ? ';cursor:default' : ''}"><input type="checkbox" data-module="${m.key}" style="width:auto"${s[m.key] === true && !m.wip ? ' checked' : ''}${m.wip ? ' disabled' : ''}> ${esc(m.label)}${m.wip ? ' <span class="chip">not finished</span>' : ''}</label>
       <p class="muted small" style="margin:2px 0 0 26px">${esc(m.say)}</p></div>`).join('')}
     ${anyOn ? `<p class="note" id="privacyNote">${esc(PRIVACY_NOTE)}</p>` : '<p class="muted">Off unless you switch it on. Nothing in LNP Lab needs it.</p>'}</div>`;
-  const showImports = s.mcpImport === true || imports.length > 0;
+  const showImports = (s.mcpImport === true && !MODULES.find((m) => m.key === 'mcpImport')?.wip) || imports.length > 0;
   return card + (showImports ? importsCard(imports) : '');
 }
 
