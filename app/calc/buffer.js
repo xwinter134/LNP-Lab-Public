@@ -366,7 +366,9 @@ const fmtNum = (v) => { const n = Number(v) || 0; return Number.isInteger(Math.r
  * @param {string[]} taken   lot names already in use (live and deleted lots alike)
  */
 export function bufferLotName({ code, targetPH, date } = {}, taken = []) {
-  const ph = Number.isFinite(Number(targetPH)) ? Number(targetPH).toFixed(1) : 'NA';
+  // An empty field is no pH: Number('') and Number(null) are 0, which would name the lot pH0.0.
+  const known = targetPH !== '' && targetPH != null && Number.isFinite(Number(targetPH));
+  const ph = known ? Number(targetPH).toFixed(1) : 'NA';
   const day = String(date || '').slice(0, 10).replace(/-/g, '') || 'NODATE';
   const base = `${String(code || 'BUF').trim().toUpperCase().replace(/\s+/g, '')}-pH${ph}-${day}`;
   const used = new Set(taken.map(String));

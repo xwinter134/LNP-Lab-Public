@@ -149,11 +149,13 @@ const ofImport = (r, id) => r?.provenance?.importId === id;
 export function importRecords(lab, importId) {
   const exps = lab.all('experiments').filter((e) => ofImport(e, importId));
   const expIds = new Set(exps.map((e) => e.id));
-  const batches = lab.all('batches').filter((b) => ofImport(b, importId) || expIds.has(b.experimentId));
+  // Read once: all() copies the whole collection, and this runs for every import Settings › Imports lists.
+  const allBatches = lab.all('batches');
+  const batches = allBatches.filter((b) => ofImport(b, importId) || expIds.has(b.experimentId));
   const batchIds = new Set(batches.map((b) => b.id));
   const ms = lab.all('measurements').filter((m) => ofImport(m, importId) || batchIds.has(m.batchId));
-  const comps = lab.all('compositions').filter((c) => ofImport(c, importId))
-    .filter((c) => !lab.all('batches').some((b) => b.compositionId === c.id && !batchIds.has(b.id)));
+  const usedElsewhere = new Set(allBatches.filter((b) => !batchIds.has(b.id)).map((b) => b.compositionId));
+  const comps = lab.all('compositions').filter((c) => ofImport(c, importId) && !usedElsewhere.has(c.id));
   // A study the import made goes with every value in it (one typed in later, an IVIS image read into it); a value
   // the import brought into a study of other origin goes alone.
   const studies = lab.all('studies').filter((x) => ofImport(x, importId));

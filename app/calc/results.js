@@ -17,6 +17,7 @@ import { tCritical } from './diagnostics.js';
 import { FACTORS, isCategoricalFactor, levelText } from './experiment.js';
 import { parseSampleName } from '../schema.js';
 import { groupBy } from './indexes.js';
+import { csvCell } from './csv.js';
 
 /** The responses an experiment page summarises, in column order. `field` is the key in a measurement's values. */
 export const RESULT_RESPONSES = [
@@ -710,7 +711,6 @@ export function predictionSummary(items) {
 
 /* ---------- export ---------- */
 
-const csvCell = (v) => { const s = v == null ? '' : String(v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const round = (x, dp) => (finite(x) ? String(Math.round(x * 10 ** dp) / 10 ** dp) : '');
 
 /**

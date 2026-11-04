@@ -8,6 +8,7 @@
 
 import { batchDrift } from './stability.js';
 import { mixtureDesign, crossedDesign, mixturePool, scheffeTerms, processTerms, crossedTerms, toPseudo } from './mixture.js';
+import { csvLine } from './csv.js';
 
 export const DESIGN_TYPES = {
   full_factorial: { name: '2-level full factorial', levels: 2, note: 'all corners; linear or interaction model' },
@@ -527,18 +528,18 @@ export function toDesignCSV(spec, runs) {
   const cols = designColumns(spec);
   const names = cols.map((c) => c.name);
   const head = ['run_id', 'std_order', 'point_type', ...names.map((n) => n + '_coded'), ...names, 'run_order', 'well', 'plate'];
-  const lines = [head.join(',')];
+  const lines = [csvLine(head)];
   // A categorical factor's setting is the mixer it names, in the column of real settings; its code stays numeric.
   const realOf = (r, c) => (isCategorical(c) ? categoricalName(c, r.coded[c.name]).replace(/,/g, ' ') : r.real[c.name]);
-  for (const r of runs) lines.push([r.run_id, r.std_order, r.point_type, ...names.map((n) => r.coded[n]), ...cols.map((c) => realOf(r, c)), r.run_order ?? '', r.well ?? '', r.plate ?? ''].join(','));
+  for (const r of runs) lines.push(csvLine([r.run_id, r.std_order, r.point_type, ...names.map((n) => r.coded[n]), ...cols.map((c) => realOf(r, c)), r.run_order ?? '', r.well ?? '', r.plate ?? '']));
   return lines.join('\n') + '\n';
 }
 
 /** raw_data.csv rows for `run_pipeline.py analyze --data`: run_id + one column per response. */
 export function toRawDataCSV(spec, runs, valueOf) {
   const head = ['run_id', ...spec.responses.map((r) => r.name)];
-  const lines = [head.join(',')];
-  for (const run of runs) lines.push([run.run_id, ...spec.responses.map((r) => { const v = valueOf(run, r); return v == null ? '' : v; })].join(','));
+  const lines = [csvLine(head)];
+  for (const run of runs) lines.push(csvLine([run.run_id, ...spec.responses.map((r) => { const v = valueOf(run, r); return v == null ? '' : v; })]));
   return lines.join('\n') + '\n';
 }
 

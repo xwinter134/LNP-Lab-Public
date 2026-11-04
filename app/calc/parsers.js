@@ -8,6 +8,7 @@
 // above the header row, German column names, units in brackets or after a slash, blank columns, "Mean" and
 // "Std Dev" rows under the data, dates in the install's locale, and blanks and standards on a plate.
 import { parseSampleName } from '../schema.js';
+import { csvLine } from './csv.js';
 
 /**
  * Text from the bytes of an instrument file. A file input's text() always decodes UTF-8, and the Zetasizer
@@ -239,8 +240,7 @@ export const SHEET_COLUMNS = { dls: ['Z-Average (d.nm)', 'PdI'], zeta: ['Zeta Po
 export function blankSheet(names, tests = []) {
   const due = IMPORT_TESTS.filter((t) => tests.includes(t));
   const cols = (due.length ? due : ['dls']).flatMap((t) => SHEET_COLUMNS[t]);
-  const cell = (s) => (/[",;\t\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s);
-  return [['Sample Name', ...cols].join(','), ...names.map((n) => [cell(String(n)), ...cols.map(() => '')].join(','))].join('\n') + '\n';
+  return [csvLine(['Sample Name', ...cols]), ...names.map((n) => csvLine([n, ...cols.map(() => '')]))].join('\n') + '\n';
 }
 
 /**

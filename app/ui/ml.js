@@ -33,6 +33,7 @@ import { biologicalTargets, applyTargets, targetGoals, physchemAsLimits } from '
 import '../calc/ml/biotargets.js'; // registers the studies' targets (spec 7.9)
 import { runsNeeded } from '../calc/variables.js';
 import { transparencyCard, predictionFold, accountCsv, whyTable } from './mlpanel.js';
+import { csvLine } from '../calc/csv.js';
 
 // The running version, for the model fingerprint (spec 7.5). As in report.js: main.js starts the app as it
 // loads, so it is only imported where the app is already running, and the calculations take the version as an
@@ -74,7 +75,10 @@ function loadSetup(ctx) {
   const saved = ctx.store.get('settings', SETUP_KEY);
   return saved?.value || null;
 }
-const saveSetup = (ctx, value) => ctx.store.put('settings', { id: SETUP_KEY, value });
+// Not from a window that only shows the records: the store refuses the write, and a refused write redraws the
+// screen from what is stored, so a fit made there vanished the moment it was made. The setup is then simply
+// not remembered, as nothing else is in that window.
+const saveSetup = (ctx, value) => { if (!ctx.store.readOnly) ctx.store.put('settings', { id: SETUP_KEY, value }); };
 /**
  * The recipe a suggested batch is built on, in registry order, so it is the formulation the wizard offers too.
  * The search reads its class mol% for the lipids it neither varies nor balances, and createExperiment builds
@@ -160,6 +164,7 @@ export async function render(el, ctx) {
   function compute() {
     fit = fitPrepared(prepNow(), { space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed, lipidByKey: ref.lipidByKey, rank: state.kernelRank });
     rescore();
+    keepAnalysis(ctx, report?.fingerprint);
   }
   /** Re-score the existing surfaces: goals, limits, mode, batch size and seed all land here, in milliseconds. */
   function rescore() {
@@ -169,7 +174,6 @@ export async function render(el, ctx) {
     // Every analysis carries its fingerprint (spec 7.5), and a round made from it stores it (createExperiment).
     report.fingerprint = makeFingerprint({ report, appVersion,
       setup: setupOf({ ...state, constraints: activeConstraints(), budget, baseClasses }) });
-    keepAnalysis(ctx, report.fingerprint);
   }
 
   function draw() {
@@ -923,10 +927,11 @@ function wire(el, ctx, ref, settings, state, report, h) {
     createExperiment(ctx, ref, settings, state, picks, name, c.reason, busy, report.fingerprint);
   });
   root.querySelector('#exportCsv')?.addEventListener('click', () => {
+    keepAnalysis(ctx, report?.fingerprint); // what leaves the screen can be made again
     const head = ['run', ...report.space.map((f) => f.key), ...report.goals.flatMap((g) => [`${g.name}_predicted`, `${g.name}_sd`]), 'p_beats_best', 'expected_desirability'];
-    const lines = [head.join(',')];
-    report.suggestions.picks.forEach((p, i) => lines.push([i + 1, ...report.space.map((f) => p.point[f.key]),
-      ...report.goals.flatMap((g) => [expected(p)[g.name]?.mean ?? '', expected(p)[g.name]?.sd ?? '']), p.pBeatsBest, p.expectedDesirability].join(',')));
+    const lines = [csvLine(head)];
+    report.suggestions.picks.forEach((p, i) => lines.push(csvLine([i + 1, ...report.space.map((f) => p.point[f.key]),
+      ...report.goals.flatMap((g) => [expected(p)[g.name]?.mean ?? '', expected(p)[g.name]?.sd ?? '']), p.pBeatsBest, p.expectedDesirability])));
     // In the macOS app the file goes through a save dialog, and download() returns a promise of the path, or of
     // null when the dialog is cancelled; the toast waits for it, so a cancelled export does not say "exported".
     Promise.resolve(download(`ml-suggestions-${todayISO()}.csv`, lines.join('\n') + '\n', 'text/csv'))
@@ -1047,13 +1052,16 @@ const roundNumber = (ctx) => ctx.store.all('experiments').filter((e) => /^ML rou
  */
 /**
  * Every analysis keeps its fingerprint (spec 7.5), not only a round made from it: what was on screen when a
- * figure was taken for a paper can be made again. Written at once, as the setup is (persist), not on a timer:
- * a write that lands seconds later, in whatever the person is doing by then, is a write nobody asked for. The
- * same fingerprint is kept once, and the newest 100 are kept.
+ * figure was taken for a paper can be made again. Kept when a fit is made and when its suggestions are
+ * exported, the two moments an analysis leaves the screen; not on every change of a weight or a limit, which
+ * re-scores in milliseconds and would write a record each time. Written at once, not on a timer, and not at
+ * all from a window that only shows the records: the store would refuse it, and a refused write redraws the
+ * screen from what is stored, taking the fit just made with it. The same fingerprint is kept once, the newest
+ * 100 in all.
  */
 export const ANALYSES = 'mlAnalyses', KEEP_ANALYSES = 100;
 function keepAnalysis(ctx, fp) {
-  if (!fp?.hash) return;
+  if (!fp?.hash || ctx.store.readOnly) return;
   try {
     const all = ctx.store.all(ANALYSES);
     if (all.some((a) => a.id === fp.hash)) return;

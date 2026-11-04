@@ -25,6 +25,8 @@ test('lot names are code-pH-date, numbered on when the same buffer is made twice
   const lot = { code: 'CIT50', targetPH: 4, date: '2026-10-31' };
   assert.equal(bufferLotName(lot, []), 'CIT50-pH4.0-20261031');
   assert.equal(bufferLotName(lot, ['CIT50-pH4.0-20261031']), 'CIT50-pH4.0-20261031-2');
+  // no target pH: NA, not pH0.0 (Number('') and Number(null) are 0)
+  for (const targetPH of ['', null, undefined]) assert.equal(bufferLotName({ ...lot, targetPH }, []), 'CIT50-pHNA-20261031');
   assert.equal(bufferLotName(lot, ['CIT50-pH4.0-20261031', 'CIT50-pH4.0-20261031-2']), 'CIT50-pH4.0-20261031-3');
   assert.equal(bufferLotName({ code: 'cit 50', targetPH: 4.04, date: '2026-10-31' }), 'CIT50-pH4.0-20261031');
 });

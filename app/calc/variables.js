@@ -108,7 +108,12 @@ const targetWord = (name) => {
  */
 function fromProcess(plan, key, ref) {
   const p = plan?.process;
-  const aq = p?.aqueous?.buffer ? p.aqueous : plan?.rna?.diluent ? { buffer: plan.rna.diluent } : null;
+  // The aqueous phase as recorded, its buffer named by the process or else by the RNA dilution buffer. A pH or a
+  // strength recorded on it counts without a buffer name: a design level or an optimizer suggestion writes them
+  // there (calc/experiment.js aqueous(), ui/ml.js), and the diluent's catalogue pH must not stand in for them.
+  const own = p?.aqueous || {};
+  const buffer = own.buffer || plan?.rna?.diluent || null;
+  const aq = buffer || finite(own.pH) != null || finite(own.mM) != null ? { ...own, buffer } : null;
   if (key === 'bufferSystem') return aq ? systemWord(aq.buffer, ref) : null;
   if (key === 'loadingPH') return aq ? finite(aq.pH) ?? finite(knownBuffer(aq.buffer, ref)?.targetPH) : null;
   if (key === 'bufferMolarity_mM') return aq ? finite(aq.mM) ?? finite(knownBuffer(aq.buffer, ref)?.conc_mM) : null;

@@ -20,6 +20,7 @@ import { PAGE_ROWS, moreLine, focusFirstNew } from './pager.js';
 import { wireFigures, SERIES } from './charts.js';
 import { customDefs, saveCustomDefs, newCustomId, customField, customInput, setCustom } from './customparams.js';
 import { claudeReportCard } from './claudereport.js';
+import { csvLine } from '../calc/csv.js';
 
 const RESPONSES = { zave_nm: { test: 'dls', label: 'Z-average (nm)' }, pdi: { test: 'dls', label: 'PDI' }, ee_pct: { test: 'ee', label: 'EE (%)' }, zeta_mV: { test: 'zeta', label: 'Zeta (mV)' } };
 const CLASSES = ['ionizable', 'helper', 'sterol', 'peg'];
@@ -481,8 +482,7 @@ export async function render(el, ctx) {
     const names = Object.fromEntries(customDefs(ctx.store).map((d) => [customField(d), `custom: ${d.name}${d.unit ? ` (${d.unit})` : ''}`]));
     // the setting goes out as the words the chart uses, so batches made the same way can be found again in a sheet
     const cell = (r, c) => (c === 'setting' ? settingKey(r.setting) : r[c]);
-    const q = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
-    const csv = [cols.map((c) => q(names[c] || c)).join(','), ...rowsAll.map((r) => cols.map((c) => q(cell(r, c))).join(','))].join('\n');
+    const csv = [csvLine(cols.map((c) => names[c] || c)), ...rowsAll.map((r) => csvLine(cols.map((c) => cell(r, c))))].join('\n');
     download('lnp-lab-batches.csv', csv, 'text/csv');
   });
   wireCustom(el, ctx, { go, cpExp, defs });

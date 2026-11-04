@@ -11,6 +11,7 @@
 // exactly one counts for that facet alone, a row that fails two counts nowhere.
 import { ionizableLipids, isPegFree, readVariable } from './variables.js';
 import { provenanceOf, fromInstrumentFile, SOURCES } from './provenance.js';
+import { csvLine } from './csv.js';
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 const meanOf = (xs) => { const v = xs.filter(finite); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
@@ -406,8 +407,7 @@ export function sortRows(rows, col, dir = 1) {
 
 /** The selection as CSV, with every column (not only the shown ones) and the provenance. */
 export function toCsv(rows, cols) {
-  const cell = (v) => { const s = v == null ? '' : String(v); return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  return [cols.map((c) => cell(c.label)).join(','), ...rows.map((r) => cols.map((c) => cell(c.get(r))).join(','))].join('\n');
+  return [csvLine(cols.map((c) => c.label)), ...rows.map((r) => csvLine(cols.map((c) => c.get(r))))].join('\n');
 }
 
 /**

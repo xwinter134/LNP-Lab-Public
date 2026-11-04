@@ -14,6 +14,7 @@ import { modeSentence } from '../calc/ml/pipeline.js';
 import { shortHash } from '../calc/ml/fingerprint.js';
 import { runsNeeded } from '../calc/variables.js';
 import { hitRateSentence, Z95 } from '../calc/ml/predcheck.js';
+import { csvLine } from '../calc/csv.js';
 
 /** A setting at the precision its factor is set in (as ml.js atStep): FRR 1.5, flow 45 mL/min. */
 const atStep = (v, f) => { const dp = f?.step ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(f.step) - 1e-9))) : 2; return Number.isFinite(v) ? Number(v.toFixed(dp)).toLocaleString('en-US', { maximumFractionDigits: dp }) : '–'; };
@@ -186,8 +187,7 @@ export function whyTable(sel, ref) {
 
 /** The account as CSV, for the export button. */
 export function accountCsv(sel) {
-  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  return ['formulation,lipid,mixer,status,reason,detail', ...selectionAccount(sel).rows.map((r) => [r.batchId, r.lipid, r.mixer, r.status, r.reason, r.detail].map(q).join(','))].join('\n') + '\n';
+  return ['formulation,lipid,mixer,status,reason,detail', ...selectionAccount(sel).rows.map((r) => csvLine([r.batchId, r.lipid, r.mixer, r.status, r.reason, r.detail]))].join('\n') + '\n';
 }
 
 /* ---------------- prediction against measurement (spec 7.6) ---------------- */

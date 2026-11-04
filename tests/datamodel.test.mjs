@@ -93,3 +93,14 @@ test('the migration keeps a copy of every record first, and records the version 
   for (let i = 0; i < 3; i++) backupBeforeMigration(s, 2, 3, new Date(2026, 0, i + 1));
   assert.equal(s.all('preMigration').length, 2, 'only the two newest copies are kept');
 });
+
+test('a pH or strength recorded on the aqueous phase is read without a buffer name, before the diluent\'s catalogue values', () => {
+  const ref = { buffersCatalog: [{ name: 'Citrate 50 mM, pH 4.0', targetPH: 4, conc_mM: 50 }] };
+  // a design level or an optimizer suggestion: pH on the aqueous phase, the buffer named only as the RNA diluent
+  const b = { plan: { rna: { diluent: 'Citrate 50 mM, pH 4.0' }, process: { aqueous: { pH: 5.5, mM: 25 } } } };
+  assert.equal(readVariable(b, 'loadingPH', ref), 5.5);
+  assert.equal(readVariable(b, 'bufferMolarity_mM', ref), 25);
+  // no buffer named anywhere, a pH recorded: still read
+  assert.equal(readVariable({ plan: { process: { aqueous: { pH: 6 } } } }, 'loadingPH', ref), 6);
+  assert.equal(readVariable({ plan: { process: { aqueous: { pH: 6 } } } }, 'bufferSystem', ref), null);
+});
