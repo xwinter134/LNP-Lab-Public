@@ -93,6 +93,9 @@ export async function render(el, ctx) {
     // the form leads here with draft=1, and the form then starts from it.
     const draft = !stock && !handed && ctx.params.draft ? notStoring(readDraft(ctx, 'stock')) : null;
     if (draft?.state) { Object.assign(state, draft.state); fromRecord = !!draft.fromRecord; }
+    // A formulation record can also just name the composition its batch is made from ("weigh a new stock" there).
+    const named = !stock && !handed && !draft?.state ? Number(ctx.params.compositionId) : NaN;
+    if (Number.isFinite(named) && ref.compositionById[named]) { state.compositionId = named; state.molPct = null; }
     const recipeHanded = !!handed || !!draft?.fromRecord;
     // A stock on record is stored as it is edited, onto the stock as it is stored (another window may have it
     // open too); a new one is kept as a draft until "Create stock", under this form's own id.
@@ -225,6 +228,7 @@ export async function render(el, ctx) {
         </div>
         ${recipeHanded && fromRecord ? raw(`<div class="note" style="margin-top:10px">This weigh-in is the recipe a formulation record handed over, not the registry recipe for #${esc(String(state.compositionId))}: ${Object.entries(state.molPct).map(([k, v]) => `${esc(ref.lipidByKey[k]?.name || k)} ${pctText(v)}`).join(' · ')} mol%. It is saved as a custom composition.</div>`) : ''}
         <p class="muted advanced" style="margin:8px 0 0">Advanced: mol% is editable per card; a changed composition is saved with the stock. ${raw(addLipidMenu())}</p>
+        ${plan ? raw(`<div class="weighAll"><button type="button" id="weighTarget" title="Fill every weighed field that is still empty with its target mass. Masses already typed stay.">Weighed = target</button> <span class="muted">when each lipid was weighed to its target; correct any that were not</span></div>`) : ''}
         <div class="weighGrid">${raw(cards + unweighed)}</div>
         ${raw(summary)}
         ${raw(field({ id: 'notes', label: 'Notes', type: 'textarea', value: state.notes, rows: 2 }))}
@@ -241,6 +245,7 @@ export async function render(el, ctx) {
       form.querySelector('#saveStock')?.addEventListener('click', save);
       form.querySelector('#stockDraftFresh')?.addEventListener('click', () => { dropDraft(ctx, 'stock'); ctx.navigate('stocks', { new: 1 }); });
       form.querySelector('#printStock').addEventListener('click', () => print(comp));
+      form.querySelector('#weighTarget')?.addEventListener('click', weighAsTargeted);
       form.querySelector('#addLipid')?.addEventListener('change', (e) => addLipidRow(e.target.value));
       // Deleting goes to the trash, with an Undo on the note (see Settings › Recently deleted). The formulations
       // that used the stock keep its id, shown as deleted, and their own lipid concentration, so a stock they
@@ -263,6 +268,19 @@ export async function render(el, ctx) {
       const s = document.createElement('style'); s.id = 'simpleOnlyStyle';
       s.textContent = 'body.mode-advanced .simpleOnly{display:none} input.advanced{display:none} body.mode-advanced input.advanced{display:inline-block;width:70px}';
       document.head.appendChild(s);
+    }
+
+    /**
+     * "Weighed = target": every lipid with no weighed mass yet takes its target mass, as typed at the balance
+     * (5 decimals, the field's step). A mass already typed is the balance's word and stays. Only masses of
+     * zero or more are ever stored here, as in apply(), so the negative-mass guard is untouched.
+     */
+    function weighAsTargeted() {
+      const { plan } = compute();
+      if (!plan) return;
+      for (const r of plan.rows) if (state.actual[r.key] == null && r.weighG >= 0) state.actual[r.key] = Number(r.weighG.toFixed(5));
+      if (saver) saver.now(); else keep();
+      redraw();
     }
 
     // A change arrives as the user leaves a field, on the way to the next one: redraw once they are there.
