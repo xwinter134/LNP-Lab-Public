@@ -221,7 +221,6 @@
   .figs > .wide { grid-column: 1 / -1; } .figScroll { overflow-x: auto; } .evalFigs { grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); }
   .evalHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .evalHead h2 { flex: 1 1 auto; margin: 0; }
   .evalKpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0 16px; }
-  .evalKpis .kpi .v { font-size: 17px; font-variant-numeric: tabular-nums; }
   .evalExp { border-top: 1px solid var(--line); padding: 8px 0 2px; } .evalExp p { margin: 5px 0; }
   /* Experiment page: what to do next, the bench actions, and the Results card. */
   .nextstep { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px; margin-bottom: 14px; border-radius: 12px;
@@ -690,8 +689,6 @@
   nav .foot details.feedback p { margin: 2px 4px 0; font-size: 11px; color: var(--ink3); line-height: 1.35; }
   /* Data overview (spec 5) */
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px; }
-  .kpis .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
-  .kpis .kpi .l { font-size: 12px; color: var(--ink2); } .kpis .kpi .v { font-size: 20px; font-weight: 600; }
   .dataChips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; min-height: 26px; }
   .dataChips .chip { text-decoration: none; }
   .dataGrid { display: grid; grid-template-columns: 230px minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
@@ -733,6 +730,56 @@
   .crumbBack[disabled] { opacity: .35; }
   details.lotgroup { border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); padding: 6px 0; }
   details.lotgroup > summary { cursor: pointer; } details.lotgroup[open] > summary { margin-bottom: 6px; }
+  /* ==== stage 6a: design system ==== */
+  /* Type scale for the rules below (the older inline sizes are left as they are). */
+  :root {
+    --fs-xs: 11.5px; --fs-s: 12.5px; --fs-m: 13.5px; --fs-l: 15px; --fs-xl: 19px; --fs-h1: 26px;
+    /* Colour for text that carries information. --ink3 was 1.9:1 on the sidebar; it is now >= 4.5:1 on every surface, and
+       the old pale grey stays as --ink-deco for lines and switches that decorate. White on --accent was 4.0:1, so the
+       primary button has its own, darker blue; links use --accent-text. */
+    --ink2: #5F5F64; --ink3: #6A6A70; --ink-deco: #AEAEB2;
+    --btn-primary: #0B66D9; --danger-text: #D70015;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink2: #B0B0B5; --ink3: #9A9AA0; --ink-deco: #636366; --btn-primary: #0868D8; --danger-text: #FF6961; } }
+  :root[data-theme="dark"] { --ink2: #B0B0B5; --ink3: #9A9AA0; --ink-deco: #636366; --btn-primary: #0868D8; --danger-text: #FF6961; }
+  a { color: var(--accent-text); }
+  button.learn-inline, button.dueN, button.linkish { color: var(--accent-text); }
+  .switch input, .stub { border-color: var(--ink-deco); } .switch input { background: var(--ink-deco); }
+  button.primary, .btn.primary, button.primary:hover, .btn.primary:hover { background: var(--btn-primary); }
+  button:focus-visible, .btn:focus-visible, a:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Button ladder: primary (at most one per header), secondary (default), quiet for row actions, danger for what deletes. */
+  button.quiet, .btn.quiet, button.mat-add.quiet { background: transparent; border-color: transparent; color: var(--accent-text); border-style: solid; }
+  button.quiet:hover, .btn.quiet:hover { background: var(--hover); }
+  button.danger, .btn.danger { color: var(--danger-text); }
+  .fgLinks .btn { background: transparent; border-color: transparent; color: var(--accent-text); }
+  .fgLinks .btn:hover { background: var(--hover); }
+  details.moreMenu { position: relative; }
+  details.moreMenu > summary { list-style: none; cursor: pointer; }
+  details.moreMenu > summary::-webkit-details-marker { display: none; }
+  details.moreMenu > summary::after { content: '▾'; font-size: var(--fs-xs); color: var(--ink2); }
+  details.moreMenu .moreList { position: absolute; left: 0; top: calc(100% + 4px); z-index: 30; min-width: 150px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 6px; background: var(--card); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); }
+  details.moreMenu .moreList .btn, details.moreMenu .moreList button { justify-content: flex-start; background: transparent; border-color: transparent; }
+  details.moreMenu .moreList .btn:hover, details.moreMenu .moreList button:hover { background: var(--hover); }
+  /* One KPI tile: grey, label over value. An empty value ("not chosen") is quieter than a real one. */
+  .kpis .kpi, .evalKpis .kpi { background: var(--bg2); border: 0; border-radius: 10px; padding: 11px 13px; }
+  .kpi .l { font-size: var(--fs-xs); color: var(--ink2); }
+  .kpi .v { font-variant-numeric: tabular-nums; }
+  .kpi .v.empty { font-size: var(--fs-l); font-weight: 500; color: var(--ink3); letter-spacing: 0; }
+  /* Empty state: what the thing is, and the screen's primary action, centred in the card. */
+  .emptyState { text-align: center; padding: 22px 12px; max-width: 460px; margin: 0 auto; }
+  .emptyState h3 { margin: 0 0 6px; font-size: var(--fs-l); font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  .emptyState p { margin: 0 0 14px; color: var(--ink2); font-size: var(--fs-m); }
+  /* Data: nothing may push the page sideways; the table scrolls inside its own box. */
+  .dataGrid > * { min-width: 0; }
+  @media (max-width: 860px) { .dataGrid { grid-template-columns: minmax(0, 1fr); } .facets { position: static; max-height: none; } }
+  .facetSame { font-size: var(--fs-s); margin: 12px 0 0; word-break: break-word; }
+  /* Measurements: the file chooser looks like the other secondary buttons; the glossary chips sit under the title. */
+  input[type="file"]::file-selector-button { font: inherit; font-size: 13px; font-weight: 500; padding: 5px 12px; margin-right: 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--card); color: var(--ink); cursor: pointer; }
+  input[type="file"]::file-selector-button:hover { background: var(--hover); }
+  input[type="file"] { border: 0; padding: 0; min-height: 0; background: transparent; color: var(--ink2); font-size: var(--fs-s); }
+  .termsLine { margin: -8px 0 12px; font-size: var(--fs-s); }
+  /* Colour roles: blue is for actions and selection only; a card keeps the plain outline unless it reports a status. */
+  #tryDemo, .card[style*="border-color:var(--c-ml)"], .card[style*="border-color:var(--c-advisor)"], .card[style*="border-color:var(--accent)"] { border-color: var(--line) !important; }
 </style>
 </head>
 <body>

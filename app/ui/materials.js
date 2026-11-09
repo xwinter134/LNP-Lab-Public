@@ -205,10 +205,10 @@ function lipids(body, ctx) {
         return `<button type="button" class="mat-pick${open?.lot === x.id ? ' on' : ''}" data-act="lot" data-id="${esc(x.id)}" title="Edit lot ${esc(x.lot)}">${esc(x.lot)} <span class="muted">${esc(x.purityPct ?? '?')} %${x.expiry ? ` · ${expired ? 'expired' : 'exp'} ${esc(fmtDate(x.expiry))}` : ''}</span>${tracked ? ` ${thawChip(x, limit) || '<span class="muted">0 F/T</span>'}` : ''}</button>`;
       }).join('');
       rows.push({ attrs: `data-key="${esc(l.key)}"${here ? ' class="mat-open"' : ''}`, cells: [
-        m(`<b>${lipidNameMarked(ref, l.key)}</b>${shippedLipid(l.key) ? ` <button type="button" class="mat-add" data-act="archlipid" data-key="${esc(l.key)}" title="Archive ${esc(l.name)}: it ships with the app, so it is hidden rather than deleted">archive</button>` : ` <button type="button" class="mat-add" data-act="lipid" data-key="${esc(l.key)}" title="Edit or delete ${esc(l.name)}, a lipid you added">edit</button>`}`),
+        m(`<b>${lipidNameMarked(ref, l.key)}</b>${shippedLipid(l.key) ? ` <button type="button" class="mat-add quiet" data-act="archlipid" data-key="${esc(l.key)}" title="Archive ${esc(l.name)}: it ships with the app, so it is hidden rather than deleted">archive</button>` : ` <button type="button" class="mat-add quiet" data-act="lipid" data-key="${esc(l.key)}" title="Edit or delete ${esc(l.name)}, a lipid you added">edit</button>`}`),
         m(`<span class="muted">${esc(l.key)}</span>`), m(lipidClassChip(l.class)), fmt(l.mw, 2),
         m(`<label class="mat-track" title="Count the freeze–thaw cycles of this lipid's lots, and offer to log a thaw when a stock is weighed from one"><input type="checkbox" data-act="track" data-key="${esc(l.key)}" ${tracked ? 'checked' : ''} aria-label="Track freeze–thaw of ${esc(l.name)} lots"> track</label>`),
-        m(`${lotButtons}<button type="button" class="mat-add" data-act="addlot" data-key="${esc(l.key)}" title="Add a lot of ${esc(l.name)}">+ lot</button>`)] });
+        m(`${lotButtons}<button type="button" class="mat-add quiet" data-act="addlot" data-key="${esc(l.key)}" title="Add a lot of ${esc(l.name)}">+ lot</button>`)] });
       if (here) rows.push({ attrs: 'class="mat-editor"', full: open.lipid ? lipidEditor(ref, l) : lotEditor(ref) });
     }
     body.innerHTML = `<div class="card"><h2>Lipids (${ref.active.lipids.length})</h2>

@@ -5,7 +5,7 @@
 // designer when one is open. The recipe, the pH it comes to and its ionic strength are worked out in one place,
 // calc/buffer.js designBuffer(), which the process designer asks too, so a buffer has the same ionic strength
 // on every screen.
-import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, swapHtml, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
+import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, swapHtml, emptyState, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
 import { getRef, getSettings } from '../refdata.js';
 import { designBuffer, bufferMethods, speciesAt, nextBufferLot, BUFFER_ROLES, normaliseRoles, roleLabel, bufferCode, bufferLotName, lotFacts } from '../calc/buffer.js';
 import { ionicStrength_mM, bufferFacts } from '../calc/process.js';
@@ -432,6 +432,6 @@ export function lotOverview(ctx, role) {
     return `<details class="lotgroup"><summary><b>${esc(key)}</b> · ${esc(newest.name || '')} · ${list.length} lot${list.length === 1 ? '' : 's'} · newest <a href="#/buffers?id=${encodeURIComponent(newest.id)}">${esc(newest.lot)}</a> (${esc(fmtDate(newest.date))}) <span class="muted">${esc(newest.roles.map(roleLabel).join(', '))}</span></summary>${detail}</details>`;
   });
   const toggle = gone.size ? ` <a style="margin-left:12px" href="#/buffers?${new URLSearchParams({ ...(role ? { role } : {}), ...(showArchived ? {} : { archived: '1' }) })}">${showArchived ? 'Hide archived' : `Show archived (${gone.size})`}</a>` : '';
-  return `<div class="tabs" style="margin-bottom:8px">${tabs}${toggle}</div>${rows.join('') || '<p class="muted">No prepared buffers yet.</p>'}`;
+  return `<div class="tabs" style="margin-bottom:8px">${tabs}${toggle}</div>${rows.join('') || emptyState({ title: 'No prepared buffers yet', text: 'A buffer lot is a batch of buffer you made up, with its pH and expiry. Formulations pick it by lot.', actionLabel: 'New buffer', actionHref: '#/buffers?new=1' })}`;
 }
 

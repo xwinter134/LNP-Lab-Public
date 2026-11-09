@@ -1,5 +1,5 @@
 // Screen: Lipid stocks — plan a weigh-in, record actual weights, compute ethanol, save as a stock lot, print worksheet.
-import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, addDays, fmtDate, esc, swapHtml, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
+import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, addDays, fmtDate, esc, swapHtml, emptyState, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, latestLipidLot } from '../refdata.js';
 import { lipidClassChip } from './lipidclass.js';
 import { nextStockId, usedIds, raiseCounter } from '../schema.js';
@@ -46,6 +46,7 @@ export async function render(el, ctx) {
     const today = todayISO();
     const stocks = ctx.store.all('stocks').sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     const limit = getSettings(ctx).ftWarnCycles;
+    if (!stocks.length) { listBox.innerHTML = emptyState({ title: 'No lipid stocks yet', text: 'A lipid stock is the lipid mix in ethanol you pump during mixing.', actionLabel: 'New stock', actionHref: '#/stocks?new=1' }); return; }
     listBox.innerHTML = table(
       ['Lot', 'Composition', { label: 'mM', right: true }, { label: 'mL', right: true }, { label: 'mg/mL', right: true }, 'Date', 'Status', 'Expiry', 'Freeze–thaw', ''],
       stocks.map((s) => {

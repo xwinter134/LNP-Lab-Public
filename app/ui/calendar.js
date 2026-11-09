@@ -1,5 +1,5 @@
 // Screen: Calendar — month view of generated events (batch days, timepoints, buffer prep, stock expiry) and manual events.
-import { html, raw, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, download, uid, esc } from './kit.js';
+import { html, raw, field, readForm, table, chip, toast, header, todayISO, addDays, fmtDate, download, uid, esc, emptyState } from './kit.js';
 import { getSettings } from '../refdata.js';
 import { toICS } from '../calc/ics.js';
 
@@ -69,8 +69,8 @@ export async function render(el, ctx) {
       <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px">${cells}</div>
       <div class="muted" style="margin-top:8px">${chip('measurement day', 'info')} ${chip('production', 'ok')} ${chip('preparation')} ${chip('stock expiry', 'warn')} · struck through = done</div></div>
      <div class="grid g2">
-      <div class="card"><h2>Upcoming</h2>${table(['Date', 'Event'], upcoming.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(safeLink(e.link))}">${esc(e.title)}</a>`)] })), { empty: 'Nothing scheduled.' })}</div>
-      <div class="card"><h2>Overdue (${overdue.length})</h2>${table(['Date', 'Event'], overdue.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(safeLink(e.link))}">${esc(e.title)}</a>`)] })), { empty: 'Nothing overdue.' })}</div>
+      <div class="card"><h2>Upcoming</h2>${upcoming.length ? table(['Date', 'Event'], upcoming.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(safeLink(e.link))}">${esc(e.title)}</a>`)] }))) : emptyState({ title: 'Nothing scheduled', text: 'Measurement days, production days and stock expiries of your experiments show up here.', actionLabel: 'Plan an experiment', actionHref: '#/advisor' })}</div>
+      <div class="card"><h2>Overdue (${overdue.length})</h2>${overdue.length ? table(['Date', 'Event'], overdue.map((e) => ({ cells: [fmtDate(e.date), raw(`<a href="${esc(safeLink(e.link))}">${esc(e.title)}</a>`)] }))) : emptyState({ title: 'Nothing overdue', text: 'Everything planned is on time.' })}</div>
      </div>
      <div class="card"><h2>Add manual event</h2><div class="grid g4" id="evForm">${field({ id: 'date', label: 'Date', type: 'date', value: today })}${field({ id: 'title', label: 'Title', type: 'text' })}${field({ id: 'link', label: 'Link (optional, e.g. #/experiments?id=E1)', type: 'text', advanced: true })}</div>
       <div style="margin-top:10px"><button class="primary" id="addEv">Add</button></div>
