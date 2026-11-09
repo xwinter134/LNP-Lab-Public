@@ -241,7 +241,7 @@ export function drift(values, recent = 5) {
  * @param {object[]} [o.chart]  the batches on the chart, in time order; all the rows when not given
  * @param {object} [o.limits]   the chart's control limits ({lcl, ucl}); worked out from the chart if not given
  * @param {number} [o.recent]   how many of the latest batches are checked for drift
- * @returns {{sentences: string[], n: number, effect: object|null, drift: object|null, outside: object[]|null}}
+ * @returns {{sentences: string[], findings: string[] (only the sentences that report something found), n: number, effect: object|null, drift: object|null, outside: object[]|null}}
  */
 export function insightSummary(rows, { response = 'zave_nm', colorBy = 'stockId', chart = null, limits = null, recent = 5 } = {}) {
   const R = RESPONSE_WORDS[response] || { noun: response, unit: '', dp: 2, lead: 'have a value', up: 'higher', down: 'lower' };
@@ -255,13 +255,15 @@ export function insightSummary(rows, { response = 'zave_nm', colorBy = 'stockId'
   const amount = (x) => { const a = Math.abs(x); return `${a > 0 && Number(fixed(a, R.dp)) === 0 ? String(Number(a.toPrecision(1))) : fixed(a, R.dp)}${R.unit}`; };
   // an interval may start below zero, and a minus sign reads as one only when it is one
   const signed = (x) => { const s = fixed(x, R.dp); return s.startsWith('-') ? `−${s.slice(1)}` : s; };
-  if (n < 3) return { sentences: [`Not enough batches to say yet: ${n || 'none'} with ${an(R.noun)} result in this view, and it takes three.`], n, effect: null, drift: null, outside: null };
+  if (n < 3) return { sentences: [`Not enough batches to say yet: ${n || 'none'} with ${an(R.noun)} result in this view, and it takes three.`], findings: [], n, effect: null, drift: null, outside: null };
 
   const effect = matchedEffect(pts, response, colorBy);
   const d = drift(on.map((r) => r[response]), recent);
   const lim = limits?.ucl != null ? limits : controlLimits(on.map((r) => r[response]));
   const outside = lim.ucl == null ? null : on.filter((r) => r[response] > lim.ucl || r[response] < lim.lcl);
   const s = [];
+  // which of the sentences say something was found (the rest say that nothing was, or that it cannot be told)
+  const found = [];
 
   if (effect.kind === 'effect') {
     const { hi, lo, ci } = effect;
@@ -271,17 +273,20 @@ export function insightSummary(rows, { response = 'zave_nm', colorBy = 'stockId'
     const matched = `${of ? `${of}at` : 'At'} the same settings, ${name(hi.g)} batches ${R.lead} ${amount(effect.diff)} ${R.up} than ${name(lo.g)} (${ns}; ${interval})`;
     // Too few at matched settings is said as what there is, so it cannot be read as a finding either way.
     const few = `${of}${name(hi.g)} has ${plural(hi.n, 'batch')} at ${effect.settings === 1 ? 'a setting' : `${effect.settings} settings`} ${name(lo.g)} also ran: ${R.noun} ${amount(effect.diff)} ${R.up} (n ${hi.n} vs ${lo.n}), too few to tell`;
+    found.push(effect.verdict === 'clear');
     s.push(effect.verdict === 'clear' ? `${matched}, about ${fixed(effect.ratio, 1)} × the batch-to-batch SD of ${amount(effect.sd)}.`
       : effect.verdict === 'noise' ? `${matched}: within the batch-to-batch noise (SD ${amount(effect.sd)}).`
         : ci ? `${few} (${interval}).`
           : `${few}: no setting was made twice with one ${G.one}, so there is no batch-to-batch SD to judge it by.`);
   } else if (effect.kind === 'unmatched') {
+    found.push(false);
     s.push(effect.groups === 2
       ? `${name(effect.names[0])} and ${name(effect.names[1])} batches were never made at the same settings, so a difference between them cannot be told apart from what their settings do.`
       : `No two of the ${effect.groups} ${G.many} have batches made at the same settings, so a difference between them cannot be told apart from what their settings do.`);
-  } else if (effect.kind === 'one') s.push(`All ${effect.group.n} batches share one ${G.one} (${name(effect.group.g)}), so there is no ${G.one} effect to see.`);
-  else s.push(`No batch in this view has ${an(G.one)} recorded, so ${G.many} cannot be compared.`);
+  } else if (effect.kind === 'one') { found.push(false); s.push(`All ${effect.group.n} batches share one ${G.one} (${name(effect.group.g)}), so there is no ${G.one} effect to see.`); }
+  else { found.push(false); s.push(`No batch in this view has ${an(G.one)} recorded, so ${G.many} cannot be compared.`); }
 
+  found.push(d.enough && d.drifting);
   s.push(!d.enough ? `Not enough batches on the chart to say whether the latest drift: ${d.n} so far, and it takes ${d.need}.`
     : d.drifting ? `The latest ${d.recent} batches on the chart drift ${d.diff > 0 ? 'up' : 'down'}: ${amount(d.diff)} ${d.diff > 0 ? R.up : R.down} than the ${d.before} before them, more than batch-to-batch scatter explains.`
       : `No drift: the latest ${d.recent} batches on the chart are within ${amount(d.diff)} of the ${d.before} before them.`);
@@ -293,9 +298,11 @@ export function insightSummary(rows, { response = 'zave_nm', colorBy = 'stockId'
     const named = outside.slice(0, 3).map((r) => `${r.batchId} (${fixed(r[response], R.dp)})`).join(', ') + (k > 3 ? ` and ${k - 3} more` : '');
     // At ± 2 SD about one point in twenty lands outside by chance; one such point is not news.
     const chance = k <= Math.max(1, Math.round(nc * 0.05)) ? ', about what chance alone gives at ± 2 SD' : '';
+    found.push(k > 0);
     s.push(k ? `${k} of ${nc} points on the chart ${k === 1 ? 'sits' : 'sit'} outside the control limits (${range})${chance}: ${named}.` : `All ${nc} points on the chart sit inside the control limits (${range}).`);
   }
-  return { sentences: s.slice(0, 3), n, effect, drift: d, outside };
+  const sentences = s.slice(0, 3);
+  return { sentences, findings: sentences.filter((_, i) => found[i]), n, effect, drift: d, outside };
 }
 
 /* ================ the explorer: any response against any parameter ================ */

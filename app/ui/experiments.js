@@ -3,7 +3,7 @@
 import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, fmtDate, kpi, download, esc, swapHtml, redrawSoon, readDraft, writeDraft, dropDraft, listDrafts, draftsStoring, uid, ask } from './kit.js';
 import { experimentBioUses } from '../calc/usage.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
-import { TYPES, TESTS, FACTORS, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
+import { TYPES, TESTS, FACTORS, typeShort, defaultExperimentName, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, designProblems, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
 import { mixingPlan } from '../calc/batch_record.js';
 import { info, wireLearn } from './learn.js';
@@ -22,6 +22,7 @@ import { specComponents, factorLabel, isCategorical, TWO_LEVEL_DESIGNS } from '.
 import { CARGO_TYPES, cargoInfo, cargoLabel, cargoOf, massPerPhosphate } from '../calc/cargo.js';
 import { ftTag } from '../calc/freezethaw.js';
 import { readPlanParams } from '../calc/advise.js';
+import { nameRepeatsType, shortVerdict } from '../calc/listing.js';
 import { layerTab, layerTabBar, renderLayerTab } from './biolayers.js';
 
 /** What "Repeat as new" carries over, by type, for the note at the top of the filled-in wizard. */
@@ -129,6 +130,22 @@ function list(el, ctx, ref) {
     return chip(st, st === 'all measured' ? 'ok' : st === 'planned' ? '' : 'info');
   };
   const typeName = (e) => TYPES.find((t) => t.id === e.type)?.name || e.type;
+  // The first verdict of an experiment that has results (calc/results.js verdictsFor), worked out only for the
+  // lines drawn and once for each.
+  const verdictMemo = new Map();
+  let allMeasurements = null;
+  const verdictOf = (e) => {
+    if (!verdictMemo.has(e.id)) {
+      let v = '';
+      try {
+        allMeasurements ||= ctx.store.all('measurements');
+        const res = experimentResults(e, forms.forExperiment(e.id), allMeasurements, { qc: getSettings(ctx).qc });
+        v = res.verdicts?.[0]?.text ? shortVerdict(res.verdicts[0].text) : '';
+      } catch { /* a verdict is an extra: the list stands without it */ }
+      verdictMemo.set(e.id, v);
+    }
+    return verdictMemo.get(e.id);
+  };
   const rowOpen = (id) => listFolds.get(`row:${id}`) ?? rowsOpenByDefault;
   const groupOpen = (id) => listFolds.get(`group:${id}`) ?? true;
 
@@ -166,7 +183,7 @@ function list(el, ctx, ref) {
     return `<details class="xrow" data-exp="${esc(e.id)}"${open ? ' open' : ''}>
       <summary>
         <span class="xr-id"><a href="#/experiments?id=${esc(e.id)}">${esc(describeId(e.id))}</a></span>
-        <span class="xr-name"><a href="#/experiments?id=${esc(e.id)}">${esc(e.name)}</a><span class="muted"> · ${esc(typeName(e))} · ${n} formulation${n === 1 ? '' : 's'}</span></span>
+        <span class="xr-name">${nameRepeatsType(e.name, e.type) ? '' : `${esc(e.name)}<span class="muted"> · </span>`}<span class="muted" title="${esc(typeName(e))}">${esc(typeShort(e.type))} · ${n} formulation${n === 1 ? '' : 's'}</span>${verdictOf(e) ? `<span class="xr-result">Result: ${esc(verdictOf(e))}</span>` : ''}</span>
         <span class="xr-prog" title="${p.done} of ${p.total} measurements done"><span class="xr-bar"><i style="width:${pct}%"></i></span><span class="xr-n">${p.done} / ${p.total}</span>${p.overdue ? ` <span class="xr-late">${p.overdue} overdue</span>` : ''}</span>
         <span class="xr-due muted">${p.nextDue ? `next due ${esc(fmtDate(p.nextDue))}` : `started ${esc(fmtDate(e.startDate))}`}</span>
         <span class="xr-st">${stageChip(e)}</span>
@@ -186,7 +203,7 @@ function list(el, ctx, ref) {
         <div class="xg-rows">${drafts.map((d) => pendingLine(d, ref)).join('')}</div>
       </details>`;
     if (!exps.length) {
-      box.innerHTML = pending + '<p class="muted">No experiments yet. Start with "Plan an experiment".</p>';
+      box.innerHTML = pending + '<p class="muted">No experiments yet. <a href="#/advisor">Plan an experiment</a>.</p>';
       wirePending();
       return;
     }
@@ -249,7 +266,8 @@ function lastProcess(ctx, ref) {
   return p && (!ref.devices?.length || deviceOf(p, ref)) ? p : defaultProcess(ref);
 }
 function wizard(el, ctx, ref, settings, type) {
-  const stepBar = (n) => `<ol style="list-style:none;margin:0 0 14px;padding:0;display:flex;gap:6px;flex-wrap:wrap;font-size:13px">${['Type', 'Structure', 'Create'].map((s, i) => `<li class="chip ${i < n ? 'ok' : i === n ? 'info' : ''}" style="padding:6px 12px">${i + 1} · ${s}</li>`).join('')}</ol>`;
+  // Where in the three steps the page is: plain text, not buttons (nothing here is clickable), the current one bold.
+  const stepBar = (n) => `<ol class="wizSteps" aria-label="Steps">${['Type', 'Structure', 'Create'].map((s, i) => `<li class="${i < n ? 'done' : i === n ? 'now' : ''}"${i === n ? ' aria-current="step"' : ''}>${i + 1} ${s}</li>`).join('')}</ol>`;
   if (!type) {
     // A wizard filled in and left without "Create experiment" is offered back here, one note per draft.
     const offers = experimentDrafts(ctx).map((d) => draftOffer(ctx, d)).join('');
@@ -319,6 +337,9 @@ function wizard(el, ctx, ref, settings, type) {
   // fills the wizard, so a repeat with one change costs that one change rather than every setting typed again.
   const fromExp = ctx.params.from ? ctx.store.get('experiments', ctx.params.from) : null;
   if (fromExp) prefillFrom(fromExp);
+  // A name to start from, so "Create experiment" is never held up by an empty field; it is selected text to
+  // overtype, not a placeholder that looks like a value. A draft or a repeat brings its own name.
+  if (!state.name) state.name = defaultExperimentName(type, state.startDate);
 
   // What was typed into the wizard and not created is kept as a draft (usability cycle 5, K6), and listed as
   // "Not created yet" at the top of Experiments and in the sidebar until it is created or discarded. Each wizard
@@ -353,6 +374,12 @@ function wizard(el, ctx, ref, settings, type) {
     startedAt ||= new Date().toISOString();
     writeDraft(ctx, draftKind, { state, budgetTouched, draftId, startedAt });
   };
+  // Folds that survive the redraw most edits cause (draw() rebuilds the form): the process numbers, and the DoE
+  // "More settings", which used to shut after every change made inside it. Set by the folds' own toggle events.
+  let procOpen = false;
+  let moreOpen = null; // null = not touched: open when a plate format or an axial distance is set
+  /** A "?" after a field's label (kit.js field() has no slot for one). */
+  const help = (html, topic) => !topic ? html : html.replace('</label>', ` ${info(topic)}</label>`);
   // Set while "Create experiment" is being stored, so a redraw meanwhile does not offer the button again.
   let creating = false;
 
@@ -527,6 +554,13 @@ function wizard(el, ctx, ref, settings, type) {
     return Math.abs(hi - lo) < 1e-9 ? `${fmt(lo, 3)} mg` : `${fmt(lo, 3)}–${fmt(hi, 3)} mg`;
   }
 
+  /** The one line beside the Create button: what pressing it makes, or why it cannot yet. */
+  function barSay(pv) {
+    if (pv.err) return 'Not ready: see the note above';
+    const { experiment, batches } = pv.ok;
+    return `Creates ${batches.length} formulation${batches.length === 1 ? '' : 's'} and ${experiment.expected.length} measurement${experiment.expected.length === 1 ? '' : 's'}`;
+  }
+
   function previewHtml(pv) {
     if (pv.err) return `<div class="note warn">${esc(pv.err)}</div>`;
     const { experiment, batches } = pv.ok;
@@ -622,31 +656,39 @@ function wizard(el, ctx, ref, settings, type) {
     const pv = preview();
     const body = el.querySelector('#previewBody'); if (body) body.innerHTML = previewHtml(pv);
     const btn = el.querySelector('#createExp'); if (btn) btn.disabled = creating || !!pv.err;
+    const say = el.querySelector('#barSay'); if (say) say.textContent = barSay(pv);
     for (const inp of el.querySelectorAll('input[name^="doe_f_name_"]')) inp.classList.toggle('invalid', !!inp.value && !IDENT.test(inp.value));
   }
 
   function draw() {
     const compOpts = comps.map((c) => ({ value: c.id, label: compositionLabel(c, ref) }));
     const stocks = ctx.store.all('stocks');
+    // The numbers a lab sets once and rarely touches, folded into one line that already says what they are now.
+    // The fold keeps its state across redraws (procOpen), like "More settings" below: an edit inside it redraws the form.
+    const q0 = Number(state.quenchFactor);
+    const procSum = `FRR ${fmt(Number(state.frr), 2)} · quench ${fmt(q0, 2)} · ${fmt(Number(state.totalFlow), 1)} mL/min · ${fmt(Number(state.lipidStock_mM), 1)} mM${state.mode === 'quick' ? '' : ` · ${fmt(Number(state.rna_mg), 2)} mg RNA`}`;
+    const procSettings = `<details class="wizFold wizProc" data-fold="proc"${procOpen ? ' open' : ''}><summary><b>Process settings</b> <span class="muted">${esc(procSum)}</span></summary>
+      <div class="grid g4" style="margin-top:8px">
+        ${state.mode === 'quick' ? '' : field({ id: 'rna_mg', label: 'RNA per batch (mg)', value: state.rna_mg, step: 0.1 })}
+        ${field({ id: 'working_mg_mL', label: 'RNA working conc. (mg/mL)', value: state.working_mg_mL, step: 0.05 })}
+        ${help(field({ id: 'frr', label: 'FRR (aq : org)', value: state.frr, step: 0.5 }), 'frr')}
+        ${help(field({ id: 'quenchFactor', label: 'Quench factor', value: state.quenchFactor, step: 0.5 }), 'quench')}
+        ${field({ id: 'totalFlow', label: 'Total flow (mL/min)', value: state.totalFlow, step: 0.5 })}
+        ${field({ id: 'lipidStock_mM', label: 'Lipid stock (mM)', value: state.lipidStock_mM, step: 0.1 })}
+        ${field({ id: 'batchesPerDay', label: 'Formulations per day', value: state.batchesPerDay, step: 1 })}
+      </div></details>`;
     const common = `
       <div class="grid g4">
-        ${field({ id: 'name', label: 'Name', type: 'text', value: state.name, placeholder: `${T.name} …` })}
+        ${field({ id: 'name', label: 'Name', type: 'text', value: state.name, placeholder: defaultExperimentName(type, state.startDate) })}
         ${field({ id: 'startDate', label: 'Start (day 0 = production)', type: 'date', value: state.startDate })}
         ${!['comparison', 'stability'].includes(type) ? field({ id: 'compositionId', label: 'Composition', type: 'select', value: state.compositionId, options: compOpts }) : ''}
         ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: state.stockId, options: [{ value: '', label: 'Choose later' }, ...stocks.map((s) => ({ value: s.id, label: `${s.id} (#${s.compositionId}, ${fmt(s.molarity_mM, 1)} mM)${ftTag(s, settings.ftWarnCycles)}` }))] })}
         ${field({ id: 'cargo', label: 'Cargo', type: 'select', value: state.cargo, options: CARGO_TYPES.map((c) => ({ value: c.id, label: c.label })),
-          hint: `N/P with ${cargoInfo(state.cargo).massPerPhosphate} g/mol per phosphate; typical N/P about ${cargoInfo(state.cargo).defaultNP}` })}
+          hint: `N/P with ${cargoInfo(state.cargo).massPerPhosphate} g/mol per phosphate; typical N/P about ${cargoInfo(state.cargo).defaultNP}` }).replace(/(typical N\/P about [^<]*)<\/div>/, `$1 ${info('np')}</div>`)}
         ${field({ id: 'rnaLotId', label: `${cargoLabel(state.cargo)} lot`, type: 'select', value: state.rnaLotId, options: [{ value: '', label: 'Choose later' }, ...ref.pick('rnaLots', state.rnaLotId).map((r) => ({ value: r.id, label: `${r.id} · ${cargoLabel(r.cargo)} · ${r.construct || ''} · ${fmt(r.conc_mg_mL, 2)} mg/mL` }))] })}
-        ${state.mode === 'quick'
-          ? field({ id: 'volume_mL', label: 'Volume to formulate (mL)', value: state.volume_mL, step: 0.5, min: 0, hint: quickHint() })
-          : field({ id: 'rna_mg', label: 'RNA per batch (mg)', value: state.rna_mg, step: 0.1 })}
-        ${field({ id: 'working_mg_mL', label: 'RNA working conc. (mg/mL)', value: state.working_mg_mL, step: 0.05, advanced: true })}
-        ${field({ id: 'frr', label: 'FRR (aq : org)', value: state.frr, step: 0.5, advanced: true })}
-        ${field({ id: 'quenchFactor', label: 'Quench factor', value: state.quenchFactor, step: 0.5, advanced: true })}
-        ${field({ id: 'totalFlow', label: 'Total flow (mL/min)', value: state.totalFlow, step: 0.5, advanced: true })}
-        ${field({ id: 'lipidStock_mM', label: 'Lipid stock (mM)', value: state.lipidStock_mM, step: 0.1, advanced: true })}
-        ${field({ id: 'batchesPerDay', label: 'Formulations per day', value: state.batchesPerDay, step: 1, advanced: true })}
+        ${state.mode === 'quick' ? field({ id: 'volume_mL', label: 'Volume to formulate (mL)', value: state.volume_mL, step: 0.5, min: 0, hint: quickHint() }) : ''}
       </div>
+      ${procSettings}
       ${type !== 'stability' ? `<div style="margin-top:10px"><label>Measurements per batch (${state.mode === 'quick' ? 'of the product from the mixer' : 'after dialysis'})</label><div style="display:flex;gap:14px;flex-wrap:wrap">${TESTS.slice(0, 5).map((t) => `<label style="display:flex;gap:6px;align-items:center;font-weight:400;color:var(--ink)"><input type="checkbox" name="test_${t.id}" ${state.tests.includes(t.id) ? 'checked' : ''} style="width:auto">${t.name}</label>`).join('')}</div></div>` : ''}`;
 
     // Quick or full, first: it decides what the fields above ask for.
@@ -657,7 +699,7 @@ function wizard(el, ctx, ref, settings, type) {
     // The process, drawn and set here once for every formulation; each record can change its own afterwards.
     const q = state.process.quench !== false ? Number(state.quenchFactor) || 0 : 0;
     const processCard = `<div class="card" id="wizProcess"><h2>Process</h2>
-      <p class="muted" style="margin:-4px 0 8px">${esc(processSummary(state.process, ref, { quick: state.mode === 'quick' }))}. Copied onto every formulation, where it can be changed one by one.</p>
+      <p class="muted" style="margin:-4px 0 8px">${esc(processSummary(state.process, ref, { quick: state.mode === 'quick' }))}. Copied onto every formulation, where it can be changed one by one.${(state.process.downstream || []).some((x) => x.step === 'tff') ? ` ${info('tff')}` : ''}</p>
       <div class="processDraw">${processSvg(state.process, ref, { quick: state.mode === 'quick', flows: flowsFromTotal(Number(state.totalFlow) || 112.5, Number(state.frr) || 3, q), lipid_mM: state.lipidStock_mM })}</div>
       ${processEditor(state.process, ref, { quick: state.mode === 'quick', uid: 'wiz' })}</div>`;
 
@@ -686,7 +728,7 @@ function wizard(el, ctx, ref, settings, type) {
       const ticked = new Set(state.ofat.mixers || []);
       const knauer = ref.devices?.find((d) => d.id === 'nanoscaler');
       specific = `<h2 style="margin-top:14px">One factor at a time</h2><div class="grid g3">
-        ${field({ id: 'ofat_factor', label: 'Factor', type: 'select', value: state.ofat.factor, options: FACTORS.map((f) => ({ value: f.key, label: f.name + (f.unit ? ` (${f.unit})` : '') })) })}
+        ${help(field({ id: 'ofat_factor', label: 'Factor', type: 'select', value: state.ofat.factor, options: FACTORS.map((f) => ({ value: f.key, label: f.name + (f.unit ? ` (${f.unit})` : '') })) }), { np: 'np', frr: 'frr', quench: 'quench' }[state.ofat.factor])}
         ${isMixer ? '' : field({ id: 'ofat_levelsText', label: 'Levels (comma separated)', type: 'text', value: state.ofat.levelsText })}
         <div class="muted" style="align-self:end">Other parameters stay at the values above.</div></div>
         ${!isMixer ? '' : `<div id="ofatMixers" class="mixPick"><label>Mixers to compare <span class="muted" style="font-weight:400">· one formulation each, on the ${esc(dev?.name || 'device chosen under Process')}</span></label>
@@ -760,6 +802,7 @@ function wizard(el, ctx, ref, settings, type) {
       const factorCard = mode === 'mixture' ? '' : `<h2 style="margin-top:14px">${isMix ? 'Process factors' : 'Factors'} ${info('doe')} ${!isMix && COMPOSITION_FACTORS.some((c) => d.factors.some((f) => f.applyTo === c.key)) ? info('mixture') : ''}</h2>
         ${isMix ? '<p class="muted">These vary alongside the blend. Every run gets both a composition and a process setting.</p>' : ''}
         ${table(['Name (pipeline identifier)', 'Unit', 'Low', 'Centre', 'High', 'Applies to batch parameter', ''], d.factors.map(fRow), { empty: isMix ? 'Add at least one process factor.' : 'Add at least two factors.' })}
+        <p class="muted" style="margin:6px 0 0">Low, centre and high are fitted as coded units, −1, 0 and +1. ${info('coded')}</p>
         ${d.factors.some(isCategorical) ? '<p class="muted" style="margin:6px 0 0">The mixer is compared at two mixers, low and high. With no mixer in between, it takes a 2-level design, its centre points are split between the two mixers, and the surface plots show one mixer at a time.</p>' : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center"><span class="muted">Add:</span>${FACTORS.filter((f) => !d.factors.some((x) => x.applyTo === f.key) && !(isMix && (COMPOSITION_FACTORS.some((c) => c.key === f.key) || f.categorical))).map((f) => `<button data-addf="${f.key}" style="padding:4px 10px">+ ${f.name}</button>`).join('')}<button id="addCustomF" style="padding:4px 10px">+ custom (e.g. temperature, pH)</button></div>`;
 
@@ -770,8 +813,8 @@ function wizard(el, ctx, ref, settings, type) {
           ${field({ id: 'doe_centerPoints', label: isMix ? 'Replicates at the centre' : 'Centre points', value: d.centerPoints, step: 1, min: 0 })}
           ${mode === 'process' ? field({ id: 'doe_replicates', label: 'Replicates of each design point', value: d.replicates, step: 1, min: 1, advanced: true }) : ''}
         </div>
-        <div class="muted" style="margin-top:4px">${mode === 'process' ? DESIGN_TYPES[d.designType]?.note || '' : isMix && mode === 'crossed' ? 'The process model also sets how the blend is allowed to change with the process: a linear process model asks whether the whole response surface shifts, an interaction model whether the blending itself changes.' : ''}</div>
-        <details class="wizMore"${d.plateFormat || d.alpha ? ' open' : ''}><summary>More settings: randomisation seed${mode === 'process' && d.designType.startsWith('ccd') ? ', axial distance α' : ''}, plate wells</summary><div class="grid g4">
+        <div class="muted" style="margin-top:4px">${mode === 'process' && d.designType === 'ccd_faced' ? info('facecentred') + ' ' : ''}${mode === 'process' ? DESIGN_TYPES[d.designType]?.note || '' : isMix && mode === 'crossed' ? 'The process model also sets how the blend is allowed to change with the process: a linear process model asks whether the whole response surface shifts, an interaction model whether the blending itself changes.' : ''}</div>
+        <details class="wizMore" data-fold="more"${(moreOpen ?? !!(d.plateFormat || d.alpha)) ? ' open' : ''}><summary>More settings: randomisation seed${mode === 'process' && d.designType.startsWith('ccd') ? ', axial distance α' : ''}, plate wells</summary><div class="grid g4">
           ${field({ id: 'doe_seed', label: 'Randomisation seed', value: d.seed, step: 1, advanced: true })}
           ${mode === 'process' && d.designType.startsWith('ccd') ? field({ id: 'doe_alpha', label: 'Axial distance α (blank = default)', value: d.alpha, step: 0.01, advanced: true }) : ''}
           ${field({ id: 'doe_plateFormat', label: 'Plate wells for samples', type: 'select', value: d.plateFormat, options: [{ value: '', label: 'none' }, { value: '96', label: '96-well' }, { value: '384', label: '384-well' }], advanced: true })}
@@ -800,15 +843,23 @@ function wizard(el, ctx, ref, settings, type) {
       (fromPlanner.factors.length || fromPlanner.design ? `<div class="note">Filled in from <a href="#/advisor">the planner</a>${fromPlanner.design ? `: a ${esc(DESIGN_TYPES[fromPlanner.design]?.name.toLowerCase() || fromPlanner.design)}` : ''}${fromPlanner.factors.length ? ` over ${fromPlanner.factors.map((k) => esc(FACTORS.find((f) => f.key === k).name)).join(', ')}` : ''}. Everything below is editable.</div>` : '') +
       (type === 'doe' ? '<div class="wsp"><div class="wsp-main">' : '') +
       `<div class="card" id="wizForm">${modeCard}${common}${specific}</div>${processCard}
-       <div class="card" style="border-color:var(--accent)"><h2>What will be created</h2><div id="previewBody">${previewHtml(pv)}</div>
-         <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><a class="btn" href="#/advisor">Back</a><button class="primary" id="createExp" data-form="${esc(draftId)}" ${creating || pv.err ? 'disabled' : ''}>${creating ? 'Creating …' : 'Create experiment'}</button></div></div>` +
-      (type === 'doe' ? `</div><aside class="wsp-pin" id="wizPin">${designPinHtml()}</aside></div>` : '');
+       <div class="card" style="border-color:var(--accent)"><h2>What will be created</h2><div id="previewBody">${previewHtml(pv)}</div></div>` +
+      (type === 'doe' ? `</div><aside class="wsp-pin" id="wizPin">${designPinHtml()}</aside></div>` : '') +
+      // Last in the page, so that "sticky" holds it at the foot of the screen for as long as the page runs on
+      // above it: the way back and the Create button are in reach from the first field to the last.
+      `<div class="wizBar" id="wizBar"><span class="wb-say" id="barSay">${esc(barSay(pv))}</span><a class="btn" href="#/advisor">Back</a><button class="primary" id="createExp" data-form="${esc(draftId)}" ${creating || pv.err ? 'disabled' : ''}>${creating ? 'Creating …' : 'Create experiment'}</button></div>`;
 
     wireLearn(el);
     wireDraftOffers(el, ctx);
     el.querySelector('#draftFresh')?.addEventListener('click', () => { dropDraft(ctx, draftKind); ctx.navigate('experiments', { new: 1, type }); });
     const form = el.querySelector('#wizForm');
     form.addEventListener('input', onInput); form.addEventListener('change', onInput);
+    // 'toggle' does not bubble: heard on the way down, to keep the folds as they were left across redraws.
+    form.addEventListener('toggle', (ev) => {
+      const f = ev.target.dataset?.fold;
+      if (f === 'proc') procOpen = ev.target.open;
+      else if (f === 'more') moreOpen = ev.target.open;
+    }, true);
     const procBox = el.querySelector('#wizProcess');
     procBox.addEventListener('input', onInput); procBox.addEventListener('change', onInput);
     wireProcessButtons(procBox, () => state.process, (next) => { state.process = next; keepDraft(); draw(); }, ref);
@@ -914,15 +965,8 @@ function wizard(el, ctx, ref, settings, type) {
   function create() {
     if (creating) return; // pressed again while the first press is being stored: that would be a second experiment
     const s = spec();
-    if (!s.name) {
-      // The button is at the foot of a long page: bring the field to the eye and mark it, a toast alone is easy to miss.
-      const f = el.querySelector('[name=name]');
-      toast('Give the experiment a name', 'warn');
-      f.setAttribute('aria-invalid', 'true'); f.classList.add('invalid');
-      f.scrollIntoView({ block: 'center', behavior: 'smooth' }); f.focus({ preventScroll: true });
-      f.addEventListener('input', () => { f.classList.remove('invalid'); f.removeAttribute('aria-invalid'); }, { once: true });
-      return;
-    }
+    // An emptied field falls back to the default name rather than blocking the button at the foot of a long page.
+    if (!String(s.name || '').trim()) s.name = defaultExperimentName(type, state.startDate);
     // Numbered past every id still on record anywhere, the trash and the results of a deleted experiment
     // included: a number given out twice hands the old results to the new formulations (see usedIds).
     const id = nextExperimentId(usedIds(ctx.store, 'experiment'));

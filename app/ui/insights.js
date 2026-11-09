@@ -20,6 +20,7 @@ import { PAGE_ROWS, moreLine, focusFirstNew } from './pager.js';
 import { wireFigures, SERIES } from './charts.js';
 import { customDefs, saveCustomDefs, newCustomId, customField, customInput, setCustom } from './customparams.js';
 import { claudeReportCard } from './claudereport.js';
+import { info, wireLearn } from './learn.js';
 import { csvLine } from '../calc/csv.js';
 
 const RESPONSES = { zave_nm: { test: 'dls', label: 'Z-average (nm)' }, pdi: { test: 'dls', label: 'PDI' }, ee_pct: { test: 'ee', label: 'EE (%)' }, zeta_mV: { test: 'zeta', label: 'Zeta (mV)' } };
@@ -226,7 +227,8 @@ export async function render(el, ctx) {
   const comps = [...new Set(rowsAll.map((r) => r.compositionId))].sort((a, b) => a - b);
   const p = ctx.params;
   const resp = RESPONSES[p.response] ? p.response : 'zave_nm';
-  const colorBy = p.colorBy || 'stockId';
+  // 'none' (Nothing) is the start: colouring by stock lot made the empty-stock message the first thing most labs saw
+  const colorBy = p.colorBy || 'none';
   const compFilter = p.comp ? Number(p.comp) : '';
   const months = p.period ? Number(p.period) : 0;
   const since = months ? addDays(todayISO(), -Math.round(months * 30.4)) : '';
@@ -278,6 +280,7 @@ export async function render(el, ctx) {
   const valuesOf = groupBy(chartRows, (r) => r[colorBy] || '–');
   const groupStats = groups.map((g) => { const v = (valuesOf.get(g) || []).map((r) => r[resp]); return { g, n: v.length, mean: mean(v), sd: sd(v) }; });
   const overall = mean(chartRows.map((r) => r[resp]));
+  const HELP = { np: 'np', frr: 'frr', quench: 'quench' }; // jargon that gets a "?" in the table below
   const corr = [['np', 'N/P'], ['frr', 'FRR'], ['tfr', 'Total flow'], ['quench', 'Quench factor'], ['peg_pct', 'PEG mol%'], ['ionizable_pct', 'Ionizable mol%'], ['lipid_mM', 'Lipid stock mM'], ['rna_mg_mL', 'RNA working mg/mL']]
     .map(([k, l]) => ({ k, l, ...pearson(rows.map((r) => r[k]), rows.map((r) => r[resp])) })).filter((c) => c.r != null).sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
 
@@ -419,22 +422,22 @@ export async function render(el, ctx) {
 
   const sel = (id, label, value, options) => field({ id, label, type: 'select', value, options });
   el.innerHTML = header('Evaluate', 'Insights', `<button id="exportCsv" title="Every formulation as one row: settings, materials, lots, custom parameters and results">Export CSV</button>`) + claudeReportCard(ctx) +
-    `<div class="card" id="insightSummary"><h2>What this shows</h2><ul class="drivers">${summary.sentences.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>
+    `<div class="card" id="insightSummary"><h2>What this shows</h2>${summary.findings.length ? `<ul class="drivers">${summary.findings.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : '<p class="muted" id="nothingStands" style="margin:0">Nothing stands out yet.</p>'}</div>
     <div class="card"><div class="grid g4" id="filters">
       ${sel('response', 'Response', resp, Object.entries(RESPONSES).map(([k, v]) => ({ value: k, label: v.label })))}
       ${sel('comp', 'Composition', compFilter, [{ value: '', label: 'All' }, ...comps.map((c) => ({ value: c, label: '#' + c }))])}
       ${sel('period', 'Period', months, [{ value: 0, label: 'All time' }, { value: 6, label: 'Last 6 months' }, { value: 12, label: 'Last 12 months' }, { value: 24, label: 'Last 24 months' }])}
-      ${sel('colorBy', 'Color by', colorBy, [{ value: 'stockId', label: 'Lipid stock lot' }, { value: 'operator', label: 'Operator' }, { value: 'experimentId', label: 'Experiment' }, { value: 'compositionId', label: 'Composition' }, { value: 'experimentType', label: 'Experiment type' }])}
+      ${sel('colorBy', 'Color by', colorBy, [{ value: 'none', label: 'Nothing' }, { value: 'stockId', label: 'Lipid stock lot' }, { value: 'operator', label: 'Operator' }, { value: 'experimentId', label: 'Experiment' }, { value: 'compositionId', label: 'Composition' }, { value: 'experimentType', label: 'Experiment type' }])}
     </div></div>
     ${explorer}
     <div class="grid g2" style="grid-template-columns:2fr 1fr">
-      <div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Control chart · ${RESPONSES[resp].label}</h2>${groups.map((g) => `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)"><span style="width:10px;height:10px;border-radius:50%;background:${colorOf(g)}"></span>${esc(g)}</span>`).join('')}</div>
+      <div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Control chart · ${RESPONSES[resp].label} ${info('scatter')}</h2>${colorBy === 'none' ? [] : groups.map((g) => `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)"><span style="width:10px;height:10px;border-radius:50%;background:${colorOf(g)}"></span>${esc(g)}</span>`).join('')}</div>
         <div id="chartPick" style="max-width:520px">${sel('chart', 'On the chart', chartSel, chartOpts)}</div>
         ${chart}<p class="muted" id="chartNote">${esc(chartSay)}</p></div>
       <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="card"><h2>By ${colorBy === 'stockId' ? 'stock lot' : esc(colorBy)}</h2><p class="muted small" style="margin:0 0 6px">The ${chartRows.length} batches on the chart.</p>${table(['Group', { label: 'n', right: true }, { label: 'Mean', right: true }, { label: 'SD', right: true }, { label: 'Δ vs all', right: true }], groupStats.map((s) => ({ cells: [s.g, s.n, fmt(s.mean, 2), fmt(s.sd, 2), raw(s.mean != null && overall != null ? `<span class="${Math.abs(s.mean - overall) > (lim.sd || Infinity) ? 'chip warn' : ''}">${fmt(s.mean - overall, 2)}</span>` : '–')] })), { empty: 'No groups.' })}</div>
+        ${colorBy === 'none' ? '' : `<div class="card"><h2>By ${colorBy === 'stockId' ? 'stock lot' : esc(colorBy)}</h2><p class="muted small" style="margin:0 0 6px">The ${chartRows.length} batches on the chart.</p>${table(['Group', { label: 'n', right: true }, { label: 'Mean', right: true }, { label: 'SD', right: true }, { label: 'Δ vs all', right: true }], groupStats.map((s) => ({ cells: [s.g, s.n, fmt(s.mean, 2), fmt(s.sd, 2), raw(s.mean != null && overall != null ? `<span class="${Math.abs(s.mean - overall) > (lim.sd || Infinity) ? 'chip warn' : ''}">${fmt(s.mean - overall, 2)}</span>` : '–')] })), { empty: 'No groups.' })}</div>`}
         ${capCard}
-        ${fold('corr', `Correlation with ${RESPONSES[resp].label}`, corrSay, `${table(['Factor', { label: 'r', right: true }, { label: 'n', right: true }], corr.map((c) => ({ cells: [c.l, raw(`<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="height:8px;width:${Math.abs(c.r) * 80}px;background:${c.r > 0 ? 'var(--accent)' : 'var(--warn)'};border-radius:4px"></div>${fmt(c.r, 2)}</div>`), c.n] })), { empty: 'Needs at least 3 batches with varying factors.' })}
+        ${fold('corr', `Correlation with ${RESPONSES[resp].label}`, corrSay, `${table(['Factor', { label: 'r', right: true }, { label: 'n', right: true }], corr.map((c) => ({ cells: [raw(`${esc(c.l)}${HELP[c.k] ? ' ' + info(HELP[c.k]) : ''}`), raw(`<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="height:8px;width:${Math.abs(c.r) * 80}px;background:${c.r > 0 ? 'var(--accent)' : 'var(--warn)'};border-radius:4px"></div>${fmt(c.r, 2)}</div>`), c.n] })), { empty: 'Needs at least 3 batches with varying factors.' })}
           <p class="muted">Pearson correlation across the filtered batches. Direction only; confirm with a designed experiment.</p>`)}
       </div>
     </div>
@@ -459,6 +462,7 @@ export async function render(el, ctx) {
   };
   drawRows();
 
+  wireLearn(el);
   wireFigures(el);
   // The click runs before the details toggles, so the state it is about to take is the opposite of now.
   el.querySelectorAll('details[data-fold] > summary').forEach((sm) => sm.addEventListener('click', () => folds.set(sm.parentElement.dataset.fold, !sm.parentElement.open)));
