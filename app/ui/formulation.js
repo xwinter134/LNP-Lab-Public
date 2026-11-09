@@ -738,7 +738,12 @@ export async function render(el, ctx) {
     const next = nextPlanned();
     // Marked produced with no lipid stock lot chosen: said here, not asked in a dialog. The record stays as it is.
     const noStock = batch.stockId ? '' : `<div class="note warn" id="noStockNote" role="alert">No lipid stock lot is chosen for ${esc(batch.id)}, so the record does not say which stock it was made from. Choose it under Inputs, or <a href="${esc(newStockLink(batch).href)}" data-newstock>weigh a new stock</a>.</div>`;
-    return `<div class="card finishCard done" id="finishCard">${noStock}<div class="finishRow">
+    // "Finish formulation" marks the batch produced whether or not the steps are filled in; two testers noticed only when
+    // the steps still read "not recorded". Said here, once, not as a gate: results alone are a legitimate way to work.
+    const STEP_NAME = { 1: 'RNA dilution', 2: 'LNP mixing', 3: 'Dialysis', 4: 'TFF concentration', 5: 'Final formulation', 6: 'Fill & finish' };
+    const open = stepProgress(batch).steps.filter((st) => !st.skipped && st.state !== 'done' && (modeOf(plan) !== 'quick' || st.n === 2)).map((st) => `${st.n} (${STEP_NAME[st.n]})`);
+    const unrecorded = open.length ? `<div class="note" id="unrecordedNote">Nothing is recorded for step${open.length === 1 ? '' : 's'} ${open.join(', ')}. That is fine if you only keep the results; fill ${open.length === 1 ? 'it' : 'them'} in (or "Use planned values") if this record is the batch's paper trail.</div>` : '';
+    return `<div class="card finishCard done" id="finishCard">${noStock}${unrecorded}<div class="finishRow">
       <span class="finishTick" aria-hidden="true">✓</span><span><b>${esc(batch.id)} is ${esc(batch.status)}.</b> ${next ? `Next still to make: <b>${esc(next.id)}</b>${next.label ? ` · ${esc(next.label)}` : ''}.` : exp ? 'Every formulation of this experiment is made.' : ''}</span></div>
       <div class="finishRow">${next ? `<a class="btn primary" id="finishNext" href="#/formulation?batch=${esc(next.id)}">Go to ${esc(next.id)}</a>` : ''}
         ${exp ? `<a class="btn${next ? '' : ' primary'}" id="finishBack" href="#/experiments?id=${esc(exp.id)}">Back to ${esc(describeId(exp.id))}</a>` : ''}
