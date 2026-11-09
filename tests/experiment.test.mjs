@@ -94,7 +94,9 @@ test('addDoeRun: a replicate of a centre run is a new formulation and run with t
   const d = buildExperiment({ type: 'doe', name: 'd', startDate: '2026-10-20', compositionId: 363, doe, tests: ['dls', 'ee'] }, env());
   const centre = d.batches.find((b) => b.doe.point_type === 'center');
   const before = JSON.stringify(d.experiment);
-  const r = addDoeRun(d.experiment, d.batches, centre.doe.run_id);
+  const r = addDoeRun(d.experiment, d.batches, centre.doe.run_id, { today: '2026-12-02' });
+  assert.equal(r.batch.plannedDate, '2026-12-02', 'planned from today, not from the experiment\'s start (2026-10-20)');
+  assert.ok(r.experiment.expected.filter((x) => x.batchId === r.batch.id).every((x) => x.dueDate > '2026-12-02'));
   assert.equal(JSON.stringify(d.experiment), before, 'the experiment passed in is not changed');
   const n = d.batches.length;
   assert.equal(r.batch.id, `E1-F${n + 1}`);

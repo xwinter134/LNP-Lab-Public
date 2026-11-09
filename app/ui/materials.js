@@ -22,7 +22,7 @@ import { getRef, getSettings } from '../refdata.js';
 import { archive, unarchive, archivedSet, whereUsed, usesBy, KINDS } from '../calc/usage.js';
 import { provenance } from '../calc/provenance.js';
 import { provenanceBadge } from './provenance.js';
-import { CARGO_TYPES, cargoInfo, cargoLabel, lotMassPerPhosphate } from '../calc/cargo.js';
+import { CARGO_TYPES, cargoInfo, cargoLabel, lotMassPerPhosphate, guessCargo } from '../calc/cargo.js';
 import { tracksThaw, ftWords } from '../calc/freezethaw.js';
 import { thawPanel, thawChip, wireThaw } from './thaw.js';
 import { lipidClassChip, lipidClassInfo, lipidNameMarked, compositionBar, lipidClassLegend } from './lipidclass.js';
@@ -694,7 +694,13 @@ function rna(body, ctx) {
     const f = readEditor(ed);
     const before = open !== NEW ? ctx.store.get('rnaLots', open) : null;
     const id = before ? before.id : String(f.id || '').trim();
-    if (!id) { toast('Lot number required', 'warn'); return; }
+    if (!id) {
+      // The placeholder ("RNA-001") looks like a value that would be taken; say which field is empty, and go to it.
+      const field = ed.querySelector('[name$="id"]');
+      toast('Lot number required', 'warn');
+      if (field) { field.classList.add('invalid'); field.focus(); field.addEventListener('input', () => field.classList.remove('invalid'), { once: true }); }
+      return;
+    }
     if (!(Number(f.conc_mg_mL) > 0)) { toast('Stock concentration required', 'warn'); return; }
     if (!before && ctx.store.get('rnaLots', id)) { toast(`${id} is on record already`, 'warn'); return; }
     // A lot not yet used can still have its number corrected: the record moves to the new id.
@@ -738,6 +744,13 @@ function rna(body, ctx) {
     cancel: () => { open = null; draw(); },
     save, delete: del,
   }, (id) => { open = open === id ? null : id; draw(); if (open) focusEditor(body); });
+  // A construct named "… mRNA" or "… siRNA" sets the cargo, until the cargo has been chosen by hand.
+  body.addEventListener('input', (e) => {
+    if (e.target.name !== P + 'construct') return;
+    const sel = body.querySelector(`[name=${P}cargo]`), g = guessCargo(e.target.value);
+    if (sel && g && sel.dataset.chosen !== '1' && sel.value !== g) { sel.dataset.guessing = '1'; sel.value = g; sel.dispatchEvent(new Event('change', { bubbles: true })); delete sel.dataset.guessing; }
+  });
+  body.addEventListener('change', (e) => { if (e.target.name === P + 'cargo' && e.target.dataset.guessing !== '1') e.target.dataset.chosen = '1'; }, true);
   // The default mass per phosphate follows the cargo chosen, in the placeholder and the hint.
   body.addEventListener('change', (e) => {
     if (e.target.name !== P + 'cargo') return;

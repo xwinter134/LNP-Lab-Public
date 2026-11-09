@@ -162,7 +162,7 @@ function benchNumbers(c, batch) {
 
 /** "weigh a new stock": the lipid stocks screen with this batch's composition ready (its own mol% when it varies them). */
 function newStockLink(batch) {
-  return { href: `#/stocks?new=1&compositionId=${encodeURIComponent(batch.compositionId)}`, text: 'weigh a new stock' };
+  return { href: `#/stocks?new=1&compositionId=${encodeURIComponent(batch.compositionId)}&for=${encodeURIComponent(batch.id)}`, text: 'weigh a new stock' };
 }
 
 /** A bench value as shown: the number, or "—" with what it is waiting for. Shared by the card and the worksheet. */
@@ -442,7 +442,8 @@ export async function render(el, ctx) {
   function plannedValues(c) {
     const r = (x, d) => (Number.isFinite(x) && x > 0 ? Number(x.toFixed(d)) : null);
     return {
-      1: { a_rna_stock_mL: r(c.rnaStock_mL, 3), a_rna_total_mL: r(c.dil?.total_mL, 3) },
+      // the date the dilution was made is today's, unless it was typed: it is what the step is signed off by
+      1: { a_rna_stock_mL: r(c.rnaStock_mL, 3), a_rna_total_mL: r(c.dil?.total_mL, 3), a_rna_date: todayISO() },
       2: { a_primary_mL: r(c.mix?.primary_mL, 2) },
       3: { a_dialysis_end_mL: r(c.startDia, 2) },
       4: { a_tff_end_mL: r(c.tff?.reduceTo_mL, 2) },
@@ -460,7 +461,7 @@ export async function render(el, ctx) {
   function usePlanned(n) {
     const todo = pendingPlanned(compute(), n);
     if (!todo.length) return;
-    for (const [name, v] of todo) assign({ name, type: 'number', value: String(v) });
+    for (const [name, v] of todo) assign({ name, type: typeof v === 'string' ? 'date' : 'number', value: String(v) });
     stepOpen.set(n, true);
     saver.now();
     toast(`Step ${n}: ${todo.length} empty ${todo.length === 1 ? 'field' : 'fields'} filled with the planned ${todo.length === 1 ? 'value' : 'values'}`, 'ok');
@@ -525,9 +526,9 @@ export async function render(el, ctx) {
       ${field({ id: 'rna_mass_mg', label: 'RNA input (mg)', value: c.mass, step: 0.1 })}`}
       ${field({ id: 'rna_working_mg_mL', label: 'RNA working conc. (mg/mL)', value: c.working, step: 0.05 })}
       ${field({ id: 'mixing_lipidStock_mM', label: 'Lipid stock (mM)', value: c.lipid_mM, step: 0.1 })}
-      ${withHelp(field({ id: 'mixing_frr', label: 'FRR (aq : org)', value: c.frr, step: 0.5 }), 'FRR (aq : org)', 'frr')}
+      ${withHelp(field({ id: 'mixing_frr', label: 'FRR (aq : org)', value: Number.isFinite(plan.mixing.frr) ? plan.mixing.frr : c.frr, step: 0.5 }), 'FRR (aq : org)', 'frr')}
       ${plan.process?.quench !== false ? withHelp(field({ id: 'mixing_quenchFactor', label: 'Quench factor', value: plan.mixing.quenchFactor ?? settings.defaultQuenchFactor, step: 0.5 }), 'Quench factor', 'quench') : ''}
-      ${field({ id: 'mixing_totalFlow', label: 'Total flow (mL/min)', value: plan.mixing.totalFlow || 112.5, step: 0.5 })}
+      ${field({ id: 'mixing_totalFlow', label: 'Total flow (mL/min)', value: plan.mixing.totalFlow ?? 112.5, step: 0.5 })}
       ${withHelp(field({ id: 'rna_np', label: 'N/P target (optional, overrides FRR for lipid volume)', value: plan.rna.np, step: 0.5, advanced: true }), 'N/P target (optional, overrides FRR for lipid volume)', 'np')}
       ${field({ id: 'plannedDate', label: 'Production date', type: 'date', value: batch.plannedDate })}
     </div>${(c.problems || []).map((p) => `<div class="note warn" role="alert">${esc(p.text)}</div>`).join('')}${stockThawHtml()}<p class="muted" style="margin:8px 0 0">The buffers, the device and the downstream steps are set in the process above.</p></div>`;

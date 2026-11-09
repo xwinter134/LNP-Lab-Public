@@ -190,7 +190,7 @@ function chips(f, defs, all) {
 
 /** The facet panel: groups, each facet a list of values with counts, ranges as two sliders. */
 function facetPanel(f, defs, res, all) {
-  let html = `<input type="search" id="facetText" placeholder="Search: E12, ALC-0315, a lot …" value="${esc(f.q || '')}" style="width:100%;margin-bottom:8px">`;
+  let html = `<input type="search" id="facetText" placeholder="Search: E12, ALC-0315, a lot … then Enter" value="${esc(f.q || '')}" style="width:100%;margin-bottom:8px">`;
   let group = null;
   const same = [];
   for (const d of defs) {

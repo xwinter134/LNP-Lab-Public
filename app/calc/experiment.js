@@ -2,7 +2,7 @@
 // Pure functions; the Experiments screen collects the spec and stores what comes back.
 import { buildDesign, randomizeRuns, specMode, specComponents, isCategorical, categoricalLevel } from './doe.js';
 import { makeFormulationAllocator, sampleName } from '../schema.js';
-import { addDays as addDaysISO, shiftWeekend, nextWorkday } from './dates.js';
+import { addDays as addDaysISO, shiftWeekend, nextWorkday, todayISO as todayISOLocal } from './dates.js';
 import { effectiveQuench, syncQuick, QUICK_VOLUME_mL } from './process.js';
 import { cargoInfo } from './cargo.js';
 
@@ -244,7 +244,7 @@ export function buildExperiment(spec, env) {
  * @param takenFormulations  every formulation id in use, for the numbering
  * @returns {{ experiment, batch, run }} the experiment as it is now, the new formulation and the new run row
  */
-export function addDoeRun(exp, batches, runId, { takenFormulations = [], perDay = 4 } = {}) {
+export function addDoeRun(exp, batches, runId, { takenFormulations = [], today = todayISOLocal() } = {}) {
   const runs = exp?.design?.doe?.runs;
   if (exp?.type !== 'doe' || !Array.isArray(runs)) throw new Error('only a designed experiment can take another run');
   const src = runs.find((r) => r.run_id === runId);
@@ -256,7 +256,8 @@ export function addDoeRun(exp, batches, runId, { takenFormulations = [], perDay 
   const order = Math.max(0, ...runs.map((r) => Number(r.run_order) || 0)) + 1;
   const std = Math.max(0, ...runs.map((r) => Number(r.std_order) || 0)) + 1;
   const id = makeFormulationAllocator(exp.id, [...takenFormulations, ...batches.map((b) => b.id)])();
-  const plannedDate = productionDate(exp.startDate, batches.length, perDay);
+  // Made from today on: an experiment started two months ago would put the new run in the past, "66 days overdue" at once.
+  const plannedDate = nextWorkday(today);
   const batch = JSON.parse(JSON.stringify(from));
   Object.assign(batch, { id, label: `${run_id} (${src.point_type})`, plannedDate, status: 'planned', actual: {}, notes: '', provenance: { source: 'manual' } });
   batch.doe = { ...(from.doe || {}), run_id, run_order: order, std_order: std, point_type: src.point_type, well: null, coded: src.coded, replicateOf: src.run_id };

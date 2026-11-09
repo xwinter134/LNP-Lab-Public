@@ -34,6 +34,18 @@ export const CARGO_TYPES = [
 export const DEFAULT_CARGO = 'mRNA';
 
 /** The entry for a cargo id; mRNA for anything unknown or missing (records made before there was a choice). */
+/**
+ * The cargo a construct's name says it is, when it says so: "GFP mRNA" is an mRNA, "TTR siRNA" an siRNA. A lot typed
+ * as "GFP mRNA" was saved as an siRNA because the cargo defaults to siRNA, and its 333 g/mol per phosphate (330 for
+ * an mRNA) would have given a wrong N/P. Null when the name does not say (FLuc, eGFP): the choice stays the person's.
+ */
+export function guessCargo(construct) {
+  const t = String(construct || '');
+  if (/\bsi-?rna\b/i.test(t)) return 'siRNA';
+  if (/\b(sa-?rna|m-?rna)\b/i.test(t) || /self-?amplifying/i.test(t)) return 'mRNA';
+  return null;
+}
+
 export function cargoInfo(id) {
   return CARGO_TYPES.find((c) => c.id === id) || CARGO_TYPES.find((c) => c.id === DEFAULT_CARGO);
 }

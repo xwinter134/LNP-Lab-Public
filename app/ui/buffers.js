@@ -137,6 +137,10 @@ export async function render(el, ctx) {
     // The recipe, its pH and its ionic strength: calc/buffer.js, the same function the process designer asks.
     function compute() {
       if (!pkaByName[state.system]) return { err: 'Unknown system' };
+      // A volume of -5 mL gave "water ad -5 mL" and amounts below zero; a target pH of 15 gave a recipe "predicted pH 8.88".
+      if (!(Number(state.volume_mL) > 0)) return { err: `Volume must be above 0 mL (it is ${state.volume_mL ?? 'empty'}).` };
+      if (!(Number(state.conc_mM) > 0)) return { err: `Concentration must be above 0 mM (it is ${state.conc_mM ?? 'empty'}).` };
+      if (!(Number(state.targetPH) > 0 && Number(state.targetPH) < 14)) return { err: `Target pH must be between 0 and 14 (it is ${state.targetPH ?? 'empty'}).` };
       return designBuffer(state, { pka: ref.pka, reagents: ref.reagents });
     }
 

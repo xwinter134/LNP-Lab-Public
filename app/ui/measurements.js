@@ -248,7 +248,7 @@ export async function render(el, ctx) {
     toast(check.warnings.length ? `Result saved. Worth a look: ${check.warnings.map((w) => w.text).join('; ')}` : 'Result saved', check.warnings.length ? 'warn' : 'ok');
     const shown = (k, dp = 1) => (values[k] != null && Number.isFinite(Number(values[k])) ? Number(values[k]).toFixed(dp).replace(/\.0+$/, '') : null);
     const nums = [shown('zave_nm') && `Z-ave ${shown('zave_nm')} nm`, shown('pdi', 3) && `PDI ${shown('pdi', 3)}`, shown('ee_pct') && `EE ${shown('ee_pct')} %`, shown('zeta_mV') && `zeta ${shown('zeta_mV')} mV`].filter(Boolean);
-    lastSaved = { text: `Saved ${slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : `${batchId}_${f.stage}`)}${nums.length ? `: ${nums.join(', ')}` : ''}`, warn: [...check.warnings.map((w) => w.text), ...(sameBefore ? [`this sample already had ${sameBefore} ${f.test.toUpperCase()} result${sameBefore === 1 ? '' : 's'}; the newest is the one the tables and the optimizer use`] : [])] };
+    lastSaved = { text: `Saved ${slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : `${batchId}_${f.stage}`)}${nums.length ? `: ${nums.join(', ')}` : ''}`, warn: [...check.warnings.map((w) => w.text), ...(f.test === 'dls' && values.zave_nm != null && values.pdi == null ? ['no PDI entered: the result is stored with a size only'] : []), ...(sameBefore ? [`this sample already had ${sameBefore} ${f.test.toUpperCase()} result${sameBefore === 1 ? '' : 's'}; the newest is the one the tables and the optimizer use`] : [])] };
     manualKeep = true; render(el, ctx);
   });
 

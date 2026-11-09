@@ -119,3 +119,14 @@ test('a deleted instrument or mixer stays on the record that keeps a copy of it'
   assert.equal(processOf({ process: proc }, ref).deviceRecord.name, 'My rig', 'reading the process keeps the copy');
   assert.equal(deviceOf({ deviceId: 'other', deviceRecord: proc.deviceRecord }, ref), null, 'a copy of another device is not taken for this one');
 });
+
+test('guessCargo reads the cargo from a construct name that says it, and leaves the rest to the person', async () => {
+  const { guessCargo } = await import('../app/calc/cargo.js');
+  assert.equal(guessCargo('GFP mRNA'), 'mRNA');
+  assert.equal(guessCargo('TTR siRNA'), 'siRNA');
+  assert.equal(guessCargo('saRNA'), 'mRNA');
+  assert.equal(guessCargo('self-amplifying mRNA'), 'mRNA');
+  assert.equal(guessCargo('FLuc'), null);
+  assert.equal(guessCargo(''), null);
+  assert.equal(guessCargo(undefined), null);
+});

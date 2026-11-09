@@ -2,7 +2,7 @@
 import { html, raw, fmt, field, readForm, table, chip, toast, printHtml, header, todayISO, addDays, fmtDate, esc, swapHtml, emptyState, redrawSoon, autoSaver, sharedRecord, readDraft, writeDraft, dropDraft, uid, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, latestLipidLot } from '../refdata.js';
 import { lipidClassChip } from './lipidclass.js';
-import { nextStockId, usedIds, raiseCounter } from '../schema.js';
+import { nextStockId, usedIds, raiseCounter, describeId } from '../schema.js';
 import { planLipidStock, reconcileLipidStock, massFractions } from '../calc/lipid_stock.js';
 import { withThaw, thawedOn, ftWords, ftTag, tracksThaw } from '../calc/freezethaw.js';
 import { thawPanel, thawChip, wireThaw } from './thaw.js';
@@ -106,6 +106,7 @@ export async function render(el, ctx) {
     const draftId = draft?.draftId || uid();
     const keep = () => writeDraft(ctx, 'stock', { state, fromRecord, draftId });
     let creating = false; // while "Create stock" is being stored
+    const forBatchId = ctx.params.for || ''; // the record this weigh-in was started from, if any
     if (!state.molPct) state.molPct = { ...(ref.compositionById[state.compositionId]?.mol_pct || {}) };
     state.actual = state.actual || {}; state.lots = state.lots || {};
     const sinceNote = draft?.state ? sinceDrafted() : '';
@@ -418,6 +419,8 @@ export async function render(el, ctx) {
       const comp = ref.compositionById[state.compositionId];
       const r = record(comp);
       if (!r) { toast('Fix the composition first', 'warn'); return; }
+      // An empty stock, a molarity of -50 and a volume of 0 were all saved as "Stock-001" without a word.
+      if (!(Number(r.molarity_mM) > 0) || !(Number(r.volume_mL) > 0)) { toast(`A stock needs a molarity and a volume above 0 (now ${r.molarity_mM ?? 'none'} mM, ${r.volume_mL ?? 'none'} mL)`, 'warn'); return; }
       // Past every stock id still named anywhere: a deleted stock's id stays on the formulations made from it.
       r.id = nextStockId(usedIds(ctx.store, 'stock'));
       busy(true);
@@ -432,7 +435,14 @@ export async function render(el, ctx) {
         onSaved: () => {
           storing.delete(draftId);
           dropDraft(ctx, 'stock', draftId);
-          if (box.isConnected) { toast(`Saved stock ${r.id}`, 'ok'); ctx.navigate('stocks', { id: r.id }); }
+          // Weighed out from a formulation's record ("weigh a new stock"): the stock is chosen on it and the record is
+          // where the person goes back to, instead of being left on the stock with the detour to repeat.
+          const forBatch = forBatchId && ctx.store.get('batches', forBatchId);
+          if (box.isConnected && forBatch) {
+            if (!forBatch.stockId) ctx.store.put('batches', { ...forBatch, stockId: r.id });
+            toast(`Saved stock ${r.id}${forBatch.stockId ? '' : ` and chosen for ${describeId(forBatch.id)}`}`, 'ok');
+            ctx.navigate('formulation', { batch: forBatch.id });
+          } else if (box.isConnected) { toast(`Saved stock ${r.id}`, 'ok'); ctx.navigate('stocks', { id: r.id }); }
           else toast(`Saved stock ${r.id}`, 'ok', { action: 'Open', onAction: () => ctx.navigate('stocks', { id: r.id }) });
         },
         onUndone: () => { storing.delete(draftId); busy(false); return box.isConnected; },
