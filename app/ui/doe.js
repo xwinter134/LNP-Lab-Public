@@ -22,6 +22,7 @@ import { getSettings, getRef } from '../refdata.js';
 import { balanceColumn } from '../calc/composition.js';
 import { info, wireLearn } from './learn.js';
 import { ols } from '../calc/stats.js';
+import { anova, lackOfFitSentence } from '../calc/anova.js';
 import { flatRows } from './insights.js';
 import { balancedOptimum, boxTerms } from '../calc/balance.js';
 import { wireFigures } from './charts.js';
@@ -393,6 +394,7 @@ function doeBody(el, ctx, sel) {
         <span class="muted">exactly the ${dt.rows.length} rows and ${dt.columns.length} columns above, in the order shown</span></div>`);
 
   const coef = fit?.beta ? coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) : null;
+  const anovaF = mode === 'process' && fit?.beta ? anovaFold(fit, measured, terms, names, fold) : '';
   const coefFold = coef ? fold('coef', false, 'Coefficients and the one-response optimum', coef.say, coef.html) : '';
 
   // Everything this design can say is said on this screen. The export is for taking the numbers somewhere
@@ -405,7 +407,7 @@ function doeBody(el, ctx, sel) {
   return kpis
     + (mode === 'process' ? balanceCard(spec, runs, vals, model) : '')
     + driversCard({ spec, mode, terms, comps, names, resps, fits, respSel, link })
-    + fitCard + runsFold + coefFold + exportFold;
+    + fitCard + runsFold + coefFold + anovaF + exportFold;
 }
 
 /**
@@ -446,6 +448,22 @@ function driversCard({ spec, mode, terms, comps, names, resps, fits, respSel, li
  * The coefficient table and the one-response optimum, with the line that stands for them while they are
  * folded: how many terms are real, and where this response alone would like to be.
  */
+/** The classical ANOVA table, lack of fit and VIF for a process design, folded and closed (calc/anova.js). */
+function anovaFold(fit, measured, terms, names, fold) {
+  const a = anova(fit, measured, terms);
+  if (!a) return '';
+  const g = (v, d = 3) => (v == null ? '–' : !Number.isFinite(v) ? '∞' : fmt(v, d));
+  const tbl = table(['Source', { label: 'SS', right: true }, { label: 'df', right: true }, { label: 'MS', right: true }, { label: 'F', right: true }, { label: 'p', right: true }],
+    a.rows.map((r) => ({ cells: [r.id === 'lof' || r.id === 'pe' ? raw(`&nbsp;&nbsp;${esc(r.label)}`) : r.label, g(r.ss), String(r.df), g(r.ms), g(r.F, 2), r.p == null ? '–' : p3(r.p)] })));
+  const vifTbl = table(['Term', { label: 'VIF', right: true }], a.vif.map((v) => ({ cells: [termLabel(v.name, names), v.vif == null ? '–' : fmt(v.vif, 2)] })));
+  const sentence = lackOfFitSentence(a.lackOfFit);
+  const html = `<p><b>${esc(sentence)}</b> ${info('lackoffit')}</p><h3 style="margin:10px 0 4px">ANOVA ${info('anova')}</h3>${tbl}
+    <h3 style="margin:14px 0 4px">Variance inflation ${info('vif')}</h3>${vifTbl}
+    <p class="muted" style="margin-top:6px">VIF 1 = the term is independent of the others; above 5 to 10 it cannot be separated from them. Largest scaled leverage ${fmt(a.leverage.scaledMax, 2)} (1 = every run pulls equally; above 2 to 3 one run steers the fit).</p>`;
+  const say = a.lackOfFit.state === 'significant' ? `lack of fit significant (p ${a.lackOfFit.p < 0.001 ? '< 0.001' : fmt(a.lackOfFit.p, 3)})` : a.lackOfFit.state === 'none' ? `no sign of lack of fit (p ${a.lackOfFit.p < 0.001 ? '< 0.001' : fmt(a.lackOfFit.p, 3)})` : 'lack of fit not testable without replicates';
+  return fold('anova', false, 'ANOVA, lack of fit and VIF', say, html);
+}
+
 function coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) {
   const opt = mode === 'process' ? optimum(fit, terms, spec, goal) : blendOptimum(fit, terms, spec, goal, comps, names);
   const pe = paretoEffects(fit, terms);
