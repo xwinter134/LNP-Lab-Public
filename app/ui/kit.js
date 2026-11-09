@@ -584,10 +584,7 @@ export const sha256Hex = async (text) => {
  * Page header: breadcrumb, title and optional actions (html string). Either the crumb or the title may be
  * raw() when it needs markup — a crumb whose parts link back up the tree, a title with a "?" explainer.
  */
-export const header = (crumb, title, actions = '') => {
-  const c = crumb instanceof Raw ? crumb.s : esc(crumb ?? '');
-  // The global breadcrumb bar (app/ui/crumbs.js) already shows the full trail, so a screen can pass '' here to
-  // avoid a second, redundant crumb line under it.
-  return `${c ? `<div class="crumb">${c}</div>` : ''}
-  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px"><h1 style="flex:1 1 auto;margin:0">${title instanceof Raw ? title.s : esc(title)}</h1>${actions}</div>`;
-};
+export const header = (crumb, title, actions = '') =>
+  // The trail is the bar above (app/ui/crumbs.js), which knows the whole path. A second line of crumbs under it
+  // repeated part of it on every screen ("Run" / "Formulations › Experiment 7"), so `crumb` is accepted and not drawn.
+  `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px"><h1 style="flex:1 1 auto;margin:0">${title instanceof Raw ? title.s : esc(title)}</h1>${actions}</div>`;

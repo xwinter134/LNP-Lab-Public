@@ -156,7 +156,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   const { context, page } = await open({ demo: false });
 
   await go(page, 'overview');
-  await shot(page, 'first-start', '#main .crumb', '#main .card:has(h2:text-is("Getting started"))');
+  await shot(page, 'first-start', '#main h1', '#main .card:has(h2:text-is("Getting started"))');
 
   await step('settings', async () => {
     await go(page, 'settings');
@@ -177,7 +177,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
     await page.click('[data-editor] [data-act=save]');
     await page.waitForTimeout(400);
   });
-  await shot(page, 'materials-rna', '#main .crumb', '#tabBody');
+  await shot(page, 'materials-rna', '#main h1', '#tabBody');
 
   await step('lipid lot', async () => {
     // A registered lot, so the weigh-in below offers it on the MC3 card.
@@ -215,7 +215,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   await step('save buffer', async () => { await page.click('#saveBuffer'); await page.waitForTimeout(500); });
 
   await step('planner', async () => { await go(page, 'advisor?aim=size&budget=medium&scope=process', 700); });
-  await shot(page, 'planner', '#main .crumb', '#main .card:has(h2:text-is("What will happen"))');
+  await shot(page, 'planner', '#main h1', '#main .card:has(h2:text-is("What will happen"))');
 
   await go(page, 'overview');
   await shot(page, 'backup-reminder', '#main .card:has(#backupDue)');
@@ -230,7 +230,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   const { context, page } = await open({ demo: true });
 
   await go(page, 'overview', 800);
-  await shot(page, 'demo-overview', '#main .crumb', '#main .card:has(h2:text-is("Latest results")), #main .card:has(:text("Latest results"))');
+  await shot(page, 'demo-overview', '#main h1', '#main .card:has(h2:text-is("Latest results")), #main .card:has(:text("Latest results"))');
 
   await go(page, 'experiments?new=1&type=stability', 700);
   await shot(page, 'wizard-stability', '#main h2:has-text("Stability design")', '#main .card:has(h2:text-is("What will be created")), #main :text("Sample name example")');
@@ -239,7 +239,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   await shot(page, 'wizard-doe', '#main :text("What are you optimizing?")', '#main :text("Runs become formulations")', { pad: 20 });
 
   await go(page, 'experiments?id=E7', 700);
-  await shot(page, 'experiment-planned', '#main .crumb', '#main #nextStep ~ div, #main .card >> nth=0');
+  await shot(page, 'experiment-planned', '#main h1', '#main #nextStep ~ div, #main .card >> nth=0');
 
   await step('bench record', async () => {
     await go(page, 'formulation?batch=E7-F1', 800);
@@ -247,7 +247,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
     await page.locator('#rna_mass_mg').click();
     await page.waitForTimeout(500);
   });
-  await shot(page, 'bench-record', '#main .crumb', '#main .card:has(h2:text-is("Inputs")), #main .card:has(:text-is("Inputs"))');
+  await shot(page, 'bench-record', '#main h1', '#main .card:has(h2:text-is("Inputs")), #main .card:has(:text-is("Inputs"))');
   await step('bench steps', async () => { await page.evaluate(() => window.scrollTo(0, 0)); });
   await shot(page, 'bench-steps', '#main details:has(summary:has-text("Step 1")), #main :text("Step 1 ·")', '#main :text("Step 6 ·")');
   await step('process details', async () => {
@@ -259,10 +259,10 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
 
   // Before E7 is measured below, so its production day and measurement day are still open on the calendar.
   await go(page, 'calendar', 600);
-  await shot(page, 'calendar', '#main .crumb', '#main .card >> nth=0');
+  await shot(page, 'calendar', '#main h1', '#main .card >> nth=0');
 
   await go(page, 'measurements', 700);
-  await shot(page, 'measurements-due', '#main .crumb', '#main #dueCard');
+  await shot(page, 'measurements-due', '#main h1', '#main #dueCard');
 
   await step('import a file', async () => {
     await go(page, 'measurements', 600);
@@ -294,7 +294,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
     await page.fill('#editReason', 're-measured');
     await page.waitForTimeout(200);
   });
-  await shot(page, 'correction', '#main .crumb', '#main #editForm');
+  await shot(page, 'correction', '#main h1', '#main #editForm');
 
   await go(page, 'experiments?id=E1', 800);
   await shot(page, 'results-reference', '#main #resultsCard', '#main #resultsCard .figs, #main #resultsCard svg >> nth=0', { pad: 40 });
@@ -317,7 +317,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   });
 
   await go(page, 'doe?id=E4', 1000);
-  await shot(page, 'doe-balance', '#main .crumb', '#main #balanceCard');
+  await shot(page, 'doe-balance', '#main h1', '#main #balanceCard');
   await shot(page, 'doe-fit', '#main #fitCard', '#main #fitVerdict ~ *, #main #plotsFold', { maxH: 1100 });
 
   await step('optimizer', async () => {
@@ -330,7 +330,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
     await page.waitForSelector('#makeExp', { timeout: 120000 });
     await page.waitForTimeout(800);
   });
-  await shot(page, 'optimizer', '#main .crumb', '#main #makeExp');
+  await shot(page, 'optimizer', '#main h1', '#main #makeExp');
 
   await step('optimizer panel', async () => {
     const sum = page.locator('#mlRoot details > summary').first();
@@ -342,7 +342,7 @@ console.log(`Writing to ${path.relative(root, OUT)}/`);
   await shot(page, 'data-overview', '#main #crumbs', '#main .dataGrid', { maxH: 1100 });
 
   await go(page, 'insights', 900);
-  await shot(page, 'insights', '#main .crumb', '#main .card:has(h2:has-text("Control chart")), #main :text("Limits mean")');
+  await shot(page, 'insights', '#main h1', '#main .card:has(h2:has-text("Control chart")), #main :text("Limits mean")');
 
   await step('search', async () => {
     await go(page, 'overview', 600);

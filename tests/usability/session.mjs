@@ -521,7 +521,7 @@ await S.runTask('T14', 'Optimize: ML round 1 → make the suggestions → measur
   S.note('info', `ML round 1 fitted (cross-validated Q² ${q2 ?? '?'}).`);
   await S.shot('ml-round1', { full: true });
   await S.click('#makeExp', 'Make these runs', { wait: 800 });
-  const expId = /Experiment (\d+)/.exec(await page.locator('#main .crumb').innerText().catch(() => ''))?.[1];
+  const expId = /Experiment (\d+)/.exec(await page.locator('#main h1').innerText().catch(() => ''))?.[1];
   ids.ml1 = expId ? 'E' + expId : null;
   if (!ids.ml1) throw new Error('no experiment created from suggestions');
   const bs = await batchesOf(ids.ml1);
@@ -542,7 +542,7 @@ await S.runTask('T14', 'Optimize: ML round 1 → make the suggestions → measur
   await page.waitForFunction(() => /What to run next/.test(document.querySelector('#main')?.innerText || ''), null, { timeout: 30000 });
   await S.read('#main', 'read round 2');
   await S.click('#makeExp', 'Make round 2', { wait: 800 });
-  const e2 = /Experiment (\d+)/.exec(await page.locator('#main .crumb').innerText().catch(() => ''))?.[1];
+  const e2 = /Experiment (\d+)/.exec(await page.locator('#main h1').innerText().catch(() => ''))?.[1];
   if (e2) ids.ml2 = 'E' + e2;
 });
 
@@ -844,7 +844,7 @@ await S.runTask('T38', 'Optimize: rounds 3 and 4, and when to stop', 'expert', a
   await fitAndSuggest('Fit and suggest (round 3)');
   await S.read('#main', 'read round 3');
   await S.click('#makeExp', 'Make round 3', { wait: 800 });
-  const e3 = /Experiment (\d+)/.exec(await page.locator('#main .crumb').innerText().catch(() => ''))?.[1];
+  const e3 = /Experiment (\d+)/.exec(await page.locator('#main h1').innerText().catch(() => ''))?.[1];
   if (!e3) throw new Error('no round 3 experiment');
   ids.ml3 = 'E' + e3;
   await measureRound(ids.ml3, 'round 3');

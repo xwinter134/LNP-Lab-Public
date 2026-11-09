@@ -273,6 +273,18 @@
   svg .lbHalo text { paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; } svg .mn { stroke: var(--ink2); } svg .lm { stroke: var(--warn); } svg .ol { stroke: var(--warn-text); } svg .ac { stroke: var(--accent); } svg .af { fill: var(--accent); }
   #toast .note { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
   @media (max-width: 860px) { .app { flex-direction: column; } nav { width: auto; flex-direction: row; flex-wrap: wrap; height: auto; position: static; } nav .foot, nav .group { display: none; } nav a.sub { display: none; } nav .nav-search { flex: 1 1 100%; } main { padding: 18px 16px; } .g2, .g3, .g4 { grid-template-columns: 1fr; } }
+  /* Narrow screens: brand, search and a Menu button are one slim bar; the list opens under it and the page keeps the room. */
+  .navMenuBtn { display: none; }
+  @media (max-width: 860px) {
+    nav { flex: 0 0 auto; align-items: center; gap: 6px 8px; padding: 8px 12px; overflow: visible; } /* the desktop 232px basis would be a height here */
+    nav .brand { flex: 1 1 auto; order: 1; }
+    .navMenuBtn { display: inline-flex; order: 2; padding: 4px 12px; min-height: 30px; }
+    nav .nav-search { order: 3; }
+    nav a.item { order: 4; }
+    nav a.item:not(.sub) { display: none; }
+    nav.open a.item:not(.sub) { display: flex; flex: 1 1 46%; }
+    nav.open { max-height: none; }
+  }
   /* The fold-away experiment list in the sidebar. */
   .subList.closed { display: none; }
   .item .disclose { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line);

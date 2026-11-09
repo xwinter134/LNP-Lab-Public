@@ -17,34 +17,38 @@ import { installCommaDecimal } from './ui/decimal.js';
 /** Shown in the sidebar footer so the running copy can be matched against the repository (bump on each push). */
 export const APP_VERSION = '0.16.0';
 
-// The sidebar is the workflow, in order: plan it, run it, read it, then let the optimizer propose the next
-// round. Every group is a step you actually take, so there is one path through the app rather than a menu to
-// be interpreted. "Formulations" are the things you make; they are numbered inside the experiment that
-// planned them, so Experiments and Formulations are two views of one tree rather than two ideas.
+// The sidebar is the workflow, in the order a day in the lab goes: plan it, prepare what it needs (buffers, lipid
+// stocks, RNA), make it, measure it, read it, then let the optimizer propose the next round. Every group is a step
+// you actually take, so there is one path through the app rather than a menu to be interpreted. "Formulations"
+// are the things you make; they are numbered inside the experiment that planned them, so Experiments and
+// Formulations are two views of one tree rather than two ideas. The design catalogue is reached from the planner
+// (its third door); it stays in this list, hidden, because the breadcrumbs read the trail from here.
 const SCREENS = [
   { id: 'overview', title: 'Overview', icon: 'overview', color: 'var(--c-overview)' },
   { group: 'Plan' },
   { id: 'advisor', title: 'Plan an experiment', icon: 'advisor', color: 'var(--c-advisor)' },
-  { id: 'designs', title: 'Design catalogue', icon: 'designs', color: 'var(--c-advisor)' },
-  { group: 'Run' },
+  { id: 'designs', title: 'Design catalogue', icon: 'designs', color: 'var(--c-advisor)', hidden: true },
+  { group: 'Prepare' },
+  { id: 'buffers', title: 'Buffers', icon: 'buffers', color: 'var(--c-buffers)' },
+  { id: 'stocks', title: 'Lipid stocks', icon: 'stocks', color: 'var(--c-stocks)' },
+  { id: 'materials', title: 'Materials & lots', icon: 'materials', color: 'var(--c-materials)' },
+  { group: 'Make' },
   { id: 'experiments', title: 'Experiments', icon: 'experiments', color: 'var(--c-experiments)', children: 'experiments' },
   { id: 'formulation', title: 'Formulations', icon: 'batches', color: 'var(--c-batches)' },
   { id: 'calendar', title: 'Calendar', icon: 'calendar', color: 'var(--c-calendar)' },
-  { id: 'stocks', title: 'Lipid stocks', icon: 'stocks', color: 'var(--c-stocks)' },
-  { id: 'buffers', title: 'Buffers', icon: 'buffers', color: 'var(--c-buffers)' },
-  { group: 'Evaluate' },
-  { id: 'data', title: 'Data', icon: 'data', color: 'var(--c-insights)', children: 'views' },
+  { group: 'Measure' },
   { id: 'measurements', title: 'Measurements', icon: 'measurements', color: 'var(--c-measurements)' },
   // `when`, a function of the store, hides an item until it has something to show (it stays while it is open).
   // Only while an import's refused rows wait there (spec 6.5); `when` is read on every redraw of the sidebar.
   { id: 'quarantine', title: 'Quarantine', icon: 'quarantine', color: 'var(--c-measurements)', when: (st) => st.all('quarantine').some((q) => q?.status === 'open') },
+  { group: 'Analyze' },
   { id: 'doe', title: 'Design & results', icon: 'doe', color: 'var(--c-doe)' },
+  { id: 'data', title: 'Data', icon: 'data', color: 'var(--c-insights)', children: 'views' },
   { id: 'insights', title: 'Insights', icon: 'insights', color: 'var(--c-insights)' },
   { id: 'studies', title: 'Studies', icon: 'studies', color: 'var(--c-measurements)', when: () => bioOn() }, // only with a biological layer on (spec 8.5)
   { group: 'Optimize' },
   { id: 'ml', title: 'Optimizer', icon: 'ml', color: 'var(--c-ml)' },
-  { group: 'Reference' },
-  { id: 'materials', title: 'Materials & lots', icon: 'materials', color: 'var(--c-materials)' },
+  { group: 'More' },
   { id: 'learn', title: 'Reference', icon: 'learn', color: 'var(--c-learn)' },
   { id: 'settings', title: 'Settings & export', icon: 'settings', color: 'var(--c-settings)' },
 ];
@@ -102,13 +106,33 @@ function renderNav(active, activeId, activeDraft) {
   for (const e of store.all('experiments')) dueToday += (e.expected || []).filter((s) => s.status === 'open' && s.dueDate === today).length ? 1 : 0;
   dueToday += store.all('batches').filter((b) => b.plannedDate === today && b.status === 'planned').length;
   const inbox = store.count('inbox');
+  // What is waiting for the person, not how many records exist: formulations planned and not made yet (hot once one
+  // is due), and the results that are due now, counted once per sample however many tests it has.
+  const planned = store.all('batches').filter((b) => b.status === 'planned');
+  const toMake = planned.length, makeHot = planned.some((b) => (b.plannedDate || '9') <= today);
+  const dueSamples = new Set(), lateSamples = new Set();
+  for (const e of store.all('experiments')) for (const sl of e.expected || []) {
+    if (sl.status !== 'open' || !(sl.dueDate <= today)) continue;
+    dueSamples.add(sl.sampleName || sl.id); if (sl.dueDate < today) lateSamples.add(sl.sampleName || sl.id);
+  }
+  const badges = (s) => {
+    const b = (n, title, hot) => `<span class="badge${hot ? ' hot' : ''}" title="${esc(title)}">${n}</span>`;
+    if (s.id === 'calendar' && dueToday) return b(dueToday, `${dueToday} due today`, true);
+    if (s.id === 'formulation' && toMake) return b(toMake, `${toMake} formulation${toMake === 1 ? '' : 's'} planned and not made yet`, makeHot);
+    if (s.id === 'measurements') return (dueSamples.size ? b(dueSamples.size, `${dueSamples.size} sample${dueSamples.size === 1 ? '' : 's'} with results due${lateSamples.size ? `, ${lateSamples.size} overdue` : ''}`, lateSamples.size > 0) : '')
+      + (inbox ? b(`+${inbox}`, `${inbox} imported result${inbox === 1 ? '' : 's'} not assigned to a sample`, false) : '');
+    return '';
+  };
   // The experiment list under "Experiments" folds away. A lab with twenty open experiments should not have to
   // scroll past all of them to reach the rest of the menu, and the choice is remembered.
   const expOpen = localStorage.getItem('lnp-lab.navExperiments') !== 'closed';
-  const item = (s) => `<a class="item ${s.id === active ? 'active' : ''}" href="#/${s.id}"><span class="ico" style="color:${s.color}">${ICONS[s.icon] || ''}</span><span class="lbl">${s.title}</span>${s.id === 'calendar' && dueToday ? `<span class="badge hot">${dueToday}</span>` : ''}${s.id === 'measurements' && inbox ? `<span class="badge">${inbox}</span>` : ''}${s.children === 'experiments' && nKids ? `<button type="button" class="disclose ${expOpen ? 'open' : ''}" id="expToggle" aria-expanded="${expOpen}" aria-controls="expList" title="${expOpen ? 'Hide' : 'Show'} the ${exps.length} open experiments${drafts.length ? ` and ${drafts.length} not created yet` : ''}">${nKids}<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg></button>` : ''}</a>`;
-  nav.innerHTML = `<div class="brand"><span class="logo">${ICONS.logo}</span>LNP Lab${demoOn() ? '<span class="demo-chip">DEMO</span>' : ''}</div>` +
+  // The catalogue has no row of its own: it is the planner's third door, so the planner's row stays lit on it.
+  const lit = (s) => s.id === active || (s.id === 'advisor' && active === 'designs');
+  const item = (s) => `<a class="item ${lit(s) ? 'active' : ''}" href="#/${s.id}"><span class="ico" style="color:${s.color}">${ICONS[s.icon] || ''}</span><span class="lbl">${s.title}</span>${badges(s)}${s.children === 'experiments' && nKids ? `<button type="button" class="disclose ${expOpen ? 'open' : ''}" id="expToggle" aria-expanded="${expOpen}" aria-controls="expList" title="${expOpen ? 'Hide' : 'Show'} the ${exps.length} open experiments${drafts.length ? ` and ${drafts.length} not created yet` : ''}">${nKids}<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg></button>` : ''}</a>`;
+  nav.innerHTML = `<div class="brand"><span class="logo">${ICONS.logo}</span>LNP Lab${demoOn() ? '<span class="demo-chip">DEMO</span>' : ''}</div><button type="button" class="navMenuBtn" id="navMenu" aria-expanded="false" aria-controls="nav">Menu</button>` +
     SCREENS.map((s) => {
       if (s.group) return `<div class="group">${s.group}</div>`;
+      if (s.hidden) return '';
       if (s.when && s.id !== active && !s.when(store)) return '';
       let h = item(s);
       if (s.children === 'views') {
@@ -151,6 +175,12 @@ function renderNav(active, activeId, activeDraft) {
     if (!(await ask('Throw away the demo lab and build a fresh one? Your own records are not affected.'))) return;
     wipeDemo(store).finally(() => location.reload());
   });
+  // On a narrow screen the sidebar is one row (brand, search, Menu); the list opens under it and closes on a choice.
+  nav.querySelector('#navMenu')?.addEventListener('click', (e) => {
+    const open = nav.classList.toggle('open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+  nav.querySelectorAll('a.item').forEach((a) => a.addEventListener('click', () => nav.classList.remove('open')));
   nav.querySelector('#expToggle')?.addEventListener('click', (e) => {
     // It sits inside the link to Experiments, so it must not navigate as well as fold.
     e.preventDefault(); e.stopPropagation();
@@ -434,6 +464,17 @@ if (!globalThis.__TAURI__) window.addEventListener('beforeunload', (e) => { if (
 // A draft started or discarded while a screen stays open (the first keystroke into the wizard, a Discard) is
 // shown in the sidebar at once, not only after the next navigation.
 window.addEventListener('lnp:drafts', () => { if (booted) { try { renderNav(...navArgs); } catch (err) { console.error(err); } } });
+// The sidebar's counters and the footer's totals are read when it is drawn, and a result saved in place redraws the
+// screen, not the sidebar: after saving E7's results the footer still said 103 measurements and E7 stayed "open".
+// So a write to the store draws it again, once the writes of one action have stopped coming.
+{
+  let soon = null;
+  const refresh = () => { clearTimeout(soon); soon = setTimeout(() => { if (booted) { try { renderNav(...navArgs); } catch (err) { console.error(err); } } }, 200); };
+  for (const m of ['put', 'remove', 'transaction']) {
+    const orig = store[m]?.bind(store);
+    if (orig) store[m] = (...a) => { const r = orig(...a); refresh(); return r; };
+  }
+}
 (async () => {
   try { ctx.data = await loadReferenceData(); }
   catch (err) { document.getElementById('main').innerHTML = `<div class="note warn"><b>Reference data could not be loaded:</b> ${esc(err.message)}. Serve the folder over http (npm start), do not open index.html directly.</div>`; return; }
