@@ -482,8 +482,14 @@ function balanceCard(spec, runs, vals, model) {
   // Nothing in the region is acceptable on every goal: say which response is the reason, rather than present
   // the least-bad point as a recommendation.
   const blocked = b.blocked?.length ? `<div class="note warn" style="margin-top:8px"><b>No setting in the ranges you ran is acceptable on every goal.</b> ${b.blocked.map((n) => esc(SHORT[n] || n)).join(' and ')} ${b.blocked.length === 1 ? 'stays' : 'stay'} outside the acceptable window everywhere in the region, so the overall score is 0 at every setting. Below is the least-bad compromise, not a recommendation: change ${b.blocked.length === 1 ? 'that response' : 'those responses'}' limits on the Optimizer if they are stricter than you need, or look outside these ranges.</div>` : '';
+  // A recommendation built on a model that cannot predict a held-out run is a lead, and the card said "the setting to
+  // try next" with an overall score of 0.95 next to a predicted R2 of -8.5 and -16.3.
+  const weakFits = b.used.filter((g) => Number.isFinite(b.predR2?.[g.name]) && b.predR2[g.name] < 0.5);
+  const weak = weakFits.length
+    ? `<div class="note ${weakFits.some((g) => b.predR2[g.name] < 0) ? 'warn' : ''}" style="margin-top:8px"><b>A lead to confirm, not a result.</b> ${weakFits.map((g) => `${esc(SHORT[g.name] || g.name)} predicts a run it was not fitted to ${b.predR2[g.name] < 0 ? 'worse than the plain average' : 'only weakly'} (predicted R² ${fmt(b.predR2[g.name], 2)})`).join('; ')}. Make two or three batches at this setting before relying on it.</div>` : '';
   return `<div class="card" id="balanceCard" style="border-color:var(--c-doe)"><h2>${b.blocked?.length ? 'No setting meets every goal' : 'Best balance of all responses'} ${info('desirability')}</h2>
     <p class="muted">Where the fitted models together come closest to every goal at once (the goals are in the table): the setting to try next.</p>
+    ${weak}
     <div class="grid g2" style="align-items:start">
       <div>${table(['Factor', { label: 'Setting', right: true }, { label: 'coded', right: true }], spec.factors.map((f) => ({ cells: [factorLabel(f), `${setting(f, b.real[f.name])}${f.unit ? ' ' + f.unit : ''}`, sigfig(b.coded[f.name], 2)] })))}</div>
       <div>${table(['Response', { label: 'Predicted', right: true }, { label: 'scatter ±', right: true }, 'Goal', { label: 'Score', right: true }], b.parts.map((p) => ({ cells: [SHORT[p.name] || p.name, sigfig(b.predicted[p.name], 3, { maxDp: 3 }), sigfig(b.scatter[p.name], 2, { maxDp: 3 }), goalText(p), raw(scoreChip(p.d))] })))}</div>

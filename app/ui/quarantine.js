@@ -19,7 +19,12 @@ export async function render(el, ctx) {
   const only = ctx.params.import || '';
   const open = openQuarantine(ctx.store).filter((q) => !only || q.importId === only);
   const fixed = all.filter((q) => q.status === 'fixed').length, superseded = all.filter((q) => q.status === 'superseded').length;
-  el.innerHTML = header('Evaluate', 'Quarantine') +
+  // "1 to inbox" after an import and then "Nothing waits in quarantine" read as a contradiction: results with no
+  // sample are not refused, they wait in the Measurements inbox, and this page now says where.
+  const inbox = ctx.store.count('inbox');
+  const inboxNote = !open.length && inbox
+    ? `<div class="note" id="inboxPointer">Nothing was refused. ${inbox} imported result${inbox === 1 ? ' has' : 's have'} no sample yet: <a href="#/measurements">assign ${inbox === 1 ? 'it' : 'them'} on Measurements</a> (card "Unassigned imports").</div>` : '';
+  el.innerHTML = header('Evaluate', 'Quarantine') + inboxNote +
     `<div class="card"><p id="quarantineSay">${open.length ? `<b>${open.length} row${open.length === 1 ? '' : 's'} an import refused${only ? ` (import ${esc(only)})` : ''}.</b> Open one, correct or fill in what is missing, and check it again.` : '<b>Nothing waits in quarantine.</b>'}
       ${fixed || superseded ? `<span class="muted">${fixed} fixed, ${superseded} decided by a later import.</span>` : ''}</p>
       ${table(['Import', 'Row', 'Reason', ''], open.map((q) => ({

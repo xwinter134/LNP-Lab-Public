@@ -240,11 +240,15 @@ export async function render(el, ctx) {
       if (!f.condition) { toast('Choose the storage condition', 'warn'); return; }
       stab = { stage: `T${Number(days[1])}`, condition: f.condition, timepoint: Number(days[1]) };
     }
+    // A second result for a sample and test that already has one is stored beside it; which of the two the tables and
+    // the optimizer read was not said anywhere ("Result saved x2"). Count before saving, say after.
+    const stageNow = slot?.stage || stab?.stage || f.stage, condNow = slot?.condition ?? stab?.condition ?? null;
+    const sameBefore = ctx.store.all('measurements').filter((m) => m.batchId === batchId && m.test === f.test && String(m.stage || '') === String(stageNow || '') && (m.condition || null) === (condNow || null)).length;
     saveMeasurement(ctx, settings, { slot, batchId, experimentId: slot?.experimentId || batches.find((b) => b.id === batchId)?.experimentId || null, stage: slot?.stage || stab?.stage || f.stage, test: f.test, values, date: g.date, operator: g.operator, sampleName: slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : batchId ? `${batchId}_${f.stage}` : ''), remarks: g.remarks, raw: g.fileRef ? { fileName: g.fileRef } : null, condition: slot?.condition ?? stab?.condition, timepoint: slot?.timepoint ?? stab?.timepoint, formulation: slot?.formulation });
     toast(check.warnings.length ? `Result saved. Worth a look: ${check.warnings.map((w) => w.text).join('; ')}` : 'Result saved', check.warnings.length ? 'warn' : 'ok');
     const shown = (k, dp = 1) => (values[k] != null && Number.isFinite(Number(values[k])) ? Number(values[k]).toFixed(dp).replace(/\.0+$/, '') : null);
     const nums = [shown('zave_nm') && `Z-ave ${shown('zave_nm')} nm`, shown('pdi', 3) && `PDI ${shown('pdi', 3)}`, shown('ee_pct') && `EE ${shown('ee_pct')} %`, shown('zeta_mV') && `zeta ${shown('zeta_mV')} mV`].filter(Boolean);
-    lastSaved = { text: `Saved ${slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : `${batchId}_${f.stage}`)}${nums.length ? `: ${nums.join(', ')}` : ''}`, warn: check.warnings.map((w) => w.text) };
+    lastSaved = { text: `Saved ${slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : `${batchId}_${f.stage}`)}${nums.length ? `: ${nums.join(', ')}` : ''}`, warn: [...check.warnings.map((w) => w.text), ...(sameBefore ? [`this sample already had ${sameBefore} ${f.test.toUpperCase()} result${sameBefore === 1 ? '' : 's'}; the newest is the one the tables and the optimizer use`] : [])] };
     manualKeep = true; render(el, ctx);
   });
 

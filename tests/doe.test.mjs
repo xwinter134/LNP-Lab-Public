@@ -97,3 +97,13 @@ test('designProblems: a model with more coefficients than runs, too many runs, a
   const big = { ...pb, model: 'linear', designType: 'full_factorial', centerPoints: 20, replicates: 10, factors: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((n) => ({ name: n, unit: '', low: 1, high: 3 })) };
   assert.match(designProblems(big, { centerPoints: 20, replicates: 10 })[0], new RegExp(`more than one experiment can hold \\(${MAX_RUNS}\\)`));
 });
+
+test('axialReach: the axial runs of a rotatable design leave the typed ranges, a face-centred one does not', async () => {
+  const { axialReach } = await import('../app/calc/doe.js');
+  const spec = { factors: [{ name: 'flow', unit: 'mL/min', low: 60, high: 120 }, { name: 'PEG', unit: 'mol%', low: 1, high: 2.5 }] };
+  const r = axialReach(spec, 1.4142);
+  assert.equal(r.length, 2);
+  assert.ok(Math.abs(r[0].axialLow - (90 - 1.4142 * 30)) < 1e-9 && Math.abs(r[0].axialHigh - (90 + 1.4142 * 30)) < 1e-9);
+  assert.deepEqual(axialReach(spec, 1), [], 'alpha 1 stays inside');
+  assert.deepEqual(axialReach(spec, null), []);
+});

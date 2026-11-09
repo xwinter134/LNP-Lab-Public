@@ -4,7 +4,7 @@ import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, 
 import { experimentBioUses } from '../calc/usage.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
 import { TYPES, TESTS, FACTORS, typeShort, defaultExperimentName, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
-import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, designProblems, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
+import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, designProblems, axialReach, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
 import { mixingPlan } from '../calc/batch_record.js';
 import { info, wireLearn } from './learn.js';
 import { COMPOSITION_FACTORS } from '../calc/ml/space.js';
@@ -627,6 +627,7 @@ function wizard(el, ctx, ref, settings, type) {
     const modelName = mix ? `${MIXTURE_ORDERS[ds.mixtureOrder].replace(/:.*/, '')}${specMode(ds) === 'crossed' ? ` × ${MODEL_TYPES[ds.model].toLowerCase()}` : ''}` : MODEL_TYPES[ds.model];
     return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${esc(k)}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''}, model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
       ${mix && sm.note ? `<div class="muted" style="margin-top:4px">${esc(sm.note)}</div>` : ''}
+      ${sm.alpha > 1.0001 ? (() => { const r = axialReach(ds, sm.alpha); return r.length ? `<div class="note warn" style="margin-top:4px">The axial runs go outside the ranges you typed (α = ${fmt(sm.alpha, 3)}): ${r.map((x) => `${esc(x.name)} ${fmt(x.axialLow, 2)} to ${fmt(x.axialHigh, 2)}${x.unit ? ' ' + esc(x.unit) : ''} (typed ${fmt(x.low, 2)} to ${fmt(x.high, 2)})`).join(', ')}. Check that the pumps and the stock can do that, or take the face-centred design, which stays inside.</div>` : ''; })() : ''}
       ${sm.residualDf < 3 ? `<div class="note warn">Fewer than 3 residual degrees of freedom: ${mix ? 'raise the run budget, add centre replicates, or drop to a linear blending model' : 'add centre points or replicates'} before running.</div>` : ''}
       ${mix && sm.distinctBlends < sm.mixTerms ? `<div class="note warn">Only ${sm.distinctBlends} distinct blends, and the blending model has ${sm.mixTerms} terms. The blend effects cannot be separated: widen the mol% ranges, raise the budget, or drop to a linear blending model.</div>`
         : mix && sm.distinctBlends < sm.mixTerms + 2 ? `<div class="muted" style="margin-top:4px">${sm.distinctBlends} distinct blends for a ${sm.mixTerms}-term blending model, just enough. Another blend or two would give the blend effects some room.</div>` : ''}

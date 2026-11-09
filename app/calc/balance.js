@@ -128,6 +128,8 @@ export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
     predicted: best.predicted,
     // the residual scatter of each fit: a batch made at this setting will land about this far off, at best
     scatter: Object.fromEntries(used.map((g) => [g.name, fits[g.name].se])),
+    // how well each fit predicts a run it was not fitted to: below zero it predicts worse than the plain average
+    predR2: Object.fromEntries(used.map((g) => [g.name, fits[g.name].predR2])),
     parts: best.parts, D: best.D, best: bestRun, used, skipped, blocked,
     // where each factor's search stopped: the outermost level that was run
     extent: Object.fromEntries(names.map((n, i) => [n, ext[i]])),

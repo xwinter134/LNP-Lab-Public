@@ -479,6 +479,23 @@ export function modelTerms(spec) {
   return terms;
 }
 
+/**
+ * Where the axial runs of a central composite design land. With alpha above 1 (the rotatable design, alpha 1.68 at
+ * three factors) they sit OUTSIDE the range typed for the factor: flow 60-120 mL/min becomes 39.5 and 140.5, PEG
+ * 1-2.5 mol% becomes 0.49 and 3.01. The wizard showed "outside the box" in grey and nothing said what the pumps
+ * would be asked to do. Returns [{ name, unit, low, high, axialLow, axialHigh }] for the factors that leave their range.
+ */
+export function axialReach(spec, alpha) {
+  if (!(alpha > 1.0001)) return [];
+  const out = [];
+  for (const f of spec.factors || []) {
+    if (isCategorical(f)) continue;
+    const lo = toReal(f, -alpha), hi = toReal(f, alpha);
+    if (Number.isFinite(lo) && Number.isFinite(hi)) out.push({ name: f.name, unit: f.unit || '', low: Number(f.low), high: Number(f.high), axialLow: lo, axialHigh: hi });
+  }
+  return out;
+}
+
 /** The most runs one experiment may hold: 4,003 runs (500 replicates) and "finishing in 2030" were accepted. */
 export const MAX_RUNS = 500;
 
