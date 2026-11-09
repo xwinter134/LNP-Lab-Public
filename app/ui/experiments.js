@@ -4,7 +4,7 @@ import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, 
 import { experimentBioUses } from '../calc/usage.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
 import { TYPES, TESTS, FACTORS, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
-import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
+import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, designProblems, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
 import { mixingPlan } from '../calc/batch_record.js';
 import { info, wireLearn } from './learn.js';
 import { COMPOSITION_FACTORS } from '../calc/ml/space.js';
@@ -513,6 +513,8 @@ function wizard(el, ctx, ref, settings, type) {
   let previewId = null;
   function preview() {
     previewId ||= nextExperimentId(usedIds(ctx.store, 'experiment'));
+    // The design the form describes may be one that cannot be fitted or is absurdly large: no Create button then.
+    if (type === 'doe') { try { const dp = designProblems(doeSpec(), state.doe); if (dp.length) return { err: dp[0] }; } catch { /* the build below says it */ } }
     try { return { ok: buildExperiment(spec(), { settings, takenFormulations: [], experimentId: previewId }) }; }
     catch (e) { return { err: e.message }; }
   }
@@ -580,6 +582,8 @@ function wizard(el, ctx, ref, settings, type) {
     const d = state.doe, ds = doeSpec();
     const errs = validateSpec(ds);
     if (errs.length) return `<div class="note warn" style="margin-top:8px">${errs.map(esc).join('<br>')}</div>`;
+    const problems = designProblems(ds, d);
+    if (problems.length) return `<div class="note warn" style="margin-top:8px" role="alert">${problems.map(esc).join('<br>')}</div>`;
     let sm;
     try { sm = designSummary(ds, buildDesign(ds)); }
     catch (err) { return `<div class="note warn" style="margin-top:8px">${esc(err.message)}</div>`; }

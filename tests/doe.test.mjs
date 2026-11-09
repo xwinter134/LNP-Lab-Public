@@ -76,10 +76,24 @@ test('a bound left empty or a quantity below zero is refused, not made into runs
   const emptyLow = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: null, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
   assert.ok(emptyLow.some((m) => /FRR: enter both a low and a high/.test(m)));
   const negFlow = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: 2, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: -10, high: 120, applyTo: 'tfr' }] });
-  assert.ok(negFlow.some((m) => /flow: tfr cannot be below 0 \(low is -10\)/.test(m)));
+  assert.ok(negFlow.some((m) => /factor flow: cannot be set below 0 \(low is -10 mL\/min\)/.test(m)));
   const zeroFrr = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: 0, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
   assert.ok(zeroFrr.some((m) => /cannot be run/.test(m)));
   // a factor with no batch parameter behind it (a temperature in °C) may go below zero
   const temp = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'temperature', unit: 'C', low: -5, high: 25 }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
   assert.deepEqual(temp.filter((m) => /below|enter both/.test(m)), []);
+});
+
+test('designProblems: a model with more coefficients than runs, too many runs, and counts that are not whole numbers', async () => {
+  const { designProblems, MAX_RUNS } = await import('../app/calc/doe.js');
+  const pb = { designType: 'plackett_burman', model: 'interaction', centerPoints: 3, replicates: 1, seed: 1,
+    factors: ['a', 'b', 'c', 'd', 'e'].map((n) => ({ name: n, unit: '', low: 1, high: 3 })), responses: [{ name: 'PDI', goal: 'minimize' }] };
+  assert.match(designProblems(pb, { centerPoints: 3, replicates: 1 })[0], /coefficients but the design only/);
+  assert.deepEqual(designProblems({ ...pb, model: 'linear' }, { centerPoints: 3, replicates: 1 }), [], 'main effects fit in 11 runs');
+  assert.match(designProblems({ ...pb, model: 'linear', replicates: 500 }, { replicates: 500 })[0], /Replicates: a whole number from 1 to 10/);
+  assert.match(designProblems({ ...pb, model: 'linear' }, { centerPoints: -2 })[0], /Centre points/);
+  assert.match(designProblems({ ...pb, model: 'linear' }, { centerPoints: 1.5 })[0], /Centre points/);
+  assert.match(designProblems({ ...ccdSpec, alpha: 0 }, { centerPoints: 4 })[0], /Alpha must be above 0/);
+  const big = { ...pb, model: 'linear', designType: 'full_factorial', centerPoints: 20, replicates: 10, factors: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((n) => ({ name: n, unit: '', low: 1, high: 3 })) };
+  assert.match(designProblems(big, { centerPoints: 20, replicates: 10 })[0], new RegExp(`more than one experiment can hold \\(${MAX_RUNS}\\)`));
 });

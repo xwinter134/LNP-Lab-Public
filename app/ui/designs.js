@@ -91,6 +91,10 @@ function section(c, counted, budget, k, factors) {
   </section>`;
 }
 
+// The tile counts its batches for k factors; Set up has to open the wizard with as many, or it says 28 batches and
+// then opens 12. The planner names its factors; here, with none named, the ones a lab varies first.
+const USUAL_FACTORS = ['frr', 'tfr', 'peg_pct', 'np', 'ionizable_pct'];
+
 function tile({ e, runs, fits }, budget, k, factors) {
   const over = runs != null && budget && runs > budget;
   const dim = !fits || over;
@@ -106,7 +110,7 @@ function tile({ e, runs, fits }, budget, k, factors) {
     <div class="dc-body">
       <div class="dc-name"><b>${esc(e.name)}</b> ${info(e.topic)}</div>
       <div class="dc-ans">${esc(e.answers)}</div>
-      <div class="dc-foot">${count}${fits ? `<a class="btn ${dim ? '' : 'primary'}" href="${setupLink(e, factors)}">Set up</a>` : ''}</div>
+      <div class="dc-foot">${count}${fits ? `<a class="btn ${dim ? '' : 'primary'}" href="${setupLink(e, factors.length ? factors : USUAL_FACTORS.slice(0, k))}">Set up</a>` : ''}</div>
     </div>
     <details class="dc-more" data-entry="${esc(e.id)}"${open ? ' open' : ''}><summary>More about ${esc(e.name)}</summary>
       <div class="dc-cols">

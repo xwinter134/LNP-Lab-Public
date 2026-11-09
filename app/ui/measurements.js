@@ -16,7 +16,7 @@ import { TESTS } from '../calc/experiment.js';
 import { parseCSV, extractTests, matchSample, detectTests, detectInstrument, eeFromRiboGreen, missingFromFile, blankSheet, keptApart, alreadyImported } from '../calc/parsers.js';
 import { qcFlags, checkValues, mean, sd, correctResult, describeCorrection } from '../calc/qc.js';
 import { TEST_LABEL } from '../calc/evaluate.js';
-import { describeId } from '../schema.js';
+import { describeId, sampleName } from '../schema.js';
 import { mountImportEval, linkAssignedToImport } from './importeval.js';
 import { GRID_FIELDS, cellNumber, saveMeasurement, gridHtml, wireGrid } from './resultgrid.js';
 
@@ -171,14 +171,35 @@ export async function render(el, ctx) {
     const s = openSlots.find((x) => x.id === id); if (!s) return;
     el.querySelector('[name=batchId]').value = s.batchId; el.querySelector('[name=stage]').value = s.stage; el.querySelector('[name=test]').value = s.test;
   };
+  // A result for a stability study belongs to a storage condition and a day: without them it is stored but never
+  // joins the series (a T35 typed under "final" saved with a toast and never showed in the study). So for such a
+  // formulation the form asks for the condition and wants the stage written as T<days>.
+  const stabilityOf = (batchId) => {
+    const b = batches.find((x) => x.id === batchId);
+    const e = b && experiments.find((x) => x.id === b.experimentId);
+    return e?.type === 'stability' ? e : null;
+  };
+  const syncStability = () => {
+    const wrap = el.querySelector('#stabWrap'), stage = el.querySelector('[name=stage]');
+    const e = stabilityOf(el.querySelector('[name=batchId]').value);
+    wrap.hidden = !e;
+    if (e) {
+      const sel = wrap.querySelector('select'), now = sel.value, conds = e.design?.stability?.conditions || [];
+      sel.innerHTML = conds.map((c) => `<option value="${esc(c)}"${c === now ? ' selected' : ''}>${esc(c)}</option>`).join('');
+      stage.placeholder = 'T35 (days after the start)';
+      if (stage.value === 'final') stage.value = '';
+    } else { stage.placeholder = 'final, IPC4, T7 …'; if (!stage.value) stage.value = 'final'; }
+  };
+  el.querySelector('[name=batchId]').addEventListener('change', syncStability);
   if (ctx.params.slot) fromSlot(ctx.params.slot);
+  syncStability();
   drawFields();
   // Leaving with a value typed and not saved asks first (spec 9.1). Choosing the sample is not typing; the values,
   // remarks and file reference are. A save draws the screen again, and the check goes with the old form.
   registerDirty(body, 'a result typed into "Type one result"', () => fieldsChanged(el.querySelector('#testFields')) || fieldsChanged(body, '[name=remarks], [name=fileRef]'));
   el.querySelector('[name=test]').addEventListener('change', drawFields);
   // The select is on the folded line itself, so choosing a sample is what opens the form: no extra click.
-  el.querySelector('[name=slotId]').addEventListener('change', (e) => { openManual(); fromSlot(e.target.value); drawFields(); });
+  el.querySelector('[name=slotId]').addEventListener('change', (e) => { openManual(); fromSlot(e.target.value); syncStability(); drawFields(); });
   el.querySelector('#manualFree').addEventListener('click', () => { openManual(); el.querySelector('[name=batchId]').focus(); });
   el.querySelector('#saveManual').addEventListener('click', () => {
     const f = readForm(el.querySelector('#manualForm'));
@@ -206,7 +227,15 @@ export async function render(el, ctx) {
     const slot = openSlots.find((s) => s.id === f.slotId);
     const batchId = slot?.batchId || f.batchId || null;
     if (!batchId && !slot) { toast('Choose an expected measurement or a batch', 'warn'); return; }
-    saveMeasurement(ctx, settings, { slot, batchId, experimentId: slot?.experimentId || batches.find((b) => b.id === batchId)?.experimentId || null, stage: slot?.stage || f.stage, test: f.test, values, date: g.date, operator: g.operator, sampleName: slot?.sampleName || (batchId ? `${batchId}_${f.stage}` : ''), remarks: g.remarks, raw: g.fileRef ? { fileName: g.fileRef } : null, condition: slot?.condition, timepoint: slot?.timepoint, formulation: slot?.formulation });
+    // Free entry on a stability study: the result needs its storage condition and its day (see syncStability).
+    let stab = null;
+    if (!slot && stabilityOf(batchId)) {
+      const days = /^T(\d+)$/i.exec(String(f.stage || '').trim());
+      if (!days) { toast('Stability study: write the stage as T and the days since the start, for example T35', 'warn'); el.querySelector('[name=stage]').classList.add('invalid'); el.querySelector('[name=stage]').focus(); return; }
+      if (!f.condition) { toast('Choose the storage condition', 'warn'); return; }
+      stab = { stage: `T${Number(days[1])}`, condition: f.condition, timepoint: Number(days[1]) };
+    }
+    saveMeasurement(ctx, settings, { slot, batchId, experimentId: slot?.experimentId || batches.find((b) => b.id === batchId)?.experimentId || null, stage: slot?.stage || stab?.stage || f.stage, test: f.test, values, date: g.date, operator: g.operator, sampleName: slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : batchId ? `${batchId}_${f.stage}` : ''), remarks: g.remarks, raw: g.fileRef ? { fileName: g.fileRef } : null, condition: slot?.condition ?? stab?.condition, timepoint: slot?.timepoint ?? stab?.timepoint, formulation: slot?.formulation });
     toast(check.warnings.length ? `Result saved. Worth a look: ${check.warnings.map((w) => w.text).join('; ')}` : 'Result saved', check.warnings.length ? 'warn' : 'ok');
     manualKeep = true; render(el, ctx);
   });
@@ -870,6 +899,7 @@ function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today)
     <div id="manualBody"${open ? '' : ' hidden'}><div class="grid g4" style="margin-top:12px">
       ${field({ id: 'batchId', label: 'Formulation (free entry)', type: 'select', value: filterBatch, options: [{ value: '', label: '–' }, ...batches.map((b) => ({ value: b.id, label: `${b.id} (${b.experimentId})` }))] })}
       ${field({ id: 'stage', label: 'Stage / timepoint', type: 'text', value: 'final', placeholder: 'final, IPC4, T7 …' })}
+      <div id="stabWrap" hidden>${field({ id: 'condition', label: 'Storage condition', type: 'select', value: '', options: [] })}</div>
       ${field({ id: 'test', label: 'Test', type: 'select', value: ctx.params.test || 'dls', options: TESTS.map((t) => ({ value: t.id, label: t.name })).concat([{ value: 'endotoxin', label: 'Endotoxin' }]) })}
       </div><div id="testFields" class="grid g4" style="margin-top:10px"></div>
       <div class="grid g4" style="margin-top:10px">${field({ id: 'date', label: 'Date', type: 'date', value: today })}${field({ id: 'operator', label: 'Operator', type: 'text', value: settings.operator })}${field({ id: 'fileRef', label: 'File / ELN reference', type: 'text', advanced: true })}${field({ id: 'remarks', label: 'Remarks', type: 'text' })}</div>

@@ -257,7 +257,7 @@ export function validateSpec(spec) {
       if (!(Number(x.high) > Number(x.low))) e.push(`factor ${x.name}: high must exceed low`);
       // A factor that sets a batch parameter (FRR, flow, N/P, mol% ...) sets a quantity that cannot be below zero;
       // a ratio or a flow cannot be zero either. A low flow of -10 mL/min made batches with negative pump rates.
-      if (x.applyTo && Number(x.low) < 0) e.push(`factor ${x.name}: ${x.applyTo} cannot be below 0 (low is ${Number(x.low)})`);
+      if (x.applyTo && Number(x.low) < 0) e.push(`factor ${x.name}: cannot be set below 0 (low is ${Number(x.low)}${x.unit ? ' ' + x.unit : ''})`);
       else if (['frr', 'tfr'].includes(x.applyTo) && Number(x.low) === 0) e.push(`factor ${x.name}: a flow or a flow rate ratio of 0 cannot be run`);
       if (x.center != null && x.center !== '' && !(Number(x.low) < Number(x.center) && Number(x.center) < Number(x.high))) e.push(`factor ${x.name}: centre must lie strictly between low and high`);
     }
@@ -477,6 +477,30 @@ export function modelTerms(spec) {
   if (spec.model !== 'linear') for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) terms.push(`${names[i]} x ${names[j]}`);
   if (spec.model === 'quadratic') for (const n of names) terms.push(`${n}^2`);
   return terms;
+}
+
+/** The most runs one experiment may hold: 4,003 runs (500 replicates) and "finishing in 2030" were accepted. */
+export const MAX_RUNS = 500;
+
+/**
+ * What cannot be seen from the factors alone, found by building the design: a model with more coefficients than
+ * runs (Plackett-Burman with interactions: 15 terms, -5 residual df, which Design & results then called "needs
+ * more than 16 runs"), too many runs, and a count typed as -2 or 1.5 that was quietly made 0 or 1. `raw` is what
+ * the form holds before it is turned into numbers. Returns messages, empty when the design can be made.
+ */
+export function designProblems(spec, raw = {}) {
+  const out = [];
+  const whole = (v, lo, hi) => v === '' || v === null || v === undefined || (Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi);
+  if (!whole(raw.centerPoints, 0, 20)) out.push('Centre points: a whole number from 0 to 20.');
+  if (!whole(raw.replicates, 1, 10)) out.push('Replicates: a whole number from 1 to 10.');
+  if (spec.alpha !== null && spec.alpha !== undefined && spec.alpha !== '' && !(Number(spec.alpha) > 0)) out.push('Alpha must be above 0.');
+  if (out.length) return out;
+  let rows;
+  try { rows = buildDesign(spec); } catch { return out; } // validateSpec's own messages say what is wrong
+  const sm = designSummary(spec, rows);
+  if (sm.residualDf < 0) out.push(`The model has ${sm.terms + (sm.mode === 'process' ? 1 : 0)} coefficients but the design only ${sm.runs} runs: choose a smaller model, or add runs (centre points, replicates).`);
+  if (rows.length > MAX_RUNS) out.push(`${rows.length} runs is more than one experiment can hold (${MAX_RUNS}): fewer replicates or centre points, or a smaller design.`);
+  return out;
 }
 
 export function designSummary(spec, rows) {
