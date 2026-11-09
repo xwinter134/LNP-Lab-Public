@@ -33,7 +33,7 @@ export function buildRows(ctx) {
       synonym: comp?.synonym || '', stockId: b.stockId || null, status: b.status,
       date: sources[RESPONSE_DEFS[0].name]?.date || b.plannedDate || '',
       factors: readFactors(b, ref), values, sources,
-      suggestedByMl: !!b.ml, mlPredicted: b.ml?.predicted || null, mlPurpose: b.ml?.purpose || null,
+      suggestedByMl: !!b.ml, mlStart: !!(b.ml && (b.ml.start || (!b.ml.predicted && !b.ml.purpose))), mlPredicted: b.ml?.predicted || null, mlPurpose: b.ml?.purpose || null,
       nResponses: Object.keys(values).length,
       // What the optimizer filters on by default (spec 7.1): the ionizable lipid, read from the composition as
       // made (two of them are one system, "A+B"), and the mixer type the formulation recorded. Missing is null,
@@ -162,23 +162,26 @@ export function noiseFromReplicates(rows, space, responseName) {
  * @param {object[]} o.goals    the goals; those with `on: false` do not count
  * @param {string[]} [o.excluded]  experiment ids switched off ('' for formulations under no experiment)
  * @param {object[]} [o.limits] the factor limits (ALL_FACTORS); passed in so this stays free of space.js
+ * @param {Map<string,'leftOut'|'failed'>} [o.dropped] single formulations the person left out ('leftOut': a result
+ *   they distrust) or marked failed ('failed': made, no usable result); they are not in `rows` given to the fit
+ *   but are listed here with their reason
  * @param {object[]} [o.selected] the selection's own account (select.js selectData().account), so the card
  *   and the selection agree on every formulation
  */
 const SELECTION_REASON = { filtered: 'filtered', handed: 'filtered', 'outside range': 'budget', quality: 'budget', subselected: 'budget' };
-export function dataAccount(rows, { space = [], goals = [], excluded = [], limits = [], selected = null } = {}) {
+export function dataAccount(rows, { space = [], goals = [], excluded = [], limits = [], selected = null, dropped = null } = {}) {
   const off = new Set(excluded.map(String));
   const sel = new Map((selected || []).filter((a) => a.status === 'excluded' && SELECTION_REASON[a.reason]).map((a) => [a.batchId, a]));
   const active = goals.filter((g) => g.on !== false).map((g) => g.name);
   const limitOf = new Map(limits.map((f) => [f.key, f]));
   const fmtv = (v) => String(Number(Number(v).toPrecision(4)));
-  const out = { used: [], left: [], experiments: [], reasons: { excluded: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 } };
+  const out = { used: [], left: [], experiments: [], reasons: { excluded: 0, leftOut: 0, failed: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 } };
   const byExp = new Map();
   for (const r of rows) {
     const key = r.experimentId || '';
     if (!byExp.has(key)) {
       byExp.set(key, { id: key, name: r.experimentName || '', type: r.experimentType || '', excluded: off.has(key),
-        total: 0, measured: 0, used: 0, responses: {}, left: { excluded: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 }, outsideSearch: 0 });
+        total: 0, measured: 0, used: 0, responses: {}, left: { excluded: 0, leftOut: 0, failed: 0, filtered: 0, budget: 0, noResult: 0, missingFactor: 0, outside: 0 }, outsideSearch: 0 });
     }
     const e = byExp.get(key);
     e.total++;
@@ -187,6 +190,8 @@ export function dataAccount(rows, { space = [], goals = [], excluded = [], limit
     if (has.length) e.measured++;
     let reason = null, detail = '';
     if (e.excluded) { reason = 'excluded'; detail = 'its experiment is switched off'; }
+    else if (dropped?.get(r.batchId) === 'failed') { reason = 'failed'; detail = 'marked failed: no usable result'; }
+    else if (dropped?.get(r.batchId) === 'leftOut') { reason = 'leftOut'; detail = 'left out by you'; }
     else if (sel.has(r.batchId)) { const a = sel.get(r.batchId); reason = SELECTION_REASON[a.reason]; detail = a.detail || a.reason; }
     else if (!active.some((n) => Number.isFinite(r.values?.[n]))) {
       reason = 'noResult';

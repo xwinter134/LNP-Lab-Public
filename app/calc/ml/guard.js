@@ -3,6 +3,7 @@
 // meet, and what a factor that is switched off is held at.
 import { ALL_FACTORS, COMPOSITION_FACTORS } from './space.js';
 import { FACTORS } from '../experiment.js';
+import { runsNeeded } from '../variables.js';
 
 const num = (v) => (v == null || v === '' ? null : Number(v));
 
@@ -125,4 +126,34 @@ export function heldNotes({ space, held, observed }) {
       : `${short(f)} held at ${at}.` });
   }
   return out;
+}
+
+/**
+ * The one plain sentence an Optimizer page opens on (ux c1 item 3): how much data there is and whether it is
+ * enough for the model asked for. "Enough" is the app's own minimum-run rule (variables.js runsNeeded, about 5
+ * runs per free factor) and never less than the 8 runs a first model needs (optimizer.js READINESS).
+ * @param {{runs:number, experiments:number, factors:number}} o  measured formulations that reach the model,
+ *   the experiments they come from, and the number of free factors chosen
+ */
+export function dataSentence({ runs, experiments, factors }) {
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const from = runs ? `${plural(runs, 'run')} from ${plural(experiments, 'experiment')}` : 'No measured runs yet';
+  if (!factors) return `${from}: choose the factors you are willing to change below to see how many runs a model needs.`;
+  const n = runsNeeded(factors, runs);
+  const need = Math.max(8, n.need);
+  const model = `a ${factors}-factor model (needs about ${need})`;
+  return `${from}: ${runs >= need ? 'enough' : 'not yet enough'} for ${model}.`;
+}
+
+/**
+ * The last words on a failed run: the settings the suggestions keep away from. A formulation marked failed has
+ * no result for the model to learn from, so without this the search can propose the same clogged setting again.
+ * @param {object[]} rows  formulations (buildRows)
+ * @param {Iterable<string>} failedIds
+ * @param {{key:string}[]} space  the free factors; a failed formulation missing one cannot be placed
+ * @returns {object[]} factor settings, one per failed formulation that carries every free factor
+ */
+export function avoidPoints(rows, failedIds, space) {
+  const bad = new Set(failedIds);
+  return rows.filter((r) => bad.has(r.batchId) && space.length && space.every((f) => Number.isFinite(r.factors?.[f.key]))).map((r) => ({ ...r.factors }));
 }
