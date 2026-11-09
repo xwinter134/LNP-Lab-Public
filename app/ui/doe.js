@@ -7,7 +7,7 @@
 // and the exports are reference material for after the decision, so they fold to one line each that says
 // what is in them. Before anything is measured the design itself is the only thing worth reading, and it comes
 // first, open.
-import { raw, fmt, field, table, chip, header, fmtDate, kpi, download, toast, todayISO, esc } from './kit.js';
+import { raw, fmt, field, table, chip, header, fmtDate, kpi, download, toast, todayISO, esc, emptyState } from './kit.js';
 import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText, addDoeRun } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, MIXTURE_ORDERS, RESPONSES, designSummary, responsesForBatch, toRawDataCSV, toDesignCSV, toReal, specMode, specComponents, designColumns, processOrderOf, factorLabel, termLabel, isCategorical, categoricalName } from '../calc/doe.js';
 import { scheffeTerms, processTerms, crossedTerms, fitMixture, toPseudo } from '../calc/mixture.js';
@@ -27,8 +27,8 @@ import { balancedOptimum, boxTerms } from '../calc/balance.js';
 import { wireFigures } from './charts.js';
 import { openReport } from './report.js';
 import { gridHtml, wireGrid, GRID_FIELDS } from './resultgrid.js';
-import { experimentResults, resultsCsv } from '../calc/results.js';
-import { resultsCard, resultFigures, wireResults } from './resultsview.js';
+import { experimentResults, resultsCsv, progressStage } from '../calc/results.js';
+import { resultsCard, resultFigures, wireResults, resultsStepStrip } from './resultsview.js';
 import { figure } from './charts.js';
 
 const RESP = { zave_nm: 'Z-average (nm)', pdi: 'PDI', ee_pct: 'EE (%)', zeta_mV: 'Zeta (mV)' };
@@ -92,16 +92,24 @@ export async function render(el, ctx) {
   else if (sel) { read = resultsBody(ctx, sel, settings); ({ body, pinned } = read); }
   const data = sel ? dataCard(ctx, sel, settings) : '';
 
+  // No experiment at all: the screen is a dropdown reading "No experiments yet". Say what appears here and how to start.
+  if (!exps.length) {
+    el.innerHTML = header('Evaluate', 'Design & results') + emptyState({ title: 'Results appear here', text: 'Once an experiment has measured formulations, this screen gives its verdict, the model fit and the best setting.', actionLabel: 'Plan an experiment', actionHref: '#/advisor' });
+    return;
+  }
   const byType = TYPES.map((t) => [t, exps.filter((e) => e.type === t.id)]).filter(([, xs]) => xs.length);
   const options = exps.length
     ? byType.map(([t, xs]) => `<optgroup label="${esc(t.name)}">${xs.map((e) => `<option value="${esc(e.id)}"${e.id === sel?.id ? ' selected' : ''}>${esc(`${describeId(e.id)} · ${e.name || ''}`)}</option>`).join('')}</optgroup>`).join('')
     : '<option value="">No experiments yet</option>';
-  el.innerHTML = header('Evaluate', 'Design & results', `${sel ? '<button id="reportDoe" title="A page for the lab notebook: the plan, the recommendation, what drives each response, the coefficients, the diagnostic plots and the run table, to print or save as PDF">Report</button>' : ''}<a class="btn primary" href="#/experiments?new=1&type=doe">New DoE</a><a class="btn" href="#/experiments?new=1&type=ofat">New OFAT</a><a class="btn" href="#/ml" title="fit a surface to every measured formulation, not just this design, and get the next runs proposed">Optimizer</a>`) +
+  el.innerHTML = header('Evaluate', 'Design & results', `${sel ? '<button id="reportDoe" title="A page for the lab notebook: the plan, the recommendation, what drives each response, the coefficients, the diagnostic plots and the run table, to print or save as PDF">Report</button>' : ''}<details class="moreMenu"><summary class="btn">More</summary><div class="moreList"><a class="btn" href="#/experiments?new=1&type=doe">New DoE</a><a class="btn" href="#/experiments?new=1&type=ofat">New OFAT</a><a class="btn" href="#/ml" title="fit a surface to every measured formulation, not just this design, and get the next runs proposed">Optimizer</a></div></details>`) +
     `<div class="card wsp-pick"><label for="expSel">Experiment</label><select id="expSel" name="expSel">${options}</select>
       ${sel ? `<span class="muted">${esc(TYPES.find((t) => t.id === sel.type)?.name || sel.type)}</span><a class="btn" href="#/experiments?id=${esc(sel.id)}">The plan</a>` : ''}</div>` +
+    (sel ? resultsStepStrip(sel, progressStage(sel, sel.batchIds.map((id) => ctx.store.get('batches', id)).filter(Boolean), todayISO())) : '') +
     // The figure stays beside the data and the verdicts while the page scrolls: type a result on the left and the
     // surface or the bars on the right redraw with it, with no trip to another screen and back.
     (sel ? `<div class="wsp${pinned ? '' : ' nopin'}"><div class="wsp-main">${data}${body}</div>${pinned ? `<aside class="wsp-pin" id="pinned">${pinned}</aside>` : ''}</div>` : '');
+  // "Enter results below" opens the data sheet and takes the eye there.
+  el.querySelector('#nsEnter')?.addEventListener('click', () => { const d = el.querySelector('#dataCard'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });
   wireLearn(el);
   wireFigures(el);
   wireResults(el);

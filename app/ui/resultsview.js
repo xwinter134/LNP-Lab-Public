@@ -42,8 +42,27 @@ const head = (r) => ({ label: axisLabel(r), sub: 'mean ± SD', right: true });
  * What to do next, from the records: make what is still planned, measure what is still due, then evaluate.
  * A new experiment otherwise opens on a page of plans with no hint which of them is the next thing to do.
  */
+/** The band under a finished or fully measured experiment: what comes after it. Nothing said "next round" there. */
+function nextRoundStrip(text) {
+  return `<div class="nextstep" id="nextStep"><span class="ns-text">${esc(text)}</span><span class="ns-act"><a class="btn primary" href="#/ml">Ask the optimizer</a><a class="btn" href="#/advisor">Plan an experiment</a></span></div>`;
+}
+
+/**
+ * The same band for Design & results, which had none: where the experiment stands and the one thing to do next. It
+ * does not link to itself ("Enter results" on the experiment page goes here), it opens the data sheet below.
+ */
+export function resultsStepStrip(exp, st) {
+  if (exp.status === 'done') return nextRoundStrip('Done. The next round:');
+  if (st.planned) return `<div class="nextstep" id="nextStep"><span class="ns-text">${esc(`Next step: make the formulations, ${st.planned} planned`)}</span><span class="ns-act"><a class="btn primary" href="#/formulation?batch=${esc(st.firstPlanned)}">Open ${esc(st.firstPlanned)}</a></span></div>`;
+  if (st.open) {
+    const late = st.overdue ? `, ${st.overdue} overdue` : '';
+    return `<div class="nextstep" id="nextStep"><span class="ns-text">${esc(`Next step: enter the ${st.open} result${st.open === 1 ? '' : 's'} still due${late}`)}</span><span class="ns-act"><button class="primary" id="nsEnter" type="button">Enter results below</button><a class="btn" href="#/measurements">Measurements</a></span></div>`;
+  }
+  return nextRoundStrip('Every result is in. The next round:');
+}
+
 export function nextStepStrip(exp, st, res) {
-  if (exp.status === 'done') return '';
+  if (exp.status === 'done') return nextRoundStrip('Done. The next round:');
   let text, actions;
   if (st.planned) {
     text = `Next step: make the formulations, ${st.planned} planned`;

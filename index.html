@@ -817,6 +817,9 @@
   .nextStepCard .nsc-k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
   /* experiments list: the verdict under the title */
   .xr-result { display: block; font-size: 12.5px; color: var(--ink2); margin-top: 1px; }
+  /* ==== stage 9: flow ==== */
+  /* The sidebar's footer (appearance, feedback, demo) stays in view: at 900 px high with the experiment list open the demo switch was below the fold. */
+  nav .foot { position: sticky; bottom: 0; z-index: 2; background: var(--sidebar); padding-bottom: 12px; }
 </style>
 </head>
 <body>
