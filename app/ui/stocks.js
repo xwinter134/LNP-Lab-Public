@@ -180,7 +180,7 @@ export async function render(el, ctx) {
           <div class="wcTarget">${fmt(r.weighG, 4)}<span>g</span></div>
           <div class="wcMmol">${fmt(r.mmol, 4)} mmol</div>
           <label class="wcActual">weighed
-            <input type="number" step="0.00001" name="actual_${esc(r.key)}" value="${esc(state.actual[r.key] ?? '')}" placeholder="g">
+            <input type="number" step="0.00001" min="0" name="actual_${esc(r.key)}" value="${esc(state.actual[r.key] ?? '')}" placeholder="g">
           </label>
           <div class="${devClass}" data-dev="${esc(r.key)}">${dev == null ? '&nbsp;' : `${dev > 0 ? '+' : ''}${fmt(dev, 1)} % · ${fmt(a.mmolActual, 4)} mmol`}</div>
           <div class="wcLot">${lotsFor.length || gone
@@ -307,7 +307,8 @@ export async function render(el, ctx) {
       // Entering a mass updates the deviations and the ethanol, but must not rebuild the form: redrawing
       // destroys the field that was just left, and anything quicker than deliberate typing — a paste, an
       // autofill, tabbing fast — can lose the value with it. Patch the derived parts in place instead.
-      if (t.name.startsWith('actual_')) { const k = t.name.slice(7); if (v == null) delete state.actual[k]; else state.actual[k] = v; refreshDerived(); return; }
+      // A mass cannot be below zero: a minus sign typed by slip counted as -206 % of the target.
+      if (t.name.startsWith('actual_')) { const k = t.name.slice(7); if (v == null || !(Number(v) >= 0)) { delete state.actual[k]; if (v != null) t.classList.add('invalid'); } else { state.actual[k] = v; t.classList.remove('invalid'); } refreshDerived(); return; }
       state[t.name] = v;
       // The date too: an expiry not typed in follows it, and the field should show the one that is stored.
       if (['molarity_mM', 'volume_mL', 'date'].includes(t.name) && e.type === 'change') redraw();

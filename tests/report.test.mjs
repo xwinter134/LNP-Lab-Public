@@ -173,7 +173,7 @@ test('the demo DoE: the balanced setting, what drives each response, the run tab
   assert.match(t, /Process FRR 2 : 1 to 4 : 1 \(varied\) · total flow 60 mL\/min to 120 mL\/min \(varied\)/, 'a varied setting is printed as the range it was varied over');
   assert.match(t, /Recommended setting: the best balance of all responses[\s\S]*Factor Setting coded FRR[\s\S]*Response Predicted scatter ± Goal Score Size \(nm\)[\s\S]*Overall score 0\.\d\d/);
   assert.match(t, /What drives each response Size (falls|rises) with [\s\S]*R² 0\.\d\d · predicted R² [\s\S]*PDI [\s\S]*EE/);
-  assert.match(t, /Runs and results Label Run order FRR total flow mL\/min PEG mol% Lot Planned Z-ave \(nm\) mean ± SD/);
+  assert.match(t, /Runs and results Label Run order FRR total flow mL\/min PEG mol% Formulation Planned Z-ave \(nm\) mean ± SD/);
   for (let i = 1; i <= 18; i++) assert.match(t, new RegExp(`R0${String(i).padStart(2, '0')} \\(\\w+\\)`), `run ${i} in the run table`);
   for (const name of ['Size \\(nm\\)', 'PDI', 'EE \\(%\\)']) {
     assert.match(t, new RegExp(`Model for ${name} R² [\\d.]+ · adjusted[\\s\\S]*?Term Coefficient SE t p Intercept [\\d.]+[\\s\\S]*?\\(PEG mol%\\)²`), `${name}: coefficients with p values`);
@@ -229,7 +229,7 @@ test('a lipid-blend design: read along the lipids, a Scheffé table, the lipids 
   assert.match(t, /the lipid blend set run by run by the design/);
   assert.doesNotMatch(t, /Recommended setting/, 'the balanced search walks a box, which a blend is not');
   assert.match(t, /What drives each response Size falls with more DMGPEG/);
-  assert.match(t, /Runs and results Label Run order ALC315 mol% Chol mol% DMGPEG mol% Lot/);
+  assert.match(t, /Runs and results Label Run order ALC315 mol% Chol mol% DMGPEG mol% Formulation/);
   assert.match(t, /Model for Size \(nm\)[\s\S]*Scheffé model, no intercept[\s\S]*Term Coefficient SE t p ALC315 [\d.]+/);
   assert.equal(svgsOf(body).length, 5, 'four figures and the process');
 });

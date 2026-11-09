@@ -910,7 +910,15 @@ function wizard(el, ctx, ref, settings, type) {
   function create() {
     if (creating) return; // pressed again while the first press is being stored: that would be a second experiment
     const s = spec();
-    if (!s.name) { toast('Give the experiment a name', 'warn'); el.querySelector('[name=name]').focus(); return; }
+    if (!s.name) {
+      // The button is at the foot of a long page: bring the field to the eye and mark it, a toast alone is easy to miss.
+      const f = el.querySelector('[name=name]');
+      toast('Give the experiment a name', 'warn');
+      f.setAttribute('aria-invalid', 'true'); f.classList.add('invalid');
+      f.scrollIntoView({ block: 'center', behavior: 'smooth' }); f.focus({ preventScroll: true });
+      f.addEventListener('input', () => { f.classList.remove('invalid'); f.removeAttribute('aria-invalid'); }, { once: true });
+      return;
+    }
     // Numbered past every id still on record anywhere, the trash and the results of a deleted experiment
     // included: a number given out twice hands the old results to the new formulations (see usedIds).
     const id = nextExperimentId(usedIds(ctx.store, 'experiment'));

@@ -125,7 +125,8 @@ export function wireGrid(el, ctx, settings, openSlots, redraw) {
   const grid = el.querySelector('#resultGrid');
   if (!grid) { gridCarry = null; return; }
   const cells = [...grid.querySelectorAll('input.gcell')];
-  const msg = (h) => { el.querySelector('#gridMsg').innerHTML = h; };
+  // After the last open result is saved the redraw takes the grid, and its message line, away: nothing to say it to then.
+  const msg = (h) => { const box = el.querySelector('#gridMsg'); if (box) box.innerHTML = h; };
   // Tab and a paste go past a hidden run column. What was typed into one before it was hidden is still saved,
   // and hiding it says so: a run dropped without a word because a column was folded away is a run lost.
   const shown = (c) => !(+c.dataset.run > 1) || grid.classList.contains('runsOn');

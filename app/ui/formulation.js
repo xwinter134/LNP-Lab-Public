@@ -2,7 +2,7 @@
 // the six steps with calculated targets beside the actuals the operator enters.
 import { raw, fmt, field, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, redrawSoon, swapHtml, autoSaver, sharedRecord, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
-import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish } from '../calc/batch_record.js';
+import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish, inputProblems } from '../calc/batch_record.js';
 import { normaliseRoles, bufferAnswersTo } from '../calc/buffer.js';
 import { archivedSet } from '../calc/usage.js';
 import { VARIABLES, TYPED_VARIABLES, VARIABLE_STEPS, readVariable, sourceOf, checkVariable } from '../calc/variables.js';
@@ -334,6 +334,11 @@ export async function render(el, ctx) {
     // The cargo (mRNA, siRNA) names what the record carries, and its mass per phosphate is the N/P's (calc/cargo.js).
     const cargo = cargoOf(plan, rnaLot), mpp = massPerPhosphate(plan, rnaLot);
     const out = { stock, rnaLot, stock_mg_mL, working, mass, lipid_mM, frr, quench, total, flows, quick, qv, cargo, cargoName: cargoLabel(cargo), mpp };
+    // What was typed, not what the defaults fill in: an impossible entry is said so and nothing is worked out from it.
+    out.problems = inputProblems({ frr: plan.mixing.frr, quenchFactor: plan.mixing.quenchFactor, totalFlow: plan.mixing.totalFlow,
+      mass_mg: quick ? null : plan.rna.mass_mg, working_mg_mL: plan.rna.working_mg_mL, stock_mg_mL: plan.rna.stock_mg_mL,
+      lipidStock_mM: plan.mixing.lipidStock_mM, volume_mL: quick ? plan.volume_mL : null });
+    if (out.problems.length) { out.err = out.problems[0].text; return out; }
     try {
       // The stock volume and the dialysis start volume are kept on the result, not worked out again where they
       // are shown: step 1, step 3, the worksheet and the "At the bench" card all read these same two numbers.
@@ -476,7 +481,7 @@ export async function render(el, ctx) {
       ${field({ id: 'mixing_totalFlow', label: 'Total flow (mL/min)', value: plan.mixing.totalFlow || 112.5, step: 0.5 })}
       ${field({ id: 'rna_np', label: 'N/P target (optional, overrides FRR for lipid volume)', value: plan.rna.np, step: 0.5, advanced: true })}
       ${field({ id: 'plannedDate', label: 'Production date', type: 'date', value: batch.plannedDate })}
-    </div>${stockThawHtml()}<p class="muted" style="margin:8px 0 0">The buffers, the device and the downstream steps are set in the process above.</p></div>`;
+    </div>${(c.problems || []).map((p) => `<div class="note warn" role="alert">${esc(p.text)}</div>`).join('')}${stockThawHtml()}<p class="muted" style="margin:8px 0 0">The buffers, the device and the downstream steps are set in the process above.</p></div>`;
 
     // The process: drawn, summed up in a line, and changed in the fold under the drawing (app/ui/processviz.js).
     const proc = plan.process;

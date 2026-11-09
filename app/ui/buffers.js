@@ -25,6 +25,7 @@ const systemLabel = (n) => SYSTEM_LABEL[n] || n;
 
 
 // The fields a buffer's name describes: changing one makes a common buffer's name wrong for the lot.
+const LIVE_FIELDS = ['volume_mL', 'conc_mM', 'targetPH', 'nacl_mM', 'sucrose_mM', 'conc2_mM'];
 const RECIPE_FIELDS = ['system', 'method', 'targetPH', 'conc_mM', 'nacl_mM', 'sucrose_mM', 'system2', 'conc2_mM', 'reagent2'];
 const listIds = (ids, max = 6) => ids.slice(0, max).join(', ') + (ids.length > max ? ` and ${ids.length - max} more` : '');
 
@@ -160,10 +161,9 @@ export async function render(el, ctx) {
       return { res, autoName, sucroseG, naclG };
     }
 
-    function draw() {
-      const { res, autoName, sucroseG, naclG } = derive();
-      const reagents2 = state.system2 ? ref.reagents.filter((x) => x.system === state.system2) : [];
-      const result = res.err ? `<div class="note warn">${esc(res.err)}</div>` : `
+    /** The weighing card and the numbers under it, for a recipe worked out by derive(). Also drawn alone while a field is typed in. */
+    function resultHtml({ res, sucroseG, naclG }) {
+      return res.err ? `<div class="note warn">${esc(res.err)}</div>` : `
         <div id="bufferResult">
           <div class="weighGrid">
             ${[
@@ -192,6 +192,12 @@ export async function render(el, ctx) {
           <details class="fold" style="margin-top:10px"><summary class="muted">Speciation at the designed pH, and the pKa values</summary>${speciationTable(res)}
             <p class="muted">pKa (${esc(res.sys.name)}): ${res.sys.pka.map((p) => fmt(p, 3)).join(', ')} · charge of fully deprotonated form ${res.sys.charge_of_base} · ${esc(res.sys.source || 'CurTiPot database, I = 0, 25 °C')}</p></details>
         </div>`;
+    }
+
+    function draw() {
+      const { res, autoName, sucroseG, naclG } = derive();
+      const reagents2 = state.system2 ? ref.reagents.filter((x) => x.system === state.system2) : [];
+      const result = resultHtml({ res, sucroseG, naclG });
       const sysOptions = (sel, none) => `${none ? `<option value="">${none}</option>` : ''}<optgroup label="Common">${common.map((n) => `<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(systemLabel(n))}</option>`).join('')}</optgroup>
         <optgroup label="All systems (pKa database)">${others.map((n) => `<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('')}</optgroup>`;
       const second = !!(state.system2 && state.conc2_mM > 0), secondShown = second || !!state.system2 || secondOpen;
@@ -219,7 +225,7 @@ export async function render(el, ctx) {
           <div class="muted" style="align-self:end">Included in the pH solution and the recipe; the first system is adjusted to hit the target pH.</div>
         </div></details>
         <h2 style="margin-top:14px">Recipe</h2>
-        ${raw(result)}
+        <div id="bufferResultBox">${raw(result)}</div>
         <h2 style="margin-top:14px">Record</h2>
         <div class="grid g4">
           ${raw(field({ id: 'name', label: 'Name', type: 'text', value: state.name || autoName, placeholder: autoName }))}
@@ -279,6 +285,12 @@ export async function render(el, ctx) {
     function onInput(e) {
       apply(e);
       if (!e.target.name) return;
+      // The recipe follows the number as it is typed, not only once the field is left: 500 mL typed and not yet
+      // tabbed out still showed the amounts for 1 L.
+      if (e.type === 'input' && LIVE_FIELDS.includes(e.target.name)) {
+        const out = box.querySelector('#bufferResultBox');
+        if (out) out.innerHTML = resultHtml(derive());
+      }
       if (saver) { if (e.type === 'change') saver.now(); else saver.soon(); } else keep();
     }
 

@@ -198,14 +198,17 @@ function assemble(pages, pw, ph) {
 
 /* ---------------- the other two formats ---------------- */
 
+/** A column's header text: its label, with the unit in brackets unless the label already says it ("Size (nm)" stays "Size (nm)"). */
+const headText = (c) => (c.sub && !String(c.label).includes(`(${c.sub})`) && !String(c.label).endsWith(c.sub) ? `${c.label} (${c.sub})` : c.label);
+
 /** Rows as tab-separated text: what a spreadsheet and a word processor both accept from the clipboard. */
 export function tableTsv(columns, rows) {
-  const head = columns.map((c) => (c.sub ? `${c.label} (${c.sub})` : c.label)).join('\t');
+  const head = columns.map(headText).join('\t');
   return [head, ...rows.map((r) => r.map((c) => String(c ?? '').replace(/[\t\r\n]+/g, ' ')).join('\t'))].join('\n');
 }
 
 /** The same as comma-separated values, quoted where a value needs it. */
 export function tableCsv(columns, rows) {
-  const head = csvLine(columns.map((c) => (c.sub ? `${c.label} (${c.sub})` : c.label)));
+  const head = csvLine(columns.map(headText));
   return [head, ...rows.map((r) => csvLine(r))].join('\n');
 }

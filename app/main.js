@@ -12,6 +12,7 @@ import { mountSearch } from './ui/searchbox.js';
 import { feedbackUrl, feedbackMail, openExternal, FEEDBACK_EMAIL } from './ui/feedback.js';
 import { mountCrumbs, countStep, wireBackKeys, setTrail, stayStep, currentDepth } from './ui/crumbs.js';
 import { anyLayerOn } from './calc/bio.js';
+import { installCommaDecimal } from './ui/decimal.js';
 
 /** Shown in the sidebar footer so the running copy can be matched against the repository (bump on each push). */
 export const APP_VERSION = '0.16.0';
@@ -218,6 +219,7 @@ async function route() {
   const main = document.getElementById('main');
   countStep();
   wireBackKeys();
+  installCommaDecimal();
   try { renderNav(id, params.id, params.draft); } catch (err) {
     // A broken stored record must not leave the page blank: say what failed and where to look.
     main.innerHTML = `<div class="note warn"><b>The sidebar could not be built:</b> ${esc(err.message)}<br><span class="muted">${esc((err.stack || '').split('\n').slice(0, 3).join(' · '))}</span><br>Usually a damaged experiment or batch record; export the data under Settings (if reachable) and send the error.</div>`;

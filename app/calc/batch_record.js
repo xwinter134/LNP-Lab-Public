@@ -122,3 +122,29 @@ export const IPC_STAGES = [
   { id: 'Release', after: 'fill & finish', tests: ['appearance', 'DLS', 'integrity', 'RiboGreen content/EE', 'lipid content HPLC-CAD',
     'potency (HepG2 / Hek293, ± serum)', 'endotoxin', 'zeta potential', 'NTA', 'bioburden'] },
 ];
+
+/**
+ * Values typed into the record's inputs that no run can have: a negative flow rate ratio gave a lipid volume of
+ * -2.50 mL, 99,999,999 mg of RNA gave a 20-million-mL batch, a flow of -5 was taken. Each entry that is there
+ * (null and undefined are "not entered yet", not a problem) is checked against what the bench can do.
+ * Returns [{ field, text }], empty when every entered value is possible.
+ */
+export function inputProblems(v = {}) {
+  const out = [];
+  const has = (x) => x !== null && x !== undefined && x !== '' && Number.isFinite(Number(x));
+  const must = (field, x, label, { min = 0, max = Infinity, inclusive = false, unit = '', hint = '' } = {}) => {
+    if (!has(x)) return;
+    const n = Number(x);
+    if (inclusive ? n < min : n <= min) out.push({ field, text: `${label} must be ${inclusive ? 'at least' : 'above'} ${min}${unit ? ` ${unit}` : ''} (it is ${n}).` });
+    else if (n > max) out.push({ field, text: `${label} of ${n}${unit ? ` ${unit}` : ''} is more than a bench run can use${hint ? `: ${hint}` : ''}.` });
+  };
+  must('mixing_frr', v.frr, 'FRR (aqueous : organic)', { max: 20, hint: 'FRR is the ratio of the two flows, usually 1 to 10' });
+  must('mixing_quenchFactor', v.quenchFactor, 'Quench factor', { min: 0, inclusive: true, max: 50 });
+  must('mixing_totalFlow', v.totalFlow, 'Total flow', { unit: 'mL/min', max: 1000 });
+  must('rna_mass_mg', v.mass_mg, 'RNA input', { unit: 'mg', max: 10000, hint: 'check that it is in mg' });
+  must('rna_working_mg_mL', v.working_mg_mL, 'RNA working concentration', { unit: 'mg/mL', max: 50 });
+  must('rna_stock_mg_mL', v.stock_mg_mL, 'RNA stock concentration', { unit: 'mg/mL', max: 100 });
+  must('mixing_lipidStock_mM', v.lipidStock_mM, 'Lipid stock', { unit: 'mM', max: 500 });
+  must('quick_volume_mL', v.volume_mL, 'Volume to formulate', { unit: 'mL', max: 100000 });
+  return out;
+}

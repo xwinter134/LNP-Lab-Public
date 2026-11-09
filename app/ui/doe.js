@@ -131,7 +131,12 @@ const expNo = (id) => Number(/^E(\d+)/.exec(String(id || ''))?.[1]) || 0;
  * stores the experiment again). That is the one someone arriving here without a choice is most likely after.
  */
 function lastWorkedOn(ctx, exps) {
-  return exps.slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0] || null;
+  // One that has results, if any does: the screen is for reading them, and a planned experiment with nothing
+  // measured (the demo's E7) is an empty page to open on.
+  const batchExp = new Map(ctx.store.all('batches').map((b) => [b.id, b.experimentId]));
+  const withData = new Set(ctx.store.all('measurements').map((m) => batchExp.get(m.batchId)).filter(Boolean));
+  const pool = exps.some((e) => withData.has(e.id)) ? exps.filter((e) => withData.has(e.id)) : exps;
+  return pool.slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0] || null;
 }
 
 /* ---------------- the data sheet ---------------- */

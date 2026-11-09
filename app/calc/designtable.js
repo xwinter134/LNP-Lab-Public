@@ -69,7 +69,7 @@ export function designTableModel(spec, runs, o = {}) {
     // Not a factor: what the sterol has to be for that run's PEG or ionizable setting to total 100. It sits
     // beside the factors because it is weighed out like them, and a table without it hides half the recipe.
     ...(balance ? [{ key: 'balance', label: balance.label, sub: balance.sub || 'mol%', right: true, width: 1.15, derived: true }] : []),
-    ...(hasBatch ? [{ key: 'lot', label: 'Lot', width: 1.1 }] : []),
+    ...(hasBatch ? [{ key: 'lot', label: 'Formulation', width: 1.1 }] : []),
     ...(hasDate ? [{ key: 'planned', label: 'Planned', width: 0.9 }] : []),
     ...(full ? responses.map((r) => ({ key: r.name, label: r.label || r.name, sub: r.unit || '', right: true, width: 0.9, response: true })) : []),
   ];
