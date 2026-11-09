@@ -484,7 +484,9 @@ export function resultsCard(exp, res, ctx) {
   const caveat = !res.caveat ? ''
     : stab ? fold(`${exp.id}:method`, 'res-method', 'How the slopes are worked out', 'a projected day assumes the drift stays linear', `<p class="muted res-caveat">${esc(res.caveat)}</p>`)
       : `<p class="muted res-caveat">${esc(res.caveat)}</p>`;
-  const stats = `<ul class="res-stats">${res.sentences.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>${caveat}`;
+  // The answer first (reproducible? which level? when did it drift?), the sentences that carry the numbers under it.
+  const verdict = (res.verdicts || []).map((v) => `<div class="note verdict${v.tone === 'ok' ? ' ok' : v.tone === 'warn' ? ' warn' : ''}">${esc(v.text)}</div>`).join('');
+  const stats = `${verdict}<ul class="res-stats">${res.sentences.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>${caveat}`;
 
   if (res.type === 'doe') {
     // A designed experiment is read through its model rather than run by run, and that screen already has it.

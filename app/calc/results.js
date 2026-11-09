@@ -625,6 +625,84 @@ function single(out, rows) {
   }
 }
 
+/* ---------- the verdict: the one line a reader came for ---------- */
+
+/**
+ * Defaults for the verdict lines. They are not a lab's own acceptance criteria and the line says so: a CV limit per
+ * response for "reproducible" (size 5 %, PDI 15 %, EE 5 %), and the change of size from day 0, in percent, that
+ * counts as drift.
+ */
+export const VERDICT_LIMITS = { cv: { zave: 5, pdi: 15, ee: 5 }, sizeDriftPct: 10 };
+
+/**
+ * Lines that answer the question each experiment type asks, so the Results card does not leave the answer to be
+ * worked out from the numbers under it: is a reference set reproducible, which level was best, when did the size
+ * first drift. [{ tone: 'ok' | 'warn' | 'info', text }], empty when there is nothing to say yet.
+ */
+export function verdictsFor(out, limits = VERDICT_LIMITS) {
+  try {
+    if (out.type === 'reference') return referenceVerdict(out, limits);
+    if (out.type === 'ofat') return ofatVerdict(out);
+    if (out.type === 'stability') return stabilityVerdict(out, limits);
+  } catch { /* a verdict is an extra: never let it take the numbers down with it */ }
+  return [];
+}
+
+function referenceVerdict(out, limits) {
+  const by = out.stats?.byResponse || {};
+  const keys = Object.keys(limits.cv).filter((k) => by[k]);
+  const n = Math.min(...keys.map((k) => by[k].n));
+  if (!keys.length) return [];
+  if (!(n >= 3)) return [{ tone: 'info', text: `Reproducible? It takes three batches for a verdict; ${n} ${n === 1 ? 'is' : 'are'} measured.` }];
+  const lab = (k) => responseByKey[k].label;
+  const rows = keys.filter((k) => finite(by[k].cv)).map((k) => ({ k, cv: by[k].cv, limit: limits.cv[k] }));
+  const over = rows.filter((x) => x.cv > x.limit);
+  const said = rows.map((x) => `${lab(x.k)} CV ${f(x.cv, 1)} %`);
+  const lim = `limits ${rows.map((x) => f(x.limit, 0)).join(' / ')} % CV, defaults`;
+  return over.length
+    ? [{ tone: 'warn', text: `Not reproducible yet: ${over.map((x) => `${lab(x.k)} CV ${f(x.cv, 1)} % is above ${f(x.limit, 0)} %`).join('; ')} (${n} batches).` }]
+    : [{ tone: 'ok', text: `Reproducible: ${list(said)} over ${n} batches (${lim}).` }];
+}
+
+function ofatVerdict(out) {
+  const st = out.stats; if (!st?.levels) return [];
+  const at = (l) => `${st.factorName} ${l.text}`;
+  const lines = [];
+  for (const [key, pick, what] of [['ee', 'max', 'Best EE'], ['pdi', 'min', 'Lowest PDI']]) {
+    const r = responseByKey[key];
+    const have = st.levels.filter((l) => l.byResponse[key]);
+    if (have.length < 2 || !r) continue;
+    const shown = (l) => f(l.byResponse[key].mean, r.dp);
+    const best = have.reduce((a, b) => ((pick === 'max' ? b.byResponse[key].mean > a.byResponse[key].mean : b.byResponse[key].mean < a.byResponse[key].mean) ? b : a));
+    const tied = have.filter((l) => shown(l) === shown(best)); // equal at the digits shown: a tie, not a winner
+    if (tied.length === have.length) continue; // the same at every level says nothing about a best
+    lines.push(tied.length > 1 ? `${what}: ${st.factorName} ${list(tied.map((l) => l.text))} tie at ${withUnit(r, shown(best))}` : `${what} at ${at(best)} (${withUnit(r, shown(best))})`);
+  }
+  return lines.length ? [{ tone: 'info', text: `${lines.map((l, i) => (i ? l[0].toLowerCase() + l.slice(1) : l)).join('; ')}.` }] : [];
+}
+
+function stabilityVerdict(out, limits) {
+  const series = out.stats?.series || [];
+  const conds = [...new Set(series.map((s) => s.condition))];
+  const lines = [];
+  for (const cond of conds) {
+    let first = null, worst = null, last = 0;
+    for (const s of series.filter((x) => x.condition === cond)) {
+      for (const p of s.points) {
+        const ch = p.change?.zave; if (!ch || !finite(ch.pct) || !(p.t > 0)) continue;
+        last = Math.max(last, p.t);
+        if (!worst || Math.abs(ch.pct) > Math.abs(worst.pct)) worst = ch;
+        if (Math.abs(ch.pct) > limits.sizeDriftPct && (!first || p.t < first.t)) first = { t: p.t, ch, cell: p.cells.zave };
+      }
+    }
+    if (!worst) continue;
+    lines.push(first
+      ? { tone: 'warn', text: `${condName(cond)}: size first moves more than ${limits.sizeDriftPct} % from day 0 at day ${first.t} (${f(first.ch.base, 1)} → ${f(first.cell.mean, 1)} nm, ${signed(first.ch.pct, 1)} %).` }
+      : { tone: 'ok', text: `${condName(cond)}: size stays within ${limits.sizeDriftPct} % of day 0 through day ${last} (largest change ${signed(worst.pct, 1)} %).` });
+  }
+  return lines;
+}
+
 /**
  * Everything the Results card shows.
  * @param exp           the experiment record (type, design, expected slots)
@@ -642,7 +720,7 @@ export function experimentResults(exp, batches, measurements, { qc = null, horiz
   const rows = type === 'stability' ? stabilityRows(exp, batches, byBatch, slotsById) : batchRows(exp, batches, byBatch, slotsById);
   const responses = RESULT_RESPONSES.filter((r) => rows.some((x) => x.cells[r.key]));
   const measured = rows.filter((x) => responses.some((r) => x.cells[r.key]));
-  const out = { type, responses, rows, measuredRows: measured.length, totalRows: rows.length, stats: null, sentences: [], caveat: '' };
+  const out = { type, responses, rows, measuredRows: measured.length, totalRows: rows.length, stats: null, sentences: [], caveat: '', verdicts: [] };
   if (!measured.length) return out;
   if (type === 'reference') repeats(out, rows);
   else if (type === 'comparison') comparison(out, rows);
@@ -653,6 +731,7 @@ export function experimentResults(exp, batches, measurements, { qc = null, horiz
     out.sentences.push(`${measured.length} of ${rows.length} runs measured. The fitted model, its diagnostics and the optimum are on Design & results.`);
   } else single(out, rows);
   if (['single', 'reference', 'comparison', 'ofat'].includes(type)) { const q = qcSentence(rows, qc, responses); if (q) out.sentences.push(q); }
+  out.verdicts = verdictsFor(out);
   return out;
 }
 
