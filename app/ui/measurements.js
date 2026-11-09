@@ -131,7 +131,8 @@ export async function render(el, ctx) {
   manualKeep = false;
   const filters = readFilters(ctx.params);
 
-  el.innerHTML = header('Evaluate', raw(`Measurements <span style="font-size:13px;font-weight:400;color:var(--ink2);margin-left:6px">${info('size', 'size')} ${info('pdi', 'PDI')} ${info('ee', 'encapsulation')} ${info('zeta', 'zeta')}</span>`)) +
+  el.innerHTML = header('Evaluate', 'Measurements') +
+    `<p class="termsLine muted">Terms: ${info('size', 'size')} ${info('pdi', 'PDI')} ${info('ee', 'encapsulation')} ${info('zeta', 'zeta')}</p>` +
     dueCard(ctx, settings, lines, w, openSlots, today) +
     // The import card is one line until a file comes in or the paste box is opened: the preview, and the date
     // and operator it is stored under, appear with the table they belong to.
@@ -716,7 +717,7 @@ function dueCard(ctx, settings, lines, w, openSlots, today) {
         ${more > 0 ? `<button type="button" class="dueMore" data-due-more="${g}">${more} more</button>` : ''}</div>`;
     }).join('');
   }
-  return `<div class="card" id="dueCard"><h2>Due</h2>${body}${w ? waitBar(ctx, settings, w, today) : ''}</div>`;
+  return `<div class="card" id="dueCard"><h2>Due</h2>${body}${w ? waitBar(ctx, settings, w, today, lines.length > 0) : ''}</div>`;
 }
 
 /**
@@ -778,7 +779,7 @@ function dueLineHtml(l, i, today, hide, on = false) {
  * wait behind a button unless the address asked for this experiment (a "What to measure" link), and the grid,
  * when open, takes their place.
  */
-function waitBar(ctx, settings, w, today) {
+function waitBar(ctx, settings, w, today, hasLines = false) {
   const { choices, want, rows, scope } = w;
   const grid = !!ctx.params.grid;
   const overdue = rows.filter((r) => r.dueDate < today).length;
@@ -787,7 +788,7 @@ function waitBar(ctx, settings, w, today) {
   return `<div class="waitBar"><label class="inline" for="waitExp">Samples of</label>
       <select id="waitExp">${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === want.id ? 'selected' : ''}>${esc(describeId(c.id))} · ${esc(c.exp.name || '')} (${c.n} open)</option>`).join('')}</select>
       ${scope ? `<span class="chip info waitScope">${esc([scope.stage, scope.due && DUE_WORD[scope.due]].filter(Boolean).join(' · '))}<button type="button" id="waitScope" aria-label="Every sample of this experiment" title="Every sample of this experiment">×</button></span>` : ''}
-      <button id="copyNames">Copy sample names</button><button id="blankSheet" title="One row per sample, and a column for every test still due">Blank sheet (CSV)</button>${grid ? '' : '<button id="gridOpen">Type results as a grid</button>'}
+      ${hasLines ? '' : `<button id="copyNames">Copy sample names</button><button id="blankSheet" title="One row per sample, and a column for every test still due">Blank sheet (CSV)</button>${grid ? '' : '<button id="gridOpen">Type results as a grid</button>'}`}
       ${grid ? '' : `<button type="button" id="waitShow" class="dueN" aria-expanded="${showNames}" aria-controls="waitNames">${showNames ? 'Hide the names' : `Show the ${plural(rows.length, 'name')}`}</button>`}</div>
     ${grid ? gridHtml(rows, settings, overdue) : `<div id="waitNames"${showNames ? '' : ' hidden'}>
       <p class="muted">One row per sample, with every test it is still due. Name the samples on the instrument exactly as below and the export will match every row by itself. ${overdue ? `<b>${overdue}</b> of these ${overdue === 1 ? 'is' : 'are'} past due.` : ''}</p>

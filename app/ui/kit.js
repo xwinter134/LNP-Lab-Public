@@ -93,7 +93,18 @@ export function table(headers, rows, opts = {}) {
 }
 
 export const chip = (text, kind = '') => `<span class="chip ${kind}">${esc(text)}</span>`;
-export const kpi = (label, value, sub = '') => `<div class="kpi"><div class="l">${label instanceof Raw ? label.s : esc(label)}</div><div class="v">${value instanceof Raw ? value.s : esc(value)}</div>${sub ? `<div class="muted">${esc(sub)}</div>` : ''}</div>`;
+// A value that says "nothing here yet" is shown smaller and muted (.v.empty), so a tile that has a value is the loud one.
+const EMPTY_KPI = /^(not chosen|nothing\b|none\b|–$|-$)/i;
+export const kpi = (label, value, sub = '') => `<div class="kpi"><div class="l">${label instanceof Raw ? label.s : esc(label)}</div><div class="v${typeof value === 'string' && EMPTY_KPI.test(value.trim()) ? ' empty' : ''}">${value instanceof Raw ? value.s : esc(value)}</div>${sub ? `<div class="muted">${esc(sub)}</div>` : ''}</div>`;
+
+/**
+ * An empty list: a calm centred block with what the thing is and the screen's primary action, instead of a table
+ * header above one grey sentence. The action is a link (a hash route) or, with `actionId`, a button the caller wires.
+ */
+export function emptyState({ title = '', text = '', actionLabel = '', actionHref = '', actionId = '' } = {}) {
+  const act = actionLabel ? (actionHref ? `<a class="btn primary" href="${esc(actionHref)}">${esc(actionLabel)}</a>` : `<button type="button" class="primary"${actionId ? ` id="${esc(actionId)}"` : ''}>${esc(actionLabel)}</button>`) : '';
+  return `<div class="emptyState">${title ? `<h3>${esc(title)}</h3>` : ''}${text ? `<p>${esc(text)}</p>` : ''}${act}</div>`;
+}
 
 const TOAST_MAX = 3, TOAST_MS = 3500, TOAST_ACTION_MS = 10000;
 const toastTimers = new WeakMap();

@@ -321,6 +321,7 @@ const ALLOWED = [
   { file: 'app/ui/calendar.js', feature: 'Notification', line: "new Notification('LNP Lab: due today'", reason: "below that condition, and inside a try" },
   { file: 'index.html', feature: 'accent-color', line: 'accent-color: var(--accent)', reason: 'colour only: an older engine draws checkboxes and radio buttons in the system accent' },
   { file: 'index.html', feature: ':focus-visible', line: 'details.fold > summary:focus-visible', reason: 'an older engine drops the rule and keeps its own focus ring on the fold' },
+  { file: 'index.html', feature: ':focus-visible', line: 'button:focus-visible, .btn:focus-visible', reason: 'an older engine drops the rule and keeps its own focus ring' },
 ];
 
 /* ---------------- the scan ---------------- */

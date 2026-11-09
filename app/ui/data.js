@@ -5,7 +5,7 @@
 // writeFilter), so Back undoes the last click, a bookmark keeps a selection, and "Use in optimizer" hands the
 // same selection over as a query. The rows are worked out once per change of the records (Store.stamp), not per
 // click, so filtering 10,000 formulations stays well under the 200 ms the spec allows.
-import { header, esc, fmt, fmtDate, toast, download, saveBlob, todayISO, uid, ask } from './kit.js';
+import { header, emptyState, esc, fmt, fmtDate, toast, download, saveBlob, todayISO, uid, ask } from './kit.js';
 import { getRef } from '../refdata.js';
 import { dataRows, facetDefs, applyFilter, readFilter, writeFilter, filterQuery, parseFilterQuery, summary, completeness, histogram, perMonth, tally, describeFilter, columnDefs, sortRows, toCsv, textMatches, chosenLabel, overlayDistributions } from '../calc/facets.js';
 import { xlsxBytes } from '../calc/xlsx.js';
@@ -61,7 +61,7 @@ export async function render(el, ctx) {
   const active = Object.keys(writeFilter(f, defs)).length > 0;
 
   if (!c.rows.length) {
-    el.innerHTML = header('Evaluate', 'Data') + `<div class="card"><p>No formulations yet. Plan an experiment, or bring in older data (docs/HISTORICAL-DATA.md), and they are all listed here, with filters like a shop's.</p></div>`;
+    el.innerHTML = header('Evaluate', 'Data') + `<div class="card">${emptyState({ title: 'No data yet', text: 'Every formulation you plan is listed here, with filters like a shop\'s. Import old tables from Measurements, or ask Claude to bring them in.', actionLabel: 'Plan an experiment', actionHref: '#/advisor' })}</div>`;
     return;
   }
 
@@ -192,7 +192,15 @@ function chips(f, defs, all) {
 function facetPanel(f, defs, res, all) {
   let html = `<input type="search" id="facetText" placeholder="Search: E12, ALC-0315, a lot …" value="${esc(f.q || '')}" style="width:100%;margin-bottom:8px">`;
   let group = null;
+  const same = [];
   for (const d of defs) {
+    // A facet whose rows all share one value filters nothing: it is listed once in a muted line below instead of
+    // taking a block of its own. Judged on all rows (not the filtered ones), and never while it is being filtered.
+    if (all.length > 1 && !d.all && !(f[d.key] && (d.range ? f[d.key].some((x) => x != null) : f[d.key].length))) {
+      const vals = new Set(); let every = true;
+      for (const r of all) { const v = d.range ? [d.num(r)] : d.values(r); if (v.length !== 1 || v[0] == null || v[0] === '') { every = false; break; } vals.add(String(v[0])); }
+      if (every && vals.size === 1) { const v = [...vals][0]; same.push(`${d.label} ${d.range || !d.label1 ? v : d.label1(v, all)}`); continue; }
+    }
     // A group's heading is written with its first facet that has something to show, so an empty group (no
     // process values recorded yet) leaves no heading behind.
     const heading = () => { if (d.group !== group) { group = d.group; html += `<div class="fgroup">${esc(group)}</div>`; } };
@@ -217,6 +225,7 @@ function facetPanel(f, defs, res, all) {
     const head = counts.slice(0, 6), rest = counts.slice(6);
     html += `<div class="facet" data-key="${d.key}"><div class="fname">${esc(d.label)}</div>${head.map(item).join('')}${rest.length ? `<details><summary class="muted">${rest.length} more</summary>${rest.map(item).join('')}</details>` : ''}</div>`;
   }
+  if (same.length) html += `<p class="facetSame muted">Same in all ${all.length} rows: ${same.map(esc).join(', ')}</p>`;
   return html;
 }
 
