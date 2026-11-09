@@ -6067,7 +6067,7 @@ export async function optimizerTransparency({ page, open }) {
   await page.click('#runBtn');
   await page.waitForSelector('#mlLede', { timeout: 60000 });
   await expectText(page, '#mlPanel > summary', /\d+ of \d+ formulations · .+ · fingerprint [0-9a-f]{12}/, 'the panel line after a fit');
-  await page.click('#mlPanel > summary');
+  if (!(await page.$('#mlPanel[open]'))) await page.click('#mlPanel > summary'); // it stays as the user left it
   await page.click('#reproduceNow');
   await page.waitForFunction(() => /Reproduced|Not reproduced/.test(document.querySelector('#reproduceOut')?.innerText || ''), null, { timeout: 60000 });
   await expectText(page, '#reproduceOut', /^Reproduced/, 'the run comes out the same');
