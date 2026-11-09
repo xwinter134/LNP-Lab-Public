@@ -3101,6 +3101,19 @@ export async function optimizerSaysWhenToStop({ page, open }) {
     await open('ml?factors=frr,tfr');
     await page.click('#runBtn');
     await page.waitForFunction(() => /What to run next/.test(document.querySelector('#main')?.innerText || ''), null, { timeout: 30000 });
+    // Held out by experiment, three experiments of six to eight runs cannot test a model: Q² is below 0. The
+    // screen must then not tell the person to stop (usability: one wild result flipped a campaign to "Stop
+    // here" on a model it called worse than the average); it says the model cannot say yet, with the Q².
+    const honest = await page.locator('#roundVerdict').getAttribute('data-level');
+    if (honest !== 'unsure') throw new Error(`a model worse than the average must not carry a stop verdict, read ${honest}`);
+    await expectText(page, '#roundVerdict', /^The model cannot say yet whether another round pays: .*Q² -?\d/, 'the verdict carries the Q² caveat');
+    await expectNoText(page, '#roundVerdict', /Stop here|may still pay/, 'and neither stops nor encourages');
+    // The same runs held out one at a time (what a model on this smooth surface can do) read as stop.
+    await writeCol(page, 'settings', [...before.settings.filter((x) => x.id !== 'mlSetup'), { id: 'mlSetup', value: { strategy: 'run' } }]);
+    await page.reload(); await page.waitForFunction(() => window.__lnpStarted, null, { timeout: 15000 });
+    await open('ml?factors=frr,tfr');
+    await page.click('#runBtn');
+    await page.waitForFunction(() => /What to run next/.test(document.querySelector('#main')?.innerText || ''), null, { timeout: 30000 });
 
     // the verdict leads, plainly, with its number and what to do instead
     const level = await page.locator('#roundVerdict').getAttribute('data-level');
@@ -4359,7 +4372,8 @@ export async function optimizerLeadsWithItsVerdict({ page, open }) {
     await expectText(page, '#readingFold > summary', /Reading the table\s*why each run, what the ± means/, 'the fold says what it holds');
     await expectNoText(page, '#main', /mainly information|expected gain/, 'why each run was chosen is folded');
     const words = (await page.locator('#main').innerText()).trim().split(/\s+/).length;
-    if (words > 600) throw new Error(`the optimizer after a fit reads ${words} words`);
+    // 600 before the verdict could say "the model cannot say yet" with its Q² (about ten words more than the benchmark line it replaces)
+    if (words > 610) throw new Error(`the optimizer after a fit reads ${words} words`);
     await page.click('#readingFold > summary');
     if ((await page.locator('#whyRuns li').count()) !== (await page.locator('#mlRoot .card:has(#makeExp) table').first().locator('tbody tr').count())) throw new Error('one reason per suggested run');
   } finally {

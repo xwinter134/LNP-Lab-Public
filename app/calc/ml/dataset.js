@@ -41,9 +41,42 @@ export function buildRows(ctx) {
       lipid: (readVariable(b, 'ionizableLipid', ref) || []).join('+') || null,
       mixerType: readVariable(b, 'mixerType', ref) || null,
       quality: qualityIssues(own, sources),
+      repeatMeasured: repeatMeasurements(own, sources),
     });
   }
   return rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
+/**
+ * A sample measured twice with the same test and stage: both are stored and only one feeds the model, so the
+ * screen has to say which (usability: a typo corrected by a second import "had no effect"). One entry per test.
+ * @returns {{test:string, n:number, usedId:string, usedDate:string, others:{id:string, date:string}[]}[]}
+ */
+export function repeatMeasurements(own, sources) {
+  const out = [], seen = new Set();
+  for (const r of RESPONSES) {
+    const src = sources?.[r.name];
+    if (r.derived || !src?.id || !r.source || seen.has(r.source[0])) continue;
+    const [test, key] = r.source;
+    const same = (own || []).filter((m) => m.test === test && m.stage === src.stage && Number.isFinite(Number(m.values?.[key])));
+    seen.add(test);
+    if (same.length > 1) out.push({ test, n: same.length, usedId: src.id, usedDate: src.date || '', others: same.filter((m) => m.id !== src.id).map((m) => ({ id: m.id, date: m.date || '' })) });
+  }
+  return out;
+}
+
+/**
+ * The sentence for the Optimizer screen: which of two measurements of one sample the model reads. One per sample,
+ * all its tests together, so a sample measured twice by DLS and twice by EE is one line.
+ */
+export function repeatNotes(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    const ds = r.repeatMeasured || [];
+    if (!ds.length) continue;
+    out.push({ batchId: r.batchId, tests: ds.map((d) => d.test), text: `${r.batchId} measured twice: ${ds.map((d) => `${d.test.toUpperCase()} uses ${d.usedId}${d.usedDate ? ` (${d.usedDate})` : ''}, not ${d.others.map((o) => o.id).join(', ')}`).join('; ')}.` });
+  }
+  return out;
 }
 
 /**

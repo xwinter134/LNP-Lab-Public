@@ -5,7 +5,8 @@ import { standardise, evaluateResponse, LEARNERS } from './model.js';
 import { toUnit, suggestSpace, snap, fromUnit, mixtureLimits, canWeighOut, fitMixture } from './space.js';
 import { mulberry32 } from './linalg.js';
 import { suggestRuns, predictedOptimum, predictAll, latinHypercube, confirmAdvice } from './acquire.js';
-import { modelsPick, roundVerdict } from './stopping.js';
+import { modelsPick, roundVerdict, trustIssues } from './stopping.js';
+import { limitProblems, goalProblems } from './guard.js';
 import { overallDesirability, paretoFront } from './objective.js';
 import { permutationImportance, ardImportance, collapseCheck, coverage } from './explain.js';
 import { usableRows, noiseFromReplicates, replicateGroups } from './dataset.js';
@@ -133,9 +134,18 @@ export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', 
     for (const p of out.suggestions.picks) p.forecast = forecast(p.point);
     for (const r of out.suggestions.confirm?.runs || []) r.forecast = forecast(r.point);
     const picks = out.suggestions.picks;
-    if (picks.length) {
-      out.verdict = roundVerdict({ pBeats: Math.max(...picks.map((p) => p.pBeatsBest ?? 0)), gain: out.pick?.lastRound?.gain ?? null,
-        q: picks.length, confirmBatches: out.suggestions.confirm?.batches || 0 });
+    // Goals or limits that cannot be met, and no run predicted to meet them at all (a limit that every setting
+    // breaches scores every run 0), are said before any talk of rounds, also when that leaves nothing to
+    // suggest. A model that cannot predict its own held-out runs is said too, and cannot end the campaign
+    // (stopping.js roundVerdict).
+    const blocked = [...goalProblems(sg), ...limitProblems(constraints)];
+    if (picks.length && !blocked.length && sc.length && (out.pick?.predictedD ?? 1) === 0 && !(out.optimum?.desirability > 0) && picks.every((p) => !(p.expectedDesirability > 0))) {
+      blocked.push('No run so far and no setting the model can find is predicted to meet your hard limits.');
+    }
+    if (picks.length || blocked.length) {
+      out.verdict = roundVerdict({ pBeats: picks.length ? Math.max(...picks.map((p) => p.pBeatsBest ?? 0)) : NaN, gain: out.pick?.lastRound?.gain ?? null,
+        q: picks.length, confirmBatches: out.suggestions.confirm?.batches || 0, blocked,
+        trust: trustIssues(out.responses, sg.map((g) => g.name)) });
     }
   } else if (used.length >= 8) {
     out.warnings.push('No surface model could be fitted at all. Usually every response has fewer than four measured runs that also carry the chosen factors.');

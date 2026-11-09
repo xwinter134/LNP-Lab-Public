@@ -133,8 +133,26 @@ const chanceText = (p) => (p < 0.005 ? 'less than a 1 % chance' : p > 0.995 ? 'm
  *   added to the model's pick (null when there is only one round), q: suggestions in the round,
  *   confirmBatches: what confirming the best candidates costs (0 when they are confirmed already)}
  */
-export function roundVerdict({ pBeats, gain = null, q = 4, confirmBatches = 0 }) {
-  if (!Number.isFinite(pBeats)) return null;
+export function roundVerdict({ pBeats, gain = null, q = 4, confirmBatches = 0, trust = [], blocked = [] }) {
+  if (!Number.isFinite(pBeats) && !blocked.length) return null;
+  // Limits or goals that cannot be met outrank everything: the chance of beating the best run is a chance of
+  // beating a score that cannot be reached, and "the best candidates are confirmed" would send the person to
+  // confirm a run that scores zero (usability: PDI below 0.001 read "Stop here ... take the model's pick forward").
+  if (blocked.length) {
+    return { level: 'blocked', stop: false, blocked: true, sentence: `Fix the goals or limits first: ${blocked.join(' ')} As set, no setting can meet them, so there is no round to judge.`,
+      evidence: '', pBeats: Number.isFinite(pBeats) ? pBeats : null, gain: Number.isFinite(gain) ? gain : null };
+  }
+  // A model that predicts worse than the average, or only weakly, cannot say whether another round pays: its
+  // "chance of beating your best run" is the chance by its own reckoning. One wild result is enough to cause
+  // it, and it must not end a campaign ("Stop here" at 6 % with Q2 -0.99), nor read ">99 %" as a promise.
+  if (trust.length) {
+    const what = trust.map((t) => t.text).join('; ');
+    const odds = `by its own reckoning the best of ${q > 1 ? `these ${q}` : 'the suggestion'} has ${chanceText(pBeats)} of beating your best run`;
+    return { level: 'unsure', stop: false, untrusted: true,
+      sentence: `The model cannot say yet whether another round pays: ${what}. ${odds[0].toUpperCase() + odds.slice(1)}; treat them as a space-filling plan, not predictions.`,
+      // no benchmark line: its rounds were all fitted by a model that predicted held-out runs
+      evidence: '', pBeats, gain: Number.isFinite(gain) ? gain : null };
+  }
   const rose = Number.isFinite(gain) && gain >= STOP_RULE.realGain;
   const flat = Number.isFinite(gain) && !rose;
   const level = pBeats >= STOP_RULE.goFrom ? 'go' : pBeats < STOP_RULE.stopBelow && !rose ? 'stop' : 'maybe';
@@ -158,3 +176,32 @@ export function roundVerdict({ pBeats, gain = null, q = 4, confirmBatches = 0 })
   const evidence = `On the app's simulated-lab benchmark, ${Math.round(seen.real * 100)} % of ${seen.rounds} rounds in this situation improved the result by more than 0.01.`;
   return { level, stop: level === 'stop', sentence, evidence, pBeats, gain: Number.isFinite(gain) ? gain : null };
 }
+
+/**
+ * Which goals' models are not good enough to rest a verdict on: trust 'none' (worse than the average, or too few
+ * groups to test), or 'weak' with a Q² below 0. `responses` are the report's per-response results, `names` the goals the
+ * suggestions were made for.
+ * @returns {{name:string, level:string, text:string}[]}
+ */
+export function trustIssues(responses, names) {
+  const out = [];
+  for (const r of responses || []) {
+    if (names && !names.includes(r.name) || r.skipped) continue;
+    const level = r.trust?.level;
+    const q = r.best?.q2;
+    // 'none' is worse than the average (or untestable); 'weak' with Q² below 0 is the same on values and only
+    // ranks settings. A weak model with Q² of 0 or more captures something, so it can still carry a verdict
+    // (and on the benchmark, where every round is its own experiment, requiring more would end every stop).
+    if (!(level === 'none' || (level === 'weak' && Number.isFinite(q) && q < 0))) continue;
+    const label = r.label || r.name;
+    const qText = Number.isFinite(q) ? ` (Q² ${q.toFixed(2)})` : '';
+    out.push({ name: r.name, level, text: Number.isFinite(q) ? `${label} is predicted worse than the average${qText}` : `${label} could not be tested yet` });
+  }
+  return out;
+}
+
+/** Whether most of the suggested runs have under one chance in twenty of beating the best run so far. */
+export const mostlyLongShots = (picks) => !!picks?.length && picks.filter((p) => (p.pBeatsBest ?? 0) < 0.05).length > picks.length / 2;
+
+/** The run already made at this setting, if any: a suggestion that is an exact repeat is a repeat, not a new setting. */
+export const repeatOf = (point, observed, space) => (observed || []).find((o) => sameSetting(o.point, point, space)) || null;

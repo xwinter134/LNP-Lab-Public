@@ -150,7 +150,7 @@ test('the screen’s report carries the pick and the verdict once there are sugg
   assert.ok(out.suggestions?.picks?.length, 'suggestions were made');
   assert.ok(rows.some((r) => r.batchId === out.pick.batchId), 'the pick is a run that was made');
   assert.equal(out.pick.lastRound.id, 'E2');
-  assert.ok(['stop', 'maybe', 'go'].includes(out.verdict.level));
+  assert.ok(['stop', 'maybe', 'go', 'unsure'].includes(out.verdict.level));
   assert.match(out.verdict.sentence, /chance of beating your best run/);
   assert.equal(out.verdict.pBeats, Math.max(...out.suggestions.picks.map((p) => p.pBeatsBest)));
   if (out.suggestions.confirm) assert.ok(out.suggestions.confirm.runs.some((r) => r.kind === 'pick' && r.batchId === out.pick.batchId), 'the confirmation is about the pick');
