@@ -108,7 +108,7 @@ test('the optimizer accounts for every formulation: used, or left out with the r
   const a = dataAccount(rows, { space, goals, excluded: ['E3'], limits: ALL_FACTORS });
   assert.deepEqual(a.used.map((r) => r.batchId), ['E1-F1', 'E1-F2', 'X-1']);
   assert.deepEqual(a.used[1].outsideSearch, ['FRR']);
-  assert.deepEqual(a.reasons, { excluded: 1, filtered: 0, budget: 0, noResult: 2, missingFactor: 1, outside: 1 });
+  assert.deepEqual(a.reasons, { excluded: 1, leftOut: 0, failed: 0, filtered: 0, budget: 0, noResult: 2, missingFactor: 1, outside: 1 });
   // Read through the selection (spec 7.1): another lipid or mixer is filtered, the data budget's choice is budget,
   // and the card then agrees with the selection on every formulation.
   const b = dataAccount(rows, { space, goals, excluded: ['E3'], limits: ALL_FACTORS, selected: [

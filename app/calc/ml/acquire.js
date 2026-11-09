@@ -161,7 +161,16 @@ export function suggestRuns(a) {
 
   // `a.candidates` (unit vectors) replaces the random candidate set: the historical benchmark (spec 7.7,
   // tests/usability/history.mjs) may only propose runs that were actually made. Nothing in the app passes it.
-  const cand = a.candidates || feasibleCandidates(candidates(space, { n: a.nCandidates ?? 1200, rnd, around }), space, a.mixture);
+  let cand = a.candidates || feasibleCandidates(candidates(space, { n: a.nCandidates ?? 1200, rnd, around }), space, a.mixture);
+  // Settings that were made and failed (no usable result, ml-b ML-04): the model never saw them, so nothing in
+  // the fit says "not here". No candidate within `avoidRadius` of one on every factor (max norm, as the batch
+  // separation below) is proposed. Nothing is removed when there are none, so the search is otherwise unchanged.
+  const bad = (a.avoid || []).map((p) => toUnit(p, space)).filter((u) => u.every(Number.isFinite));
+  if (bad.length) {
+    const r = a.avoidRadius ?? 0.12;
+    const kept = cand.filter((u) => bad.every((b) => maxNormDistance(u, b) >= r));
+    if (kept.length) cand = kept;
+  }
   let models = a.models;
   const picks = [];
   const samples = a.samples ?? 128;

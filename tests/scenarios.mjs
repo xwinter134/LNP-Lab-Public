@@ -4373,7 +4373,8 @@ export async function optimizerLeadsWithItsVerdict({ page, open }) {
     await expectNoText(page, '#main', /mainly information|expected gain/, 'why each run was chosen is folded');
     const words = (await page.locator('#main').innerText()).trim().split(/\s+/).length;
     // 600 before the verdict could say "the model cannot say yet" with its Q² (about ten words more than the benchmark line it replaces)
-    if (words > 610) throw new Error(`the optimizer after a fit reads ${words} words`);
+    // 670 with the "Check these results" note, which the demo data triggers (one EE result far from its fit)
+    if (words > 670) throw new Error(`the optimizer after a fit reads ${words} words`);
     await page.click('#readingFold > summary');
     if ((await page.locator('#whyRuns li').count()) !== (await page.locator('#mlRoot .card:has(#makeExp) table').first().locator('tbody tr').count())) throw new Error('one reason per suggested run');
   } finally {
@@ -5164,7 +5165,9 @@ export async function optimizerSaysWhereItsDataComesFrom({ page, open }) {
     const chip = async () => /^(\d+) formulations from (\d+) experiments$/.exec((await page.locator('#mlSourceChip').innerText()).trim());
     const [, n0, m0] = (await chip()) || [];
     if (!n0) throw new Error(`the header says how many formulations from how many experiments: "${await page.locator('#mlSourceChip').innerText()}"`);
-    if (!(await page.locator('#sourceFold').evaluate((d) => d.open))) throw new Error('before a fit the Data used card is open');
+    // Data used is a section of the Data and model card, closed until opened
+    if (await page.locator('#sourceFold').evaluate((d) => d.open)) throw new Error('before a fit the Data used section is closed');
+    await page.click('#mlPanel > summary'); await page.click('#sourceFold > summary');
     await expectText(page, '#sourceFold', /Data used[\s\S]*E4\s*Response surface FRR x flow x PEG[\s\S]*18 of 18[\s\S]*Size 18/, 'each experiment with what it gives');
     await expectText(page, '#mlLeftOut', /No result yet for a response switched on as a goal \(1\): E7-F1 \(1 not made yet\)/, 'what is left out and why');
     if (!(await page.locator('#sourceFold a[href="#/experiments?id=E4"]').count()) || !(await page.locator('#sourceFold a[href="#/doe?id=E4"]').count())) throw new Error('links to the experiment and its results');
@@ -5179,7 +5182,6 @@ export async function optimizerSaysWhereItsDataComesFrom({ page, open }) {
     await page.click('#runBtn');
     await page.waitForSelector('#mlLede', { timeout: 60000 });
     if (!new RegExp(`^fitted on ${n1} formulations from ${m1} experiments$`).test((await page.locator('#mlSourceChip').innerText()).trim())) throw new Error(`after the fit: "${await page.locator('#mlSourceChip').innerText()}"`);
-    if (await page.locator('#sourceFold').evaluate((d) => d.open)) throw new Error('after a fit the card folds to its line');
     await expectText(page, '#sourceFold > summary', new RegExp(`fitted on ${n1} formulations from ${m1} experiments · 19 left out · 1 experiment switched off`), 'the line says what the fit used');
     // the header's count opens the card
     await page.click('#mlSourceChip');
@@ -6048,7 +6050,9 @@ scenarios.push(claudeImportAndQuarantine);
 export async function optimizerTransparency({ page, open }) {
   await open('overview'); // a fresh visit, not the fitted screen an earlier scenario left
   await open('ml');
-  if (!(await page.$('#mlPanel[open]'))) throw new Error('the panel should be open before a fit');
+  if (await page.$('#mlPanel[open]')) throw new Error('the panel is closed before a fit, the one sentence and the Fit button lead');
+  if (!(await page.$('#mlTop #runBtn'))) throw new Error('the Fit button is in the first card');
+  await page.click('#mlPanel > summary');
   if (!(await page.$('#selCombo'))) throw new Error('no lipid and mixer choice');
   await expectText(page, '#mlPanel', /Data\s+\d+ of \d+ formulations/, 'the data line');
   const before = await page.locator('#spaceNeed').innerText();
@@ -6062,8 +6066,8 @@ export async function optimizerTransparency({ page, open }) {
   await page.waitForTimeout(300);
   await page.click('#runBtn');
   await page.waitForSelector('#mlLede', { timeout: 60000 });
-  await expectText(page, '#mlPanel > summary', /mode · \d+ of \d+ formulations · fingerprint [0-9a-f]{12}/, 'the panel line after a fit');
-  await page.click('#mlPanel > summary');
+  await expectText(page, '#mlPanel > summary', /\d+ of \d+ formulations · .+ · fingerprint [0-9a-f]{12}/, 'the panel line after a fit');
+  if (!(await page.$('#mlPanel[open]'))) await page.click('#mlPanel > summary'); // it stays as the user left it
   await page.click('#reproduceNow');
   await page.waitForFunction(() => /Reproduced|Not reproduced/.test(document.querySelector('#reproduceOut')?.innerText || ''), null, { timeout: 60000 });
   await expectText(page, '#reproduceOut', /^Reproduced/, 'the run comes out the same');

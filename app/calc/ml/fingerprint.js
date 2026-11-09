@@ -49,6 +49,8 @@ export function setupOf(s) {
     lipidMode: s.lipidMode || 'filter', lipid: s.lipid ?? null, mixer: s.mixer ?? null, budget: s.budget ?? null,
     // The parent recipe's class mol%, which fixes the lipids the space neither varies nor balances.
     baseClasses: s.baseClasses || null,
+    // Settings that failed, kept away from (acquire.js); absent when there are none, so older fingerprints read the same.
+    ...(s.avoid?.length ? { avoid: s.avoid } : {}),
   };
 }
 

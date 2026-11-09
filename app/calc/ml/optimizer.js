@@ -83,7 +83,7 @@ export function fitModels({ rows, space, goals, strategy = 'experiment', seed = 
  * @param {object} o  goals, constraints, q, mode, seed, and baseClasses: class mol% of the recipe a suggested
  *   batch is built on, which fixes the lipid classes the space neither varies nor balances
  */
-export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', seed = 7, baseClasses = undefined }) {
+export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', seed = 7, baseClasses = undefined, avoid = undefined }) {
   const active = goals.filter((g) => g.on !== false);
   const names = active.map((g) => g.name);
   const { rows: used, space, models } = fit;
@@ -99,7 +99,7 @@ export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', 
   out.observed = observed;
   out.scored = observed.map((o) => ({ ...o, D: overallDesirability(o.values, active).D })).sort((x, y) => y.D - x.D);
   out.pareto = paretoFront(used.map((r) => ({ ...r.values, batchId: r.batchId, label: r.label })), active);
-  out.progress = progressSeries(used, active, (r) => !!r.suggestedByMl);
+  out.progress = progressSeries(used, active, (r) => !!r.suggestedByMl && !r.mlStart, (r) => !!r.mlStart);
 
   const haveGP = models.filter((m) => m.gp?.kind === 'gp' && names.includes(m.name));
   const modelledNames = new Set(haveGP.map((m) => m.name));
@@ -117,7 +117,7 @@ export function score(fit, { goals, constraints = [], q = 4, mode = 'balanced', 
       out.warnings.push(out.mixture.reason);
       return out;
     }
-    out.suggestions = suggestRuns({ models: haveGP, space, goals: sg, constraints: sc, observed: obsForGoals, q, mode, seed, mixture: out.mixture });
+    out.suggestions = suggestRuns({ models: haveGP, space, goals: sg, constraints: sc, observed: obsForGoals, q, mode, seed, mixture: out.mixture, avoid });
     if (used.length >= 20) out.optimum = predictedOptimum({ models: haveGP, space, goals: sg, constraints: sc, seed, mixture: out.mixture });
     // The run to take forward and whether another round is worth it (stopping.js). The confirmation offered
     // is then about the model's pick and the optimum rather than the luckiest single result. A run whose
@@ -190,7 +190,7 @@ export function startingDesign(space, n = 8, seed = 5, mixture = null) {
  * user can see that too. The leading published comparison of this kind is simply "did it beat picking at
  * random with the same budget", and that question deserves to be visible in the app rather than only in a paper.
  */
-export function progressSeries(rows, goals, batchIsSuggested) {
+export function progressSeries(rows, goals, batchIsSuggested, batchIsStart = () => false) {
   const act = goals.filter((g) => g.on !== false);
   const usable = rows.filter((r) => act.every((g) => Number.isFinite(r.values[g.name])))
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
@@ -200,12 +200,16 @@ export function progressSeries(rows, goals, batchIsSuggested) {
     const D = overallDesirability(r.values, act).D;
     const improved = D > best;
     best = Math.max(best, D);
-    out.push({ batchId: r.batchId, date: r.date, D, best, improved, suggested: !!batchIsSuggested?.(r) });
+    out.push({ batchId: r.batchId, date: r.date, D, best, improved, suggested: !!batchIsSuggested?.(r), start: !batchIsSuggested?.(r) && !!batchIsStart(r) });
   }
-  const sug = out.filter((p) => p.suggested), own = out.filter((p) => !p.suggested);
+  // The starting design is the app's own space-filling plan, not a proposal made from a fitted model: it is
+  // neither counted as "suggested" (a campaign of 8 starting runs + 4 suggested read "12 suggested") nor as the
+  // person's choice, but it is what the suggestions are compared against, with the runs they chose themselves.
+  const sug = out.filter((p) => p.suggested), start = out.filter((p) => p.start), own = out.filter((p) => !p.suggested && !p.start);
+  const other = [...start, ...own];
   const rate = (xs) => (xs.length ? xs.filter((p) => p.improved).length / xs.length : null);
-  return { points: out, suggestedRuns: sug.length, ownRuns: own.length,
-    improvedBySuggested: rate(sug), improvedByOwn: rate(own),
+  return { points: out, suggestedRuns: sug.length, startRuns: start.length, ownRuns: own.length, otherRuns: other.length,
+    improvedBySuggested: rate(sug), improvedByOwn: rate(own), improvedByOther: rate(other),
     bestSuggested: sug.length ? Math.max(...sug.map((p) => p.D)) : null,
     bestOwn: own.length ? Math.max(...own.map((p) => p.D)) : null };
 }

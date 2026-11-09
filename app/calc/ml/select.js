@@ -142,7 +142,7 @@ export function mergeRows(g) {
   let experimentId = null, most = 0;
   for (const [k, c] of exp) if (c > most) { most = c; experimentId = k; }
   return { ...g[0], values, experimentId, date: g.map((r) => String(r.date || '')).sort().pop(), nResponses: Object.keys(values).length,
-    suggestedByMl: g.some((r) => r.suggestedByMl), mergedFrom: g.map((r) => r.batchId) };
+    suggestedByMl: g.some((r) => r.suggestedByMl), mlStart: g.some((r) => r.suggestedByMl) && g.every((r) => !r.suggestedByMl || r.mlStart), mergedFrom: g.map((r) => r.batchId) };
 }
 
 /** Merge runs of one recipe (same lipid, same searched factors to 1e-4) into a point at their mean. */

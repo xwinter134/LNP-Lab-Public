@@ -95,7 +95,7 @@ export function runOptimizer(rows, o) {
   const prep = prepare(rows, o);
   const fit = fitPrepared(prep, o);
   const baseClasses = o.baseComposition && o.ref ? classPercents(o.baseComposition, o.ref) : undefined;
-  const report = score(fit, { goals: o.goals, constraints: o.constraints || [], q: o.q ?? 4, mode: o.mode || 'balanced', seed: o.seed ?? 7, baseClasses });
+  const report = score(fit, { goals: o.goals, constraints: o.constraints || [], q: o.q ?? 4, mode: o.mode || 'balanced', seed: o.seed ?? 7, baseClasses, avoid: o.avoid });
   report.prep = prep;
   report.fingerprint = makeFingerprint({ report, setup: setupOf({ ...o, baseClasses }), appVersion: o.appVersion || '' });
   return report;
@@ -132,7 +132,7 @@ export function reproduce(fp, rows, o = {}) {
   fit.lipidChoice = { mode: fp.mode, chosenBy: fp.chosenBy, compared: fp.compared, requested: s.lipidMode, rank: fp.rank ?? 1 };
   fit.selection = { others, noise: fp.noise || null };
   if (fp.descriptors) fit.lipidDescriptors = fp.descriptors;
-  const report = score(fit, { goals: s.goals, constraints: s.constraints, q: s.q, mode: s.acquisition, seed: s.seed, baseClasses: s.baseClasses || undefined });
+  const report = score(fit, { goals: s.goals, constraints: s.constraints, q: s.q, mode: s.acquisition, seed: s.seed, baseClasses: s.baseClasses || undefined, avoid: s.avoid });
   const now = makeFingerprint({ report, setup: s, appVersion: o.appVersion ?? fp.appVersion });
   return { ...compareFingerprints(fp, now), now, report };
 }

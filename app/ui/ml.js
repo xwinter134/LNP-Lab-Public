@@ -32,7 +32,8 @@ import { predictionCheck } from '../calc/ml/predcheck.js';
 import { biologicalTargets, applyTargets, targetGoals, physchemAsLimits } from '../calc/ml/targets.js';
 import '../calc/ml/biotargets.js'; // registers the studies' targets (spec 7.9)
 import { runsNeeded } from '../calc/variables.js';
-import { goalProblems, rangeProblems, heldValues, heldNotes } from '../calc/ml/guard.js';
+import { goalProblems, rangeProblems, heldValues, heldNotes, dataSentence, avoidPoints } from '../calc/ml/guard.js';
+import { flagOutliers } from '../calc/ml/outliers.js';
 import { transparencyCard, predictionFold, accountCsv, whyTable } from './mlpanel.js';
 import { csvLine } from '../calc/csv.js';
 
@@ -101,7 +102,11 @@ export async function render(el, ctx) {
   // Experiments switched off on the Data used card stay off (they are part of the saved setup); the measured
   // formulations the ranges and the factor table are read from leave them out too, so a switched-off
   // experiment cannot still widen a search range.
-  let measured = rows.filter((r) => r.nResponses > 0 && !(saved?.excluded || []).includes(r.experimentId || ''));
+  // The same for single formulations: one left out because its result is not believed, one marked failed (made, no
+  // usable result). Both are kept with the setup, and both leave the fit; only a failed one also keeps the
+  // suggestions away from its settings.
+  const liveRows = (ex, lo, fa) => rows.filter((r) => r.nResponses > 0 && !ex.includes(r.experimentId || '') && !lo.includes(r.batchId) && !fa.includes(r.batchId));
+  let measured = liveRows(saved?.excluded || [], saved?.leftOut || [], saved?.failed || []);
 
   const auto = suggestSpace(measured.length ? measured : rows);
   // The planner hands over the factors it recommended, so its advice arrives as a working setup rather than
@@ -128,6 +133,7 @@ export async function render(el, ctx) {
     space: handedOver.length ? spaceFrom(handedOver) : saved?.space?.length ? saved.space : auto,
     constraints: saved?.constraints || [{ name: 'PDI', op: '<', value: 0.3, on: false }],
     excluded: saved?.excluded || [],
+    leftOut: saved?.leftOut || [], failed: saved?.failed || [],
     strategy: saved?.strategy || 'experiment',
     mode: saved?.mode || 'balanced',
     q: saved?.q || 4,
@@ -138,22 +144,24 @@ export async function render(el, ctx) {
     // or undone, through every redraw an edit causes meanwhile: a second press used to make a second round.
     creating: false,
   };
-  const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded,
+  const persist = () => saveSetup(ctx, { goals: state.goals, space: state.space, constraints: state.constraints, strategy: state.strategy, mode: state.mode, q: state.q, seed: state.seed, excluded: state.excluded, leftOut: state.leftOut, failed: state.failed,
     ...(handed || !state.comboChosen ? {} : { lipid: state.lipid, mixer: state.mixer, comboChosen: true }), lipidMode: state.lipidMode, kernelRank: state.kernelRank });
   /** What the model would be fitted on now: every formulation, accounted for (calc/ml/dataset.js). */
   // Read through the selection the panel shows (spec 7.1), so the card and the panel count the same formulations.
-  const account = () => { const p = prepNow(); return dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, limits: ALL_FACTORS, selected: (report?.selection || p.sels[p.tries[0]])?.account }); };
+  const account = () => { const p = prepNow(); return dataAccount(rows, { space: state.space, goals: state.goals, excluded: state.excluded, dropped: droppedMap(), limits: ALL_FACTORS, selected: (report?.selection || p.sels[p.tries[0]])?.account }); };
 
-  let report = null, fit = null, running = false, drawn = null;
+  // Single formulations the person took out of the fit, by why.
+  const droppedMap = () => new Map([...state.leftOut.map((id) => [id, 'leftOut']), ...state.failed.map((id) => [id, 'failed'])]);
+  let report = null, fit = null, running = false, drawn = null, flagged = null;
   const activeConstraints = () => state.constraints.filter((c) => c.on && Number.isFinite(c.value));
   const budget = clampBudget(settings.mlBudget);
   // The selection and the modes the data allows (pipeline.js prepare), worked out again only when what it reads
   // changes: the panel shows it before a fit, and choosing it can take a moment on ten thousand formulations.
   let prepCache = null;
   const prepNow = () => {
-    const key = JSON.stringify([state.excluded, state.lipid, state.mixer, state.lipidMode, state.space, state.goals.filter((g) => g.on !== false).map((g) => [g.name, g.goal, g.target, g.lo, g.hi, g.best, g.worst, g.weight]), budget, state.seed]);
-    const off = new Set(state.excluded);
-    if (prepCache?.key !== key) prepCache = { key, prep: prepare(rows.filter((r) => !off.has(r.experimentId || '')), { space: state.space, goals: state.goals, lipid: state.lipid, mixer: state.mixer, lipidMode: state.lipidMode,
+    const key = JSON.stringify([state.excluded, state.leftOut, state.failed, state.lipid, state.mixer, state.lipidMode, state.space, state.goals.filter((g) => g.on !== false).map((g) => [g.name, g.goal, g.target, g.lo, g.hi, g.best, g.worst, g.weight]), budget, state.seed]);
+    const off = new Set(state.excluded), gone = new Set([...state.leftOut, ...state.failed]);
+    if (prepCache?.key !== key) prepCache = { key, prep: prepare(rows.filter((r) => !off.has(r.experimentId || '') && !gone.has(r.batchId)), { space: state.space, goals: state.goals, lipid: state.lipid, mixer: state.mixer, lipidMode: state.lipidMode,
       budget, seed: state.seed, descriptorsOn: !!settings.mlDescriptors, lipidByKey: ref.lipidByKey }) };
     return prepCache.prep;
   };
@@ -170,10 +178,11 @@ export async function render(el, ctx) {
   function rescore() {
     if (!fit) return;
     const baseClasses = classPercents(baseComposition(ref, state), ref);
-    report = score(fit, { goals: state.goals, constraints: activeConstraints(), q: state.q, mode: state.mode, seed: state.seed, baseClasses });
+    const avoid = avoidPoints(rows, state.failed, state.space);
+    report = score(fit, { goals: state.goals, constraints: activeConstraints(), q: state.q, mode: state.mode, seed: state.seed, baseClasses, avoid });
     // Every analysis carries its fingerprint (spec 7.5), and a round made from it stores it (createExperiment).
     report.fingerprint = makeFingerprint({ report, appVersion,
-      setup: setupOf({ ...state, constraints: activeConstraints(), budget, baseClasses }) });
+      setup: setupOf({ ...state, constraints: activeConstraints(), budget, baseClasses, avoid }) });
   }
 
   function draw() {
@@ -192,33 +201,41 @@ export async function render(el, ctx) {
     state.heldNotes = heldNotes({ space: state.space, held: heldValues({ space: state.space, settings, baseClasses: classPercents(baseComposition(ref, state), ref) }), observed: observedF });
     // A sample measured twice: the Data used card says which result the model reads.
     state.repeatNotes = repeatNotes(measured);
-    const panel = transparencyCard({ state, prep, report, ref, settings, handed, rows, descriptorsOn: !!settings.mlDescriptors });
+    // Data used is one section of the Data and model card, not a card of its own (it repeated the same count).
+    // Built first because it is drawn inside the panel.
+    const acc = account();
+    const dataBody = dataCard(acc, state, report, rows);
+    const panel = transparencyCard({ state, prep, report, ref, settings, handed, rows, descriptorsOn: !!settings.mlDescriptors, dataBody });
     const mlRounds = ctx.store.all('experiments').filter((e) => e.design?.ml?.fingerprint?.hash)
       .sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || ''))).map((e) => ({ id: e.id, name: e.name, fp: e.design.ml.fingerprint }));
     const analyses = ctx.store.all(ANALYSES).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 10)
       .map((a) => ({ id: `analysis:${a.id}`, name: `Analysis of ${fmtDate(String(a.createdAt).slice(0, 10))}`, fp: a.fingerprint, analysis: true }));
     const predFold = predictionFold(state, predictionCheck(allRows), [...mlRounds, ...analyses]);
-    // The Data used card (0.15) counts experiments; the panel above it counts what the selection kept of them.
-    const acc = account();
+    // The Data used section counts experiments; the panel above it counts what the selection kept of them.
     const fromExps = report ? new Set(report.rows.map((r) => r.experimentId || '')).size : acc.usedExperiments;
     const source = `${usable} formulation${usable === 1 ? '' : 's'} from ${fromExps} experiment${fromExps === 1 ? '' : 's'}`;
+    // Results far from what the fit (or the forecast the optimizer itself gave) expects; found once per fit.
+    if (report && flagged?.report !== report) { try { flagged = { report, list: flagOutliers(report, allRows) }; } catch { flagged = { report, list: [] }; } }
+    const checks = report ? flagged.list : [];
+    const runLabel = report ? 'Recalculate' : 'Fit model and suggest runs';
 
     // Everything below the header lives inside #mlRoot, and the delegated change listener is attached to that
     // element rather than to #main. A redraw replaces #mlRoot, so its listener goes with it; attaching to
     // #main instead would add one more handler on every redraw and each edit would run all of them.
     el.innerHTML = header('Optimize', 'Optimizer',
       `<button type="button" class="chip linkchip ${ready.stage === 'none' || ready.stage === 'seed' ? 'warn' : 'info'}" id="mlSourceChip" title="Which formulations and experiments, and which were left out: the Data used card">${report ? 'fitted on ' : ''}${source}</button>
-       <button class="primary" id="runBtn" ${running ? 'disabled' : ''}>${report ? 'Recalculate' : 'Fit model and suggest runs'}</button>`) +
+       ${report ? `<button class="primary" id="runBtn" ${running ? 'disabled' : ''}>${runLabel}</button>` : ''}`) +
       `<div id="mlRoot">` +
       (handed ? `<div class="note" id="mlSelection">Data: <b>${esc(handed.sentence)}</b>, chosen in <a href="#/data?${esc(ctx.params.data)}">Data</a>. <a href="#/ml">Use all formulations instead</a>.</div>` : '') +
       (handedOver.length ? `<div class="note">The factors below came from <a href="#/advisor">the planner</a>: ${handedOver.map((k) => esc(ALL_FACTORS.find((f) => f.key === k).name)).join(', ')}. Change anything that does not match your rig.</div>` : '') +
+      (report ? '' : topCard({ usable, fromExps, state, running, runLabel })) +
       panel +
-      dataCard(acc, state, report) +
       (report
         // The verdict and the runs lead (usability cycle 6, L1); the setup's one line follows them, unless the
         // setup is the next thing to change (a goal to fix, or no suggestions), when it opens and leads.
         ? (setupLeads(state, report) ? setupFold(state, auto, measured, counts, report) : '') +
           lede(report, ready, usable, state, source) +
+          checkNote(checks, report) +
           suggestionsCard(report, state, ref, { settings, stocks: ctx.store.all('stocks'), baseline: { frr: settings.defaultFRR, tfr: 112.5, quench: settings.defaultQuenchFactor } }) +
           (setupLeads(state, report) ? '' : setupFold(state, auto, measured, counts, report)) +
           modelFold(report, state) +
@@ -242,9 +259,18 @@ export async function render(el, ctx) {
       // an experiment switched on or off: the measured rows change, and so does everything fitted on them
       setExcluded: (ids) => {
         state.excluded = [...new Set(ids)];
-        const off = new Set(state.excluded);
-        measured = rows.filter((r) => r.nResponses > 0 && !off.has(r.experimentId || ''));
+        measured = liveRows(state.excluded, state.leftOut, state.failed);
         report = null; fit = null;
+      },
+      // One formulation left out or marked failed, or brought back. A fit that was on screen is made again at once:
+      // a click that says "leave this run out" and then shows the old answer is no answer. Returns whether it refit.
+      setDropped: ({ leftOut = state.leftOut, failed = state.failed }) => {
+        const had = !!report;
+        state.leftOut = [...new Set(leftOut)]; state.failed = [...new Set(failed)];
+        measured = liveRows(state.excluded, state.leftOut, state.failed);
+        report = null; fit = null;
+        if (had) { try { compute(); } catch (err) { toast('Model fit failed: ' + err.message, 'warn'); } }
+        return had;
       },
 
       setRunning: (v) => { running = v; },
@@ -267,13 +293,13 @@ function lede(report, ready, usable, state, source) {
     // and how many are needed, and keep the way forward (the starting design) in front.
     if (usable < 8) return `<div class="card" style="border-color:var(--c-ml)" id="mlStart"><h2>Start here</h2>
       <p id="mlNeed"><b>${usable} of 8</b> measured runs needed before the first suggestions.</p>
-      <p>${usable === 0 ? 'No formulation yet carries both a measured result for a goal and every factor chosen below.' : `${esc(source[0].toUpperCase() + source.slice(1))} ${usable === 1 ? 'has' : 'have'} a measured result and every factor chosen below (the Data used card above lists them).`}
+      <p>${usable === 0 ? 'No formulation yet carries both a measured result for a goal and every factor chosen below.' : `${esc(source[0].toUpperCase() + source.slice(1))} ${usable === 1 ? 'has' : 'have'} a measured result and every factor chosen below (the Data used section of Data and model lists them).`}
       A surface model needs 8 runs before it suggests anything, and about <b>15</b> before its quality can be tested honestly.</p>
       <p class="muted">The fastest way there is a spread-out starting design rather than runs clustered around one recipe. Choose the factors below, then take the starting design: a Latin hypercube improved by maximin swaps, which spreads runs through the interior where a surface model learns most. If you would rather have a classical design with a protocol and a worksheet, the <a href="#/doe">DoE screen</a> builds central composite and Box-Behnken designs and its runs feed this module just the same.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="seedBtn" data-n="${Math.max(8 - usable, 4)}" ${state.creating ? 'disabled' : ''}>Propose ${Math.max(8 - usable, 4)} starting runs</button><a class="btn" href="#/experiments?new=1&type=doe">Design a formal DoE instead</a></div></div>`;
     const badRange = rangeProblems(state.space);
     if (badRange.length) return `<div class="card" style="border-color:var(--c-ml)" id="mlRangeFix"><h2>Fix the search range first</h2>${badRange.map((p) => `<div class="note warn">${esc(p.text)}</div>`).join('')}<p class="muted">No suggestions are made from a range like that. Correct it in the factor table below, then fit the model.</p></div>`;
-    return `<div class="card" style="border-color:var(--c-ml)"><h2>Ready</h2><p>${esc(source[0].toUpperCase() + source.slice(1))} can be used: the Data used card above lists them, and what was left out and why. Press <b>Fit model and suggest runs</b> to fit the model on them and get proposals.</p></div>`;
+    return `<div class="card" style="border-color:var(--c-ml)"><h2>Ready</h2><p>${esc(source[0].toUpperCase() + source.slice(1))} can be used: the Data used section of Data and model lists them, and what was left out and why. Press <b>Fit model and suggest runs</b> to fit the model on them and get proposals.</p></div>`;
   }
   const s = report.suggestions;
   const best = report.scored?.[0];
@@ -343,6 +369,8 @@ function confirmNote(report, state) {
 /* ---------------- where the data comes from ---------------- */
 const LEFT_OUT = {
   excluded: 'In an experiment you switched off',
+  leftOut: 'Left out by you (a result you do not trust)',
+  failed: 'Marked failed (made, no usable result)',
   filtered: 'Another lipid or mixer than the one chosen, or not in the selection from Data',
   budget: 'Left out by the data budget',
   noResult: 'No result yet for a response switched on as a goal',
@@ -355,14 +383,14 @@ const LEFT_OUT = {
  * setup. Open before a fit, folded to its line after one, unless the user chose: where the numbers come from is the first thing to know about them, and
  * "it says it has discovered runs" was the complaint that put this card here.
  */
-function dataCard(acc, state, report) {
+function dataCard(acc, state, report, rows = []) {
   const goals = new Set(state.goals.filter((g) => g.on !== false).map((g) => g.name));
   const SHORT_RESP = { particle_size_nm: 'Size', PDI: 'PDI', encapsulation_efficiency: 'EE', zeta_potential_mV: 'Zeta', rna_content_mg_mL: 'RNA content', size_drift: 'Size drift' };
   const label = (n) => SHORT_RESP[n] || RESPONSE_DEFS.find((r) => r.name === n)?.label?.replace(/\s*\(.*\)\s*$/, '') || n;
   const typeName = (t) => TYPES.find((x) => x.id === t)?.name || t || '';
   const used = acc.used.length, nLeft = acc.left.length;
-  const say = `${report ? 'fitted on' : 'would be fitted on'} ${used} formulation${used === 1 ? '' : 's'} from ${acc.usedExperiments} experiment${acc.usedExperiments === 1 ? '' : 's'}${nLeft ? ` · ${nLeft} left out` : ''}${state.excluded.length ? ` · ${state.excluded.length} experiment${state.excluded.length === 1 ? '' : 's'} switched off` : ''}`;
-  const rows = acc.experiments.map((e) => {
+  const say = `${report ? 'fitted on' : 'would be fitted on'} ${used} formulation${used === 1 ? '' : 's'} from ${acc.usedExperiments} experiment${acc.usedExperiments === 1 ? '' : 's'}${nLeft ? ` · ${nLeft} left out` : ''}${state.excluded.length ? ` · ${state.excluded.length} experiment${state.excluded.length === 1 ? '' : 's'} switched off` : ''}${state.leftOut.length ? ` · ${state.leftOut.length} run${state.leftOut.length === 1 ? '' : 's'} left out by you` : ''}${state.failed.length ? ` · ${state.failed.length} marked failed` : ''}`;
+  const expRows = acc.experiments.map((e) => {
     const key = e.id || '_none';
     const leftWords = Object.entries(e.left).filter(([k, n]) => n && k !== 'excluded').map(([k, n]) =>
       `${n} ${k === 'noResult' ? 'without a goal result' : k === 'missingFactor' ? 'missing a factor' : k === 'filtered' ? 'other lipid or mixer' : k === 'budget' ? 'over the data budget' : 'outside the limits'}`);
@@ -388,14 +416,68 @@ function dataCard(acc, state, report) {
   };
   const outsideSearch = acc.used.filter((r) => r.outsideSearch).length;
   const body = `<p class="muted" style="margin-top:0">The optimizer reads every formulation recorded under <a href="#/experiments">Experiments</a>: its settings from the formulation record and its results from <a href="#/measurements">Measurements</a>, the same numbers <a href="#/doe">Design &amp; results</a> shows. Nothing is typed in here. Untick an experiment to leave it out of the model; the choice is kept.${goals.size ? ` Highlighted results are the goals switched on below: ${[...goals].map((n) => esc(label(n))).join(', ')}.` : ''}</p>
-    ${table(['Use', 'Experiment', 'Type', { label: 'Formulations used', right: false }, 'Results recorded', 'Left out'], rows, { empty: 'No experiments yet.' })}
+    ${table(['Use', 'Experiment', 'Type', { label: 'Formulations used', right: false }, 'Results recorded', 'Left out'], expRows, { empty: 'No experiments yet.' })}
     ${state.excluded.length ? `<button type="button" id="mlUseAll" style="margin-top:8px;padding:4px 10px">Use every experiment again</button>` : ''}
     ${groups.length ? `<h2 style="font-size:13px;margin-top:12px">Left out (${nLeft})</h2><ul class="muted" id="mlLeftOut" style="margin:4px 0 0;padding-left:18px">${groups.map(([k, xs]) =>
       `<li data-reason="${k}"><b>${esc(LEFT_OUT[k])}</b> (${xs.length}): ${list(xs)}${detailOf(k, xs)}</li>`).join('')}</ul>` : '<p class="muted" id="mlLeftOut">Nothing left out: every formulation on record is used.</p>'}
     ${state.repeatNotes?.length ? `<div class="note" id="repeatNote">${state.repeatNotes.slice(0, 3).map((x) => esc(x.text)).join('<br>')}${state.repeatNotes.length > 3 ? `<br>and ${state.repeatNotes.length - 3} more samples measured twice.` : ''} To use the other result, remove this one in Measurements.</div>` : ''}
+    ${runControls(state, rows)}
     ${outsideSearch ? `<p class="muted">${outsideSearch} of the formulations used lie outside the search range set under Goals and factors. They still inform the model about that edge; suggestions stay inside the range.</p>` : ''}`;
-  // Open until there is an answer to lead with; then it folds to its line, which still says what was fitted on.
-  return fold(state, 'source', { title: 'Data used', say: esc(say), dflt: !report, cls: 'mlData', body });
+  // A section of the Data and model card, folded to the line that says what was fitted on.
+  return fold(state, 'source', { title: 'Data used', say: esc(say), cls: 'sub mlData', frame: false, body });
+}
+
+/**
+ * One formulation at a time: marked failed (the batch was made and gave nothing usable: clogged, lost), or
+ * brought back after being left out. Experiments are switched off in the table above; this is for the single run.
+ */
+function runControls(state, rows) {
+  const gone = new Set([...state.leftOut, ...state.failed]);
+  const pickable = rows.filter((r) => !gone.has(r.batchId)).sort((a, b) => String(a.batchId).localeCompare(String(b.batchId), undefined, { numeric: true })).slice(0, 400);
+  const listed = [...state.failed.map((id) => [id, 'marked failed, left out of the model and kept away from in the suggestions']),
+    ...state.leftOut.map((id) => [id, 'left out by you, because its result is not believed'])];
+  return `<div id="mlRunControls" style="margin-top:12px">
+    <h2 style="font-size:13px">A run that failed</h2>
+    <p class="muted" style="margin:2px 0 6px">A batch that was made but gave no usable result (clogged, lost) teaches the model nothing. Mark it as failed: it is left out of the fit and the suggestions keep away from its settings. The choice is kept with the setup.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="mlFailPick" aria-label="the formulation that failed" style="width:auto"><option value="">choose a formulation</option>${pickable.map((r) => `<option value="${esc(r.batchId)}">${esc(r.batchId)}${r.label ? ` · ${esc(r.label)}` : ''}</option>`).join('')}</select>
+      <button type="button" id="mlFailBtn" style="padding:4px 10px">Mark as failed (no usable result)</button></div>
+    ${listed.length ? `<ul id="mlDroppedRuns" style="margin:8px 0 0;padding-left:18px">${listed.map(([id, why]) => `<li data-run="${esc(id)}"><a href="#/formulation?batch=${esc(id)}">${esc(id)}</a> <span class="muted">${esc(why)}</span> <button type="button" data-undrop="${esc(id)}" style="padding:2px 8px;margin-left:6px">Use it again</button></li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
+/**
+ * The sentence the page opens on before the first fit, with the button that fits, in one card: how much data
+ * there is and whether it is enough for the model asked for (guard.js dataSentence). Everything else about the
+ * data is one fold below.
+ */
+function topCard({ usable, fromExps, state, running, runLabel }) {
+  return `<div class="card" id="mlTop" style="border-color:var(--c-ml)">
+    <p id="mlDataSentence" style="font-size:16px;margin:0 0 10px"><b>${esc(dataSentence({ runs: usable, experiments: fromExps, factors: state.space.length }))}</b></p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="primary" id="runBtn" ${running ? 'disabled' : ''}>${runLabel}</button>
+      <span class="muted small">Where the data comes from, and the lipid and mixer it is about: the card <b>Data and model</b> below.</span></div></div>`;
+}
+
+/**
+ * "Check these results": a measured result far from what the fit, or the forecast the optimizer gave when it
+ * proposed the run, expects (outliers.js has the rule). Each can be left out of the model with one click; that
+ * leaves out the one formulation, not its experiment.
+ */
+function checkNote(checks, report) {
+  if (!checks?.length) return '';
+  const shown = checks.slice(0, 5);
+  const unitOf = (n) => RESPONSE_DEFS.find((r) => r.name === n)?.unit || '';
+  const num = (v, n) => fmt(v, n === 'PDI' ? 3 : 1);
+  const items = shown.map((c) => {
+    const u = unitOf(c.name) ? ` ${esc(unitOf(c.name))}` : '';
+    const many = c.ids.length > 1;
+    return `<li data-check="${esc(c.batchId)}"><a href="#/formulation?batch=${esc(c.batchId)}"><b>${esc(c.batchId)}</b></a>: ${esc(c.label)} <b>${num(c.measured, c.name)}${u}</b>, ${c.source === 'fit'
+      ? 'but the model, fitted on the other runs, expects'
+      : 'but the forecast made when it was proposed was'} about ${num(c.expected, c.name)} ± ${num(1.96 * c.sd, c.name)}${u}.
+      <button type="button" data-leave="${esc(c.ids.join(','))}" style="padding:2px 10px;margin-left:6px">${many ? `Leave these ${c.ids.length} runs out` : 'Leave this run out'}</button></li>`;
+  }).join('');
+  return `<div class="card" id="mlCheck" style="border-color:var(--warn-text)"><h2>Check these results</h2>
+    <p class="muted" style="margin:2px 0 6px">Far from what the rest of the data leads to: a typing slip or a bad measurement bends every surface. Leaving a run out removes only that run, and it can come back under <b>Data and model</b>.</p>
+    <ul style="margin:4px 0 0;padding-left:18px">${items}</ul>${checks.length > shown.length ? `<p class="muted">and ${checks.length - shown.length} more.</p>` : ''}</div>`;
 }
 
 /* ---------------- the setup, folded once there is a run to lead with ---------------- */
@@ -829,28 +911,33 @@ function progressFold(report, state) {
   const p = report.progress;
   if (!p || p.points.length < 4) return '';
   const record = p.points[p.points.length - 1].best;
-  const say = p.suggestedRuns === 0
-    ? `best score ${fmt(record, 2)} after ${p.points.length} runs; none came from the optimizer yet, so there is nothing to compare`
-    : p.improvedBySuggested != null && p.improvedByOwn != null
-      ? `${pct(p.improvedBySuggested)} of the ${p.suggestedRuns} suggested runs set a new best, against ${pct(p.improvedByOwn)} of yours: ${p.improvedBySuggested > p.improvedByOwn ? 'they are earning their place' : 'not yet better than your own choices'}`
-      : `best score ${fmt(record, 2)}; ${p.suggestedRuns} suggested run${p.suggestedRuns === 1 ? '' : 's'} so far, too few of your own to compare`;
+  // Only a run the optimizer proposed from a fitted model is "suggested". The starting design is the app's
+  // space-filling plan: it counted as 24 "suggested runs" in a campaign of 8 + 4 x 4 (ml-a ML-11) and so the
+  // check could never run. It is what the suggestions are held against, together with the runs the person chose.
+  const S = p.suggestedRuns, O = p.otherRuns ?? p.ownRuns;
+  const who = p.startRuns ? (p.ownRuns ? `${p.ownRuns} chosen by you and ${p.startRuns} of the starting design` : `${p.startRuns} of the starting design`) : `${p.ownRuns} you chose yourself`;
+  const say = S === 0
+    ? `best score ${fmt(record, 2)} after ${p.points.length} runs; none was suggested by the optimizer yet, so there is nothing to compare`
+    : p.improvedBySuggested != null && p.improvedByOther != null
+      ? `${pct(p.improvedBySuggested)} of the ${S} suggested runs set a new best, against ${pct(p.improvedByOther)} of the ${O} others: ${p.improvedBySuggested > p.improvedByOther ? 'they are earning their place' : 'not yet better than the runs made without them'}`
+      : `best score ${fmt(record, 2)}; ${S} suggested run${S === 1 ? '' : 's'} so far, no other runs to compare`;
   const W = 620, H = 180, L = 46, B = 34, T = 12, R = 14;
   const n = p.points.length;
   const sx = (i) => L + (n > 1 ? i / (n - 1) : 0.5) * (W - L - R);
   const sy = (d) => T + (1 - d) * (H - T - B);
   const line = p.points.map((q, i) => `${sx(i).toFixed(1)},${sy(q.best).toFixed(1)}`).join(' ');
-  const verdictLine = p.suggestedRuns === 0
-    ? 'No run here came from the optimizer yet, so there is nothing to compare. Once a suggested batch has results, this chart says whether the suggestions were the ones that moved the record.'
-    : p.improvedBySuggested != null && p.improvedByOwn != null
-      ? `${pct(p.improvedBySuggested)} of the ${p.suggestedRuns} suggested runs set a new best, against ${pct(p.improvedByOwn)} of the ${p.ownRuns} you chose yourself. ${p.improvedBySuggested > p.improvedByOwn ? 'On this record the suggestions are earning their place.' : 'On this record they are not yet beating your own choices, which is worth knowing before you spend more batches on them.'}`
-      : `${p.suggestedRuns} suggested run${p.suggestedRuns === 1 ? '' : 's'} so far; too few of your own runs to compare against.`;
+  const verdictLine = S === 0
+    ? `No run here was suggested by the optimizer yet${p.startRuns ? ` (${p.startRuns} came from the starting design)` : ''}, so there is nothing to compare. Once a suggested batch has results, this chart says whether the suggestions were the ones that moved the record.`
+    : p.improvedBySuggested != null && p.improvedByOther != null
+      ? `${pct(p.improvedBySuggested)} of the ${S} suggested runs set a new best, against ${pct(p.improvedByOther)} of the ${O} others (${who}). ${p.improvedBySuggested > p.improvedByOther ? 'On this record the suggestions are earning their place.' : 'On this record they are not yet beating the runs made without them, which is worth knowing before you spend more batches on them.'}`
+      : `${S} suggested run${S === 1 ? '' : 's'} so far; no other runs to compare against.`;
   return fold(state, 'progress', { title: 'Is this worth the batches?', say, body: `
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="best score over time" style="width:100%;height:auto">
       <polyline points="${line}" fill="none" stroke="var(--c-ml)" stroke-width="2"/>
-      ${p.points.map((q, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(q.D).toFixed(1)}" r="${q.suggested ? 4.5 : 3}" fill="${q.suggested ? 'var(--c-ml)' : 'var(--ink2)'}" opacity="${q.improved ? 1 : 0.45}"><title>${esc(q.batchId)}: score ${fmt(q.D, 3)}${q.suggested ? ' (suggested)' : ''}</title></circle>`).join('')}
+      ${p.points.map((q, i) => `<circle cx="${sx(i).toFixed(1)}" cy="${sy(q.D).toFixed(1)}" r="${q.suggested ? 4.5 : 3}" fill="${q.suggested ? 'var(--c-ml)' : 'var(--ink2)'}" opacity="${q.improved ? 1 : 0.45}"><title>${esc(q.batchId)}: score ${fmt(q.D, 3)}${q.suggested ? ' (suggested)' : q.start ? ' (starting design)' : ''}</title></circle>`).join('')}
       <line x1="${L}" y1="${T}" x2="${L}" y2="${H - B}" class="ax"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" class="ax"/>
       <text x="${L - 6}" y="${sy(1) + 4}" class="lb" text-anchor="end">1.0</text><text x="${L - 6}" y="${sy(0) + 4}" class="lb" text-anchor="end">0</text>
-      <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">runs in order, the line is the best score so far, filled dots are runs the optimizer proposed</text></svg>
+      <text x="${(L + W - R) / 2}" y="${H - 6}" class="lb" text-anchor="middle">runs in order, the line is the best score so far, filled dots are runs the optimizer suggested</text></svg>
     <p class="muted">${esc(verdictLine)}</p>` });
 }
 
@@ -919,7 +1006,7 @@ function wire(el, ctx, ref, settings, state, report, h) {
     const mixture = mixtureLimits(state.space, classPercents(baseComposition(ref, state), ref));
     if (mixture && !mixture.room) { toast(mixture.reason, 'warn'); return; }
     const pts = startingDesign(state.space, n, state.seed, mixture);
-    createExperiment(ctx, ref, settings, state, pts.map((p) => ({ point: p })), 'Starting design (ML)', 'A spread-out set of runs so the optimiser has something to learn from.', busy);
+    createExperiment(ctx, ref, settings, state, pts.map((p) => ({ point: p, start: true })), 'Starting design (ML)', 'A spread-out set of runs so the optimiser has something to learn from.', busy);
   });
   root.querySelector('#reseed')?.addEventListener('click', () => { state.seed = (state.seed * 7 + 13) % 100000; h.rescore(); h.persist(); h.draw(); });
   // A pick at a setting already run is labelled as the repeat it is (it reads as one on the batch record).
@@ -994,9 +1081,30 @@ function wire(el, ctx, ref, settings, state, report, h) {
   el.querySelector('#mlSourceChip')?.addEventListener('click', () => {
     const d = root.querySelector('#sourceFold');
     if (!d) return;
+    const outer = root.querySelector('#mlPanel');
+    if (outer) { outer.open = true; state.open.panel = true; }
     d.open = true; state.open.source = true;
     d.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  // One formulation left out of the fit (a result that is not believed), marked failed, or let back in. Kept with
+  // the setup like the experiment switch-off; a fit on screen is made again from what is left.
+  const dropped = (what) => { h.persist(); h.draw(); toast(what, 'ok'); };
+  root.querySelectorAll('[data-leave]').forEach((b) => b.addEventListener('click', () => {
+    const ids = b.dataset.leave.split(',').filter(Boolean);
+    h.setDropped({ leftOut: [...state.leftOut, ...ids] });
+    dropped(`${ids.join(', ')} left out of the model; it is listed under Data and model, Data used`);
+  }));
+  root.querySelector('#mlFailBtn')?.addEventListener('click', () => {
+    const id = root.querySelector('#mlFailPick')?.value;
+    if (!id) { toast('Choose the formulation that failed first', 'warn'); return; }
+    h.setDropped({ failed: [...state.failed, id] });
+    dropped(`${id} marked as failed: left out of the model, and the suggestions keep away from its settings`);
+  });
+  root.querySelectorAll('[data-undrop]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.undrop;
+    h.setDropped({ leftOut: state.leftOut.filter((x) => x !== id), failed: state.failed.filter((x) => x !== id) });
+    dropped(`${id} is used again`);
+  }));
   root.querySelector('#mlUseAll')?.addEventListener('click', () => { h.setExcluded([]); h.persist(); h.draw(); toast('Every experiment is used again', 'ok'); });
   root.addEventListener('change', (e) => {
     const t = e.target, n = t.name;
@@ -1148,7 +1256,7 @@ function createExperiment(ctx, ref, settings, state, picks, name, note, busy, fi
     // The prediction kept with the batch is what one batch there should measure, with `noise` the measurement
     // scatter in it (expected(), above), so the result is held against the interval it can be expected to fall in.
     const pred = p.forecast || p.predicted;
-    b.ml = { suggestedAt: todayISO(), mode: state.mode, seed: state.seed, rationale: p.rationale || '', purpose: p.purpose || null,
+    b.ml = { suggestedAt: todayISO(), mode: state.mode, seed: state.seed, rationale: p.rationale || '', purpose: p.purpose || null, ...(p.start ? { start: true } : {}),
       predicted: pred ? Object.fromEntries(Object.entries(pred).map(([k, q]) => [k, { mean: q.mean, sd: q.sd, ...(Number.isFinite(q.noise) ? { noise: q.noise } : {}) }])) : null,
       pBeatsBest: p.pBeatsBest ?? null, ...(fingerprint ? { fingerprint: fingerprint.hash } : {}) };
     batches.push(b);

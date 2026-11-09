@@ -15,6 +15,7 @@ import { shortHash } from '../calc/ml/fingerprint.js';
 import { runsNeeded } from '../calc/variables.js';
 import { hitRateSentence, Z95 } from '../calc/ml/predcheck.js';
 import { csvLine } from '../calc/csv.js';
+import { rangeProblems } from '../calc/ml/guard.js';
 
 /** A setting at the precision its factor is set in (as ml.js atStep): FRR 1.5, flow 45 mL/min. */
 const atStep = (v, f) => { const dp = f?.step ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(f.step) - 1e-9))) : 2; return Number.isFinite(v) ? Number(v.toFixed(dp)).toLocaleString('en-US', { maximumFractionDigits: dp }) : '–'; };
@@ -27,6 +28,18 @@ function fold(state, key, { title, say, body, cls = '', frame = true }) {
   return `<details class="${frame ? 'card ' : ''}fold ${cls}" id="${key}Fold" data-fold="${key}" ${state.open[key] ? 'open' : ''}>
     <summary><h2>${title}</h2><span class="fold-say">${say}</span></summary>${body}</details>`;
 }
+
+/**
+ * What each lipid mode does, in one plain sentence, with the option's own name kept as secondary text so a user
+ * who knows it can still find it (ux-info B12: "Filter mode" and "Categorical lipid kernel" meant nothing to a
+ * formulator opening the page). `off` is the same said for a mode the data does not allow.
+ */
+export const PLAIN_MODE = {
+  filter: { pick: 'Only this lipid\'s runs', does: 'Learns only from the runs made with the chosen lipid and ignores the others.', off: 'Learning from your other lipids' },
+  kernel: { pick: 'Also learn from other lipids', does: 'Also learns from the runs of your other lipids, as far as the results show the lipids behave alike.', off: 'Learning from your other lipids' },
+  descriptor: { pick: 'Also learn from lipid properties', does: 'Also learns from other lipids, each described by a few physical numbers such as its pKa and tail length.', off: 'Learning from lipid properties' },
+};
+const small = (t) => `<span class="muted small mlOpt">${esc(t)}</span>`;
 
 /** A lipid key ("SM102", or "SM102+MC3") in the names the lab uses. */
 export const lipidName = (key, ref) => (key == null ? 'every lipid' : key === NOT_RECORDED ? 'lipid not recorded'
@@ -67,18 +80,22 @@ export function transparencyCard(o) {
       <select id="selCombo" name="sel_combo" style="width:auto">${prep.combos.map((c) => `<option value="${esc(`${c.lipid}|${c.mixer}`)}" ${c.lipid === state.lipid && c.mixer === state.mixer ? 'selected' : ''}>${esc(lipidName(c.lipid, ref))} · ${esc(mixerName(c.mixer))} (${n0(c.n)})</option>`).join('')}
         <option value="*|*" ${state.lipid == null && state.mixer == null ? 'selected' : ''}>every lipid and mixer together</option></select>`;
   const avail = prep.avail;
-  const modeSel = `<label for="lipidMode" style="margin:0">Lipid mode</label>
+  const modeSel = `<label for="lipidMode" style="margin:0" title="Filter mode, categorical lipid kernel: the option names are in brackets">Other lipids</label>
     <select id="lipidMode" name="lipidMode" style="width:auto">${['auto', 'filter', 'kernel', ...(o.descriptorsOn ? ['descriptor'] : [])].map((k) => {
       const ok = k === 'auto' || avail[k]?.ok;
-      return `<option value="${k}" ${state.lipidMode === k ? 'selected' : ''} ${ok ? '' : 'disabled'}>${k === 'auto' ? 'Auto' : esc(LIPID_MODES[k].label)}${ok ? '' : ' (not available)'}</option>`;
+      return `<option value="${k}" ${state.lipidMode === k ? 'selected' : ''} ${ok ? '' : 'disabled'}>${k === 'auto' ? 'Choose automatically (Auto)' : `${esc(PLAIN_MODE[k].pick)} (${esc(LIPID_MODES[k].label)})`}${ok ? '' : ' (not available)'}</option>`;
     }).join('')}</select>`;
   // The lipid kernel's rank (gp.js): 1 says how alike the lipids are along one direction, 2 lets two lipids agree
   // on one response and differ on another; the second needs more lipids and runs to be told apart from noise.
-  const rankSel = state.lipidMode === 'kernel' || state.lipidMode === 'auto' ? `<label for="kernelRank" style="margin:0">Kernel rank</label>
-    <select id="kernelRank" name="kernelRank" style="width:auto" title="Rank of the lipid similarity matrix: 1 is one axis of similarity, 2 lets lipids agree on some responses and differ on others">
+  const rankSel = state.lipidMode === 'kernel' || state.lipidMode === 'auto' ? `<label for="kernelRank" style="margin:0">How lipids are compared ${small('kernel rank')}</label>
+    <select id="kernelRank" name="kernelRank" style="width:auto" title="Kernel rank. 1 is one axis of similarity between lipids; 2 lets lipids agree on some responses and differ on others">
       <option value="1" ${state.kernelRank !== 2 ? 'selected' : ''}>1</option><option value="2" ${state.kernelRank === 2 ? 'selected' : ''}>2</option></select>` : '';
-  const why = ['kernel', ...(o.descriptorsOn ? ['descriptor'] : [])].filter((k) => !avail[k]?.ok).map((k) => `${LIPID_MODES[k].label}: ${avail[k].why}.`).join(' ');
-  const modeLine = report ? modeSentence(report) : `${LIPID_MODES[mode].long}${state.lipidMode === 'auto' && prep.tries.length > 1 ? `; Auto will compare ${prep.tries.map((m) => LIPID_MODES[m].label.toLowerCase()).join(' and ')} by cross-validation` : ''}`;
+  const why = ['kernel', ...(o.descriptorsOn ? ['descriptor'] : [])].filter((k) => !avail[k]?.ok).map((k) => `${PLAIN_MODE[k].off} is not available: ${avail[k].why}. (${LIPID_MODES[k].label})`).join(' ');
+  // The plain sentence first; the technical sentence (which mode was chosen and how, with its Q²) follows as the
+  // secondary text, because it is the record of what the fit did and the fingerprint quotes it.
+  const modeLine = report ? modeSentence(report)
+    : `${LIPID_MODES[mode].long}${state.lipidMode === 'auto' && prep.tries.length > 1 ? `; Auto will compare ${prep.tries.map((m) => LIPID_MODES[m].label.toLowerCase()).join(' and ')} by cross-validation` : ''}`;
+  const modePlain = PLAIN_MODE[mode].does;
   const k = state.space.length;
   const need = runsNeeded(k, sel.target.length);
   const factors = state.space.map((f) => `${esc(f.name.replace(/\s*\(.*\)\s*$/, ''))} ${atStep(f.lo, f)}–${atStep(f.hi, f)}${f.unit ? ` ${esc(f.unit)}` : ''}`).join(', ') || 'none chosen';
@@ -95,13 +112,17 @@ export function transparencyCard(o) {
     <p class="muted">${n0(used)} formulation${used === 1 ? '' : 's'} reach the model${report?.lipidModel?.others ? `: ${n0(report.n)} of ${esc(lipidName(state.lipid, ref))} and ${n0(report.lipidModel.others)} of the other lipids` : ''}.${budgetNote}</p>`;
   // Open while the run is being set up, where choosing the lipid and mixer is the question; after a fit, its one
   // line says the mode, the data and the fingerprint, and the rest is a click away (as every fold here).
-  const say = `${esc(LIPID_MODES[mode].label)} mode${report?.lipidChoice?.chosenBy === 'auto' ? ' (auto)' : ''} · ${n0(used)} of ${n0(total)} formulations${fp ? ` · fingerprint ${esc(shortHash(fp))}` : ''}`;
-  return `<details class="card fold" id="mlPanel" data-fold="panel" style="border-color:var(--c-ml)" ${(state.open.panel ?? !report) ? 'open' : ''}>
+  const say = `${n0(used)} of ${n0(total)} formulations · ${esc(PLAIN_MODE[mode].pick.toLowerCase())}${report?.lipidChoice?.chosenBy === 'auto' ? ' (chosen automatically)' : ''}${fp ? ` · fingerprint ${esc(shortHash(fp))}` : ''}`;
+  // One folded card for what the model rests on: the lipid and mixer, the mode, the account of the data, the runs
+  // and why each was used or left out (ux c1 item 3: three cards said "39 of 40" three times before any result).
+  // Closed until the person opens it; the question which lipid and mixer is meant stays outside it, because
+  // it must be asked while it is unanswered (spec 7.1).
+  return `${ask}<details class="card fold" id="mlPanel" data-fold="panel" style="border-color:var(--c-ml)" ${state.open.panel ? 'open' : ''}>
     <summary><h2>Data and model</h2><span class="fold-say">${say}</span></summary>
-    ${ask}<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}${rankSel}</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${combo}${modeSel}${rankSel}</div>
     <div class="grid g2" style="margin-top:10px;align-items:start">
       <div>
-        <p style="margin:0 0 6px"><b>Mode</b> <span id="mlModeLine">${esc(modeLine)}</span></p>
+        <p style="margin:0 0 6px"><b>Mode</b> <span id="mlModePlain">${esc(modePlain)}</span><br><span class="muted small mlOpt" id="mlModeLine">${esc(modeLine)}</span></p>
         ${why ? `<p class="muted" style="margin:0 0 6px;font-size:12.5px">${esc(why)}</p>` : ''}
         <p style="margin:0 0 6px"><b>Data</b> <span id="mlDataLine">${n0(used)} of ${n0(total)} formulation${total === 1 ? '' : 's'}</span></p>
         ${fold(state, 'account', { title: 'Where the rest went', cls: 'sub', frame: false, say: lines.length ? lines.map(([v, , t]) => `${n0(v)} ${esc(t)}`).join(' · ') : 'nothing left out', body: accountBody })}
@@ -113,6 +134,7 @@ export function transparencyCard(o) {
       <div>${projectionSvg(o, sel, mode)}</div>
     </div>
     ${whyFold(state, sel, ref)}
+    ${o.dataBody || ''}
   </details>`;
 }
 
@@ -124,6 +146,8 @@ function projectionSvg(o, sel, mode) {
   const { state, report, rows } = o;
   const space = state.space;
   if (space.length < 2) return '<p class="muted">Choose two or more factors to see the runs on a map.</p>';
+  // A range that is backwards or empty has no scale to draw on (it gave NaN rect sizes): no map until it is fixed.
+  if (rangeProblems(space).length) return '<p class="muted" id="mlProjectionOff">The map is drawn again once the search range is fixed.</p>';
   let order = space.map((_, i) => i);
   const ard = (report?.responses || []).map((r) => r.ard).filter((a) => a?.length);
   if (ard.length) {
