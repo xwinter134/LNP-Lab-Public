@@ -3,7 +3,7 @@
 import { html, raw, fmt, field, readForm, table, chip, toast, header, todayISO, fmtDate, kpi, download, esc, swapHtml, redrawSoon, readDraft, writeDraft, dropDraft, listDrafts, draftsStoring, uid, ask } from './kit.js';
 import { experimentBioUses } from '../calc/usage.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
-import { TYPES, TESTS, FACTORS, typeShort, defaultExperimentName, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
+import { TYPES, TESTS, FACTORS, typeShort, typeNameOf, typeShortOf, defaultExperimentName, buildExperiment, experimentProgress, parseNumberList, stabilityTimepoints, flowsFromTotal } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, RESPONSES, IDENT, validateSpec, designProblems, axialReach, buildDesign, designSummary, DOE_MODES, MIXTURE_KINDS, MIXTURE_ORDERS, specMode, mixtureDesignFor, suggestedBudget } from '../calc/doe.js';
 import { mixingPlan } from '../calc/batch_record.js';
 import { info, wireLearn } from './learn.js';
@@ -129,7 +129,7 @@ function list(el, ctx, ref) {
     const st = where.get(e.id).st.stage;
     return chip(st, st === 'all measured' ? 'ok' : st === 'planned' ? '' : 'info');
   };
-  const typeName = (e) => TYPES.find((t) => t.id === e.type)?.name || e.type;
+  const typeName = (e) => typeNameOf(e);
   // The first verdict of an experiment that has results (calc/results.js verdictsFor), worked out only for the
   // lines drawn and once for each.
   const verdictMemo = new Map();
@@ -183,7 +183,7 @@ function list(el, ctx, ref) {
     return `<details class="xrow" data-exp="${esc(e.id)}"${open ? ' open' : ''}>
       <summary>
         <span class="xr-id"><a href="#/experiments?id=${esc(e.id)}">${esc(describeId(e.id))}</a></span>
-        <span class="xr-name">${nameRepeatsType(e.name, e.type) ? '' : `${esc(e.name)}<span class="muted"> · </span>`}<span class="muted" title="${esc(typeName(e))}">${esc(typeShort(e.type))} · ${n} formulation${n === 1 ? '' : 's'}</span>${verdictOf(e) ? `<span class="xr-result">Result: ${esc(verdictOf(e))}</span>` : ''}</span>
+        <span class="xr-name">${nameRepeatsType(e.name, e.type) ? '' : `${esc(e.name)}<span class="muted"> · </span>`}<span class="muted" title="${esc(typeName(e))}">${esc(typeShortOf(e))} · ${n} formulation${n === 1 ? '' : 's'}</span>${verdictOf(e) ? `<span class="xr-result">Result: ${esc(verdictOf(e))}</span>` : ''}</span>
         <span class="xr-prog" title="${p.done} of ${p.total} measurements done"><span class="xr-bar"><i style="width:${pct}%"></i></span><span class="xr-n">${p.done} / ${p.total}</span>${p.overdue ? ` <span class="xr-late">${p.overdue} overdue</span>` : ''}</span>
         <span class="xr-due muted">${p.nextDue ? `next due ${esc(fmtDate(p.nextDue))}` : `started ${esc(fmtDate(e.startDate))}`}</span>
         <span class="xr-st">${stageChip(e)}</span>
@@ -1227,7 +1227,7 @@ function detail(el, ctx, ref, settings, id) {
   const shownStatus = exp.status === 'done' ? 'done' : stage.stage;
   const statusKind = shownStatus === 'done' || shownStatus === 'all measured' ? 'ok' : shownStatus === 'planned' ? '' : 'info';
   el.innerHTML = header(raw(`<a href="#/experiments">Experiments</a> › ${esc(describeId(exp.id))}`), exp.name,
-      `<span class="chip info">${esc(T?.name || exp.type)}</span><span class="chip cargoChip" id="expCargo" title="The cargo the formulations carry">${esc(cargo)}</span><span class="chip ${statusKind}" id="expStage" title="${exp.status === 'done' ? 'Marked done' : 'From the formulations and results on record'}">${esc(shownStatus)}</span>${repeatLink}
+      `<span class="chip info">${esc(typeNameOf(exp))}</span><span class="chip cargoChip" id="expCargo" title="The cargo the formulations carry">${esc(cargo)}</span><span class="chip ${statusKind}" id="expStage" title="${exp.status === 'done' ? 'Marked done' : 'From the formulations and results on record'}">${esc(shownStatus)}</span>${repeatLink}
       ${['doe', 'ofat'].includes(exp.type) ? `<a class="btn" href="#/doe?id=${esc(exp.id)}">Design &amp; results</a>` : ''}<button id="reportExp" title="A page for the lab notebook: the plan, the data table, the statistics and the figures, to print or save as PDF">Report</button><details class="moreMenu"><summary class="btn">More</summary><div class="moreList"><a class="btn quiet" href="#/calendar?month=${esc(exp.startDate.slice(0, 7))}">Calendar</a><button id="setStatus" class="quiet">${exp.status === 'done' ? 'Reopen' : 'Mark done'}</button><button id="delExp" class="danger">Delete</button></div></details>`) +
     layerTabBar(ctx, 'core', tabHref, 'Experiment') +
     nextStepStrip(exp, stage, res) +

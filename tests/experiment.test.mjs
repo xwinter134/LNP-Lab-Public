@@ -117,3 +117,13 @@ test('addDoeRun: a replicate of a centre run is a new formulation and run with t
   const r2 = addDoeRun(r.experiment, [...d.batches, r.batch], centre.doe.run_id);
   assert.equal(r2.batch.id, `E1-F${n + 2}`);
 });
+
+test('typeNameOf: an optimizer round is called one, everything else keeps its type name', async () => {
+  const { typeNameOf, typeShortOf } = await import('../app/calc/experiment.js');
+  assert.equal(typeNameOf({ type: 'single', design: { ml: { fingerprint: { hash: 'x' } } } }), 'Optimizer round');
+  assert.equal(typeShortOf({ type: 'single', design: { ml: {} } }), 'Optimizer');
+  assert.equal(typeNameOf({ type: 'single' }), 'Single formulation');
+  assert.equal(typeShortOf({ type: 'doe' }), 'DoE');
+  assert.equal(typeNameOf({ type: 'mystery' }), 'mystery');
+  assert.equal(typeNameOf(null), '');
+});

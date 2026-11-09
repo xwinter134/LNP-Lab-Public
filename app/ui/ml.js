@@ -20,7 +20,7 @@ import { SPLITS } from '../calc/ml/model.js';
 import { MODES } from '../calc/ml/acquire.js';
 import { timesRun, mostlyLongShots, repeatOf } from '../calc/ml/stopping.js';
 import { partialDependence, desirabilityGrid } from '../calc/ml/explain.js';
-import { buildExperiment, productionDate, addDaysISO, nextWorkday as nextWorkdayISO, TYPES } from '../calc/experiment.js';
+import { buildExperiment, productionDate, addDaysISO, nextWorkday as nextWorkdayISO, TYPES, typeNameOf } from '../calc/experiment.js';
 import { checkSuggestions } from '../calc/ml/feasible.js';
 import { makeFormulationAllocator, nextExperimentId, usedIds, describeId, raiseCounter } from '../schema.js';
 import { info, wireLearn } from './learn.js';
@@ -369,7 +369,7 @@ function dataCard(acc, state, report) {
     return { attrs: `class="${e.excluded ? 'excluded' : ''}" data-exp="${esc(e.id)}"`, cells: [
       raw(`<input type="checkbox" name="x_exp_${esc(key)}" ${e.excluded ? '' : 'checked'} style="width:auto" aria-label="use ${esc(e.id || 'formulations outside any experiment')}">`),
       raw(e.id ? `<a href="#/experiments?id=${esc(e.id)}"><b>${esc(e.id)}</b></a> ${esc(e.name)}<br><a class="muted small" href="#/doe?id=${esc(e.id)}">results on Design &amp; results</a>` : '<span class="muted">Not in an experiment</span>'),
-      typeName(e.type),
+      typeNameOf(e),
       raw(e.excluded ? `<span class="muted">switched off (${e.total})</span>` : `<b>${e.used}</b> <span class="muted">of ${e.total}${e.measured !== e.total ? `, ${e.measured} measured` : ''}</span>`),
       raw(Object.keys(e.responses).length ? Object.entries(e.responses).map(([n, k]) => `<span class="resp${goals.has(n) ? ' on' : ''}" title="${k} formulation${k === 1 ? '' : 's'} with ${esc(label(n))}${goals.has(n) ? '; a goal' : '; not a goal now'}">${esc(label(n))} ${k}</span>`).join('') : '<span class="muted">no results yet</span>'),
       raw(e.excluded ? '<span class="why">all, switched off</span>' : leftWords.length ? `<span class="why">${esc(leftWords.join(', '))}</span>` : '<span class="muted">none</span>'),

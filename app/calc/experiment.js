@@ -19,6 +19,14 @@ export const TYPES = [
 const SHORT_TYPE = { single: 'Single', stability: 'Stability', ofat: 'OFAT', doe: 'DoE', comparison: 'Comparison', reference: 'Reference' };
 export const typeShort = (id) => SHORT_TYPE[id] || (TYPES.find((t) => t.id === id)?.name ?? String(id || ''));
 
+/**
+ * What an experiment is called in a chip, a list or a tile. One an optimizer round made is stored as a set of single
+ * formulations (they came from a model, not a wizard), and was labelled "Single formulation" with four of them in it;
+ * it says what it is.
+ */
+export const typeNameOf = (exp) => (exp?.design?.ml ? 'Optimizer round' : (TYPES.find((t) => t.id === exp?.type)?.name ?? String(exp?.type || '')));
+export const typeShortOf = (exp) => (exp?.design?.ml ? 'Optimizer' : typeShort(exp?.type));
+
 /** A name the wizard starts with, so an experiment can always be created: "DoE · 2026-11-09". */
 export const defaultExperimentName = (type, dateISO) => `${typeShort(type)} · ${dateISO}`;
 

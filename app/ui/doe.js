@@ -8,7 +8,7 @@
 // what is in them. Before anything is measured the design itself is the only thing worth reading, and it comes
 // first, open.
 import { raw, fmt, field, table, chip, header, fmtDate, kpi, download, toast, todayISO, esc, emptyState } from './kit.js';
-import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText, addDoeRun } from '../calc/experiment.js';
+import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText, addDoeRun, typeNameOf } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, MIXTURE_ORDERS, RESPONSES, designSummary, responsesForBatch, toRawDataCSV, toDesignCSV, toReal, specMode, specComponents, designColumns, processOrderOf, factorLabel, termLabel, isCategorical, categoricalName } from '../calc/doe.js';
 import { scheffeTerms, processTerms, crossedTerms, fitMixture, toPseudo } from '../calc/mixture.js';
 import { mixtureDesignFor } from '../calc/doe.js';
@@ -104,7 +104,7 @@ export async function render(el, ctx) {
     : '<option value="">No experiments yet</option>';
   el.innerHTML = header('Evaluate', 'Design & results', `${sel ? '<button id="reportDoe" title="A page for the lab notebook: the plan, the recommendation, what drives each response, the coefficients, the diagnostic plots and the run table, to print or save as PDF">Report</button>' : ''}<details class="moreMenu"><summary class="btn">More</summary><div class="moreList"><a class="btn" href="#/experiments?new=1&type=doe">New DoE</a><a class="btn" href="#/experiments?new=1&type=ofat">New OFAT</a><a class="btn" href="#/ml" title="fit a surface to every measured formulation, not just this design, and get the next runs proposed">Optimizer</a></div></details>`) +
     `<div class="card wsp-pick"><label for="expSel">Experiment</label><select id="expSel" name="expSel">${options}</select>
-      ${sel ? `<span class="muted">${esc(TYPES.find((t) => t.id === sel.type)?.name || sel.type)}</span><a class="btn" href="#/experiments?id=${esc(sel.id)}">The plan</a>` : ''}</div>` +
+      ${sel ? `<span class="muted">${esc(typeNameOf(sel))}</span><a class="btn" href="#/experiments?id=${esc(sel.id)}">The plan</a>` : ''}</div>` +
     (sel ? resultsStepStrip(sel, progressStage(sel, sel.batchIds.map((id) => ctx.store.get('batches', id)).filter(Boolean), todayISO())) : '') +
     // The figure stays beside the data and the verdicts while the page scrolls: type a result on the left and the
     // surface or the bars on the right redraw with it, with no trip to another screen and back.
@@ -761,7 +761,7 @@ function ofatBody(ctx, sel) {
       ${pts.map((r) => `<text x="${sx(r['factor_' + k])}" y="${H - B + 16}" class="lb" text-anchor="middle">${fmt(r['factor_' + k], 1)}</text>`).join('')}<text x="${W - R}" y="${H - 4}" class="lb" text-anchor="end">${esc(fname)}</text>
       <text x="${L - 6}" y="${sy(y1) + 4}" class="lb" text-anchor="end">${fmt(y1, 1)}</text><text x="${L - 6}" y="${sy(y0) + 4}" class="lb" text-anchor="end">${fmt(y0, 1)}</text></svg>`;
   }
-  return `<div class="card"><div class="grid g4">${kpi('Type', TYPES.find((t) => t.id === sel.type)?.name || sel.type, `${fname} at ${sel.design.levels?.length} levels`)}${kpi('Runs', rows.length, `${measured.length} with ${RESP[resp]}`)}${kpi('Levels', (sel.design.levels || []).map(lv).join(', '))}${kpi('Fixed', 'other parameters', 'as set in the wizard')}</div></div>
+  return `<div class="card"><div class="grid g4">${kpi('Type', typeNameOf(sel), `${fname} at ${sel.design.levels?.length} levels`)}${kpi('Runs', rows.length, `${measured.length} with ${RESP[resp]}`)}${kpi('Levels', (sel.design.levels || []).map(lv).join(', '))}${kpi('Fixed', 'other parameters', 'as set in the wizard')}</div></div>
     <div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="flex:1">Run table</h2><a class="btn" href="#/experiments?id=${esc(sel.id)}">Experiment</a></div>${runTable}</div>
     <div class="card"><h2>Dose response</h2><div class="grid g3" id="modelForm">${field({ id: 'response', label: 'Response', type: 'select', value: resp, options: Object.entries(RESP).map(([k2, v]) => ({ value: k2, label: v })) })}<input type="hidden" name="model" value="linear"></div>${chart || `<p class="muted">${categorical ? `The ${esc(fname.toLowerCase())}s are compared side by side, as bars, in Results below: nothing lies between two of them to draw a line through.` : 'Needs two measured levels.'}</p>`}</div>`;
 }
