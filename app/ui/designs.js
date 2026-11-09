@@ -52,7 +52,7 @@ export async function render(el, ctx) {
             ${FACTOR_CHOICES.map((n) => `<button type="button" data-k="${n}" class="${n === k ? 'on' : ''}">${n}</button>`).join('')}
           </div>
         </div>
-        <div class="dc-budget">${field({ id: 'budget', label: 'Batches you can make', type: 'number', value: budget ?? '', placeholder: 'no limit' })}</div>
+        <div class="dc-budget">${field({ id: 'budget', label: 'Run budget', type: 'number', value: budget ?? '', placeholder: 'any' })}</div>
         <div class="muted dc-fit" title="Each count includes the design’s centre points and one replicate; the wizard shows the new total if you change either. A greyed-out entry is impossible at this factor count (Box-Behnken needs three) or no longer worth it (a three-level factorial above three).">${within.length} of ${counted.length} fit${budget ? ` ${budget} batch${budget === 1 ? '' : 'es'}` : ''} at ${k} factors</div>
         <div class="dc-legend muted">${catalogueLegend()}</div>
         ${factors.length ? `<div class="muted dc-fit">From the planner: ${factors.length} factors, carried into whichever design you set up.</div>` : ''}
@@ -108,7 +108,7 @@ function tile({ e, runs, fits }, budget, k, factors) {
   return `<article class="dc-item${dim ? ' dim' : ''}${open ? ' wide' : ''}" data-entry="${esc(e.id)}">
     <div class="dc-fig">${catalogueFigure(e)}</div>
     <div class="dc-body">
-      <div class="dc-name"><b>${esc(e.name)}</b> ${info(e.topic)}</div>
+      <div class="dc-name"><b>${esc(e.name)}</b> ${info(e.topic)}${e.id === 'ccd_faced' ? ' ' + info('facecentred') : ''}</div>
       <div class="dc-ans">${esc(e.answers)}</div>
       <div class="dc-foot">${count}${fits ? `<a class="btn ${dim ? '' : 'primary'}" href="${setupLink(e, factors.length ? factors : USUAL_FACTORS.slice(0, k))}">Set up</a>` : ''}</div>
     </div>

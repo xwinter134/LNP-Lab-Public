@@ -214,3 +214,18 @@ test('each response is spoken of in its own words and decimals', () => {
   assert.match(tiny, /PDI 0\.0002 higher/);
   assert.equal(insightSummary([], { response: 'ee_pct' }).sentences[0], 'Not enough batches to say yet: none with an EE result in this view, and it takes three.');
 });
+
+test('findings holds only the sentences that report something, never "nothing to say"', () => {
+  // no stock lot recorded, too few batches to judge drift, nothing outside the limits: three non-findings
+  const none = insightSummary(batches([[80, ''], [81, ''], [82, '']]), { colorBy: 'stockId' });
+  assert.ok(none.sentences.length >= 1);
+  assert.deepEqual(none.findings, []);
+  // too few batches at all
+  assert.deepEqual(insightSummary(batches([[80, 'A']]), { colorBy: 'stockId' }).findings, []);
+  // a clear difference between two lots is one
+  const rows = batches([[80, 'Stock-001'], [81, 'Stock-001'], [79, 'Stock-001'], [80, 'Stock-001'],
+    [84, 'Stock-002'], [85, 'Stock-002'], [83, 'Stock-002'], [84, 'Stock-002']]);
+  const r = insightSummary(rows, { response: 'zave_nm', colorBy: 'stockId' });
+  assert.match(r.findings[0], /^At the same settings/);
+  assert.ok(r.findings.every((f) => !/^(No drift|Not enough|All \d+ points)/.test(f)), r.findings.join(' | '));
+});

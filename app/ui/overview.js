@@ -10,6 +10,8 @@ import { describeId, seedCounters } from '../schema.js';
 import { niceTicks, figure, wireFigures } from './charts.js';
 import { latestMeasured, latestSentence, qcOf } from '../calc/latest.js';
 import { backupDue, exportNow, snoozeBackup } from './backup.js';
+import { nextStep } from '../calc/nextstep.js';
+import { info } from './learn.js';
 
 const LATEST_N = 20;
 
@@ -21,7 +23,7 @@ const LATEST_N = 20;
 function latestCard(measurements, qc) {
   const rows = latestMeasured(measurements, LATEST_N);
   if (!rows.length) return '';
-  const w = 920, L = 54, R = 96, gap = 24, H1 = 136, H2 = 66, T1 = 12, T2 = T1 + H1 + gap;
+  const w = 920, L = 54, R = 96, gap = 24, H1 = 104, H2 = 52, T1 = 12, T2 = T1 + H1 + gap;
   const long = rows.some((r) => r.batchId.length > 5) || rows.length > 12;
   const B = long ? 60 : 30, h = T2 + H2 + B;
   const slot = (w - L - R) / rows.length, cx = (i) => L + slot * (i + 0.5);
@@ -164,43 +166,46 @@ export async function render(el, ctx) {
     // experiments started in the wizard and left before "Create experiment" (kit.js drafts): nothing is planned
     // for them until they are created, which is easy to forget
     ...draftNotes(ctx),
-    ...expiring.map((s) => ({ level: 'warn', html: `<b>Stock ${esc(s.id)}</b> ${s.expiry < today ? 'expired' : 'expires'} ${esc(fmtDate(s.expiry))}. <a href="#/stocks?id=${esc(s.id)}">Open</a>` })),
-    ...flagged.map((m) => ({ level: 'warn', html: `<b>${esc(m.sampleName || m.batchId)}</b>: ${esc(m.flags.filter((f) => f.level === 'warn').map((f) => f.text).join(', '))}. <a href="#/measurements?id=${esc(m.id)}">Open</a>` })),
+    ...expiring.map((s) => ({ level: 'warn', html: `<b>Stock ${esc(s.id)}</b> ${s.expiry < today ? 'expired' : 'expires'} ${esc(fmtDate(s.expiry))}. <a href="#/stocks?id=${esc(s.id)}">Check stock</a>` })),
+    ...flagged.map((m) => ({ level: 'warn', html: `<b>${esc(m.sampleName || m.batchId)}</b>: ${esc(m.flags.filter((f) => f.level === 'warn').map((f) => f.text).join(', '))}. <a href="#/measurements?id=${esc(m.id)}">Check result</a>` })),
     ...(inbox ? [{ level: '', html: `<b>${inbox} imported result${inbox === 1 ? '' : 's'}</b> not assigned. <a href="#/measurements">Assign</a>` }] : []),
-    ...latePlanned.map((b) => ({ level: '', html: `<b>${esc(b.id)}</b> was planned for ${esc(fmtDate(b.plannedDate))} and is still "planned". <a href="#/formulation?batch=${esc(b.id)}">Record</a>` })),
-    ...(overdue.length ? [{ level: 'warn', html: `<b>${overdue.length} overdue item${overdue.length === 1 ? '' : 's'}</b> on the calendar. <a href="#/calendar">Open calendar</a>` }] : []),
+    ...latePlanned.map((b) => ({ level: '', html: `<b>${esc(b.id)}</b> was planned for ${esc(fmtDate(b.plannedDate))} and is still "planned". <a href="#/formulation?batch=${esc(b.id)}">Make it or reschedule</a>` })),
+    ...(overdue.length ? [{ level: 'warn', html: `<b>${overdue.length} overdue item${overdue.length === 1 ? '' : 's'}</b> on the calendar. <a href="#/calendar">Catch up on the calendar</a>` }] : []),
     ...backupNote(ctx),
   ];
 
+  const next = nextStep(experiments, batches, measurements);
   const empty = !experiments.length && !stocks.length && !ctx.store.count('buffers');
   el.innerHTML = header('Home', 'Overview', `<a class="btn primary" href="#/advisor">+ Plan an experiment</a>`) +
     `<div class="grid g4" style="margin-bottom:14px">
-      ${kpi('Due today', dueToday.length, overdue.length ? `${overdue.length} overdue` : '')}
+      ${kpi('Due today', dueToday.length, overdue.length ? `${overdue.length} overdue` : 'nothing late')}
       ${kpi('Measurements open', openSlots, `${measurements.length} recorded`)}
       ${kpi('Stocks expiring', raw(`<span style="color:${expiring.length ? 'var(--warn)' : 'inherit'}">${expiring.length}</span>`), 'within 7 days')}
-      ${kpi('Active experiments', active.length, active.slice(0, 2).map((e) => describeId(e.id) + ' ' + (TYPES.find((t) => t.id === e.type)?.name.split(' ')[0] || '')).join(' · '))}
+      ${kpi('Active experiments', active.length, active.length ? `${active.length === 1 ? '1 open' : `${active.length} open`}: ${active.slice(0, 2).map((e) => describeId(e.id)).join(', ')}${active.length > 2 ? ' …' : ''}` : 'none open')}
     </div>
-    ${latestCard(measurements, settings.qc)}
-    ${empty ? `<div class="card" id="tryDemo" style="border-color:var(--accent)"><h2>New here? Look around the demo lab first</h2>
-      <p style="margin:0 0 10px">An invented lab with seven experiments and about 40 formulations with results: a reference set, an N/P scan, two designs, a composition screen, a stability study and one experiment still to run. It is kept apart from your own records, which stay empty until you start, and the switch at the foot of the sidebar turns it off again.</p>
-      <button class="primary" id="tryDemoBtn">Try the demo lab</button></div>
-    <div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
+    ${empty ? `<div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
       <li><a href="#/advisor">Say what you are trying to find out</a> and the planner will name a design, or <a href="#/designs">browse the catalogue</a> if you already know.</li>
       <li><a href="#/advisor">Set the experiment up</a>: it creates the formulations, the measurements they are due, their sample names and the calendar entries.</li>
       <li><a href="#/stocks?new=1">Weigh out a lipid stock</a> and <a href="#/buffers?new=1">make up the buffers</a> the runs need.</li>
       <li>Work through each <a href="#/formulation">formulation record</a> at the bench, then <a href="#/measurements">import the instrument export</a>.</li>
       <li>Read the fit and its diagnostics on <a href="#/doe">Design &amp; results</a>, and let the <a href="#/ml">optimizer</a> propose the next round.</li></ol>
       <p class="muted" style="margin-top:8px">Every term in the app carries a <button type="button" class="learn" disabled>?</button> that explains it in a paragraph, with the numbers worth knowing and the mistake that costs a batch. They are all collected under <a href="#/learn">Reference</a>.</p>
-      <p class="muted">Data stays on this computer until you export it (Settings).</p></div>` : ''}
+      <p class="muted">Data stays on this computer until you export it (Settings).</p></div>
+    <div class="card" id="tryDemo" style="border-color:var(--accent)"><h2>New here? Look around the demo lab first</h2>
+      <p style="margin:0 0 10px">An invented lab with seven experiments and about 40 formulations with results: a reference set, an N/P scan, two designs, a composition screen, a stability study and one experiment still to run. It is kept apart from your own records, which stay empty until you start, and the switch at the foot of the sidebar turns it off again.</p>
+      <button class="primary" id="tryDemoBtn">Try the demo lab</button></div>` : ''}
     <div class="grid g2">
+      <div class="card"><h2>Needs attention</h2>${attention.length ? attention.map((a) => `<div class="note ${a.level}"${a.id ? ` id="${esc(a.id)}"` : ''}>${a.html}</div>`).join('') : '<p class="muted">All clear.</p>'}</div>
       <div class="card"><h2>Due today</h2>${table(['Item', ''], dueToday.map((e) => ({ cells: [raw(`<span class="chip ${e.kind === 'batch' ? 'ok' : e.kind === 'measurement' ? 'info' : ''}">${esc(e.kind)}</span> ${esc(e.title)}`), raw(`<a href="${esc(safeLink(e.link))}">Open</a>`)] })), { empty: 'Nothing due today.' })}
         ${overdue.length ? `<p class="muted"><a href="#/calendar">${overdue.length} overdue on the calendar</a></p>` : ''}</div>
-      <div class="card"><h2>Needs attention</h2>${attention.length ? attention.map((a) => `<div class="note ${a.level}"${a.id ? ` id="${esc(a.id)}"` : ''}>${a.html}</div>`).join('') : '<p class="muted">All clear.</p>'}</div>
     </div>
-    <div class="card" style="border-color:var(--c-advisor)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div class="card nextStepCard" id="nextStepCard"><div class="nsc-row"><div class="nsc-text"><div class="muted nsc-k">Next step</div><b>${esc(next.text)}</b></div>
+      <a class="btn primary" href="${esc(next.href)}">${esc(next.label)}</a></div></div>
+    ${latestCard(measurements, settings.qc)}
+    ${experiments.length ? `<div class="card" style="border-color:var(--c-advisor)"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <span class="ico" style="color:var(--c-advisor)">${ICONS.advisor}</span>
       <div style="flex:1 1 300px"><b>Not sure what to run next?</b><br><span class="muted">Answer three questions and the app will say what to run, why that and not something else, what to expect, and what usually goes wrong. It also works backwards from a symptom when a result is off.</span></div>
-      <a class="btn" href="#/advisor">Plan an experiment</a></div></div>
+      <a class="btn" href="#/advisor">Plan an experiment</a></div></div>` : ''}
     ${mlLine}
     <div class="card"><div style="display:flex;align-items:center;gap:10px"><h2 style="flex:1">Recent formulations</h2><a href="#/formulation">All formulations</a></div>
       ${table(['Formulation', 'Experiment', 'What it is', 'Planned', 'Z-ave / PDI', 'EE %', 'Zeta', 'Status'], recent.map((b) => { const d = latest(b.id, 'dls'), e = latest(b.id, 'ee'), z = latest(b.id, 'zeta'); return { cells: [raw(`<a href="#/formulation?batch=${esc(b.id)}"><b>${esc(b.id)}</b></a>`), raw(`<a href="#/experiments?id=${esc(b.experimentId)}">${esc(b.experimentId)}</a>`), b.label, fmtDate(b.plannedDate), d ? `${fmt(d.values.zave_nm, 1)} / ${fmt(d.values.pdi, 2)}` : '–', e ? fmt(e.values.ee_pct, 1) : '–', z ? fmt(z.values.zeta_mV, 1) : '–', raw(chip(b.status, b.status === 'planned' ? '' : b.status === 'produced' ? 'info' : 'ok'))] }; }), { empty: 'Nothing made yet.' })}</div>`;

@@ -15,6 +15,13 @@ export const TYPES = [
   { id: 'reference', name: 'Reference reproducibility', desc: 'same recipe n times · feeds the control chart' },
 ];
 
+/** The type in a few words, for lists and default names where the full label ("Optimization · DoE (2 to n factors)") says too much. */
+const SHORT_TYPE = { single: 'Single', stability: 'Stability', ofat: 'OFAT', doe: 'DoE', comparison: 'Comparison', reference: 'Reference' };
+export const typeShort = (id) => SHORT_TYPE[id] || (TYPES.find((t) => t.id === id)?.name ?? String(id || ''));
+
+/** A name the wizard starts with, so an experiment can always be created: "DoE · 2026-11-09". */
+export const defaultExperimentName = (type, dateISO) => `${typeShort(type)} · ${dateISO}`;
+
 export const TESTS = [
   { id: 'dls', name: 'DLS (Z-ave, PDI)' }, { id: 'zeta', name: 'Zeta potential' }, { id: 'ee', name: 'EE % (RiboGreen)' },
   { id: 'content', name: 'RNA content' }, { id: 'potency', name: 'Potency (in vitro)' }, { id: 'ph', name: 'pH' },
