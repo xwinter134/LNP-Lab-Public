@@ -15,9 +15,9 @@ export const PROCESS_FACTORS = [
   // mixing. A floor of 2:1 caps ethanol at 33 per cent, which put that whole band out of the optimiser's
   // reach, so the floor is 1:1. Low ratios are legitimate settings, not mistakes, but this edition carries no
   // model of the mixing hardware, so nothing here will tell you a low ratio is one your rig cannot hold.
-  { key: 'frr', name: 'Flow rate ratio (aq : org)', unit: '', lo: 1, hi: 6, step: 0.1, read: (b) => b.plan?.mixing?.frr },
-  { key: 'tfr', name: 'Total flow rate', unit: 'mL/min', lo: 20, hi: 150, step: 1, read: (b) => b.plan?.mixing?.totalFlow },
-  { key: 'np', name: 'N/P ratio', unit: '', lo: 3, hi: 12, step: 0.5, read: (b) => b.plan?.rna?.np },
+  { key: 'frr', name: 'Flow rate ratio (aq : org)', unit: '', lo: 1, hi: 6, start: [2, 5], step: 0.1, read: (b) => b.plan?.mixing?.frr },
+  { key: 'tfr', name: 'Total flow rate', unit: 'mL/min', lo: 20, hi: 150, start: [40, 140], step: 1, read: (b) => b.plan?.mixing?.totalFlow },
+  { key: 'np', name: 'N/P ratio', unit: '', lo: 3, hi: 12, start: [4, 10], step: 0.5, read: (b) => b.plan?.rna?.np },
   { key: 'quench', name: 'Quench factor', unit: '× lipid volume', lo: 1, hi: 10, step: 0.5, read: (b) => b.plan?.mixing?.quenchFactor },
   { key: 'lipid_mM', name: 'Lipid stock molarity', unit: 'mM', lo: 20, hi: 70, step: 0.5, read: (b) => b.plan?.mixing?.lipidStock_mM },
   { key: 'rna_mg_mL', name: 'RNA working concentration', unit: 'mg/mL', lo: 0.1, hi: 0.8, step: 0.02, read: (b) => b.plan?.rna?.working_mg_mL },
@@ -38,6 +38,21 @@ export const COMPOSITION_FACTORS = [
   { key: 'sterol_pct', cls: 'sterol', name: 'Cholesterol / sterol', unit: 'mol%', lo: 20, hi: 55, step: 0.5 },
 ];
 export const ALL_FACTORS = [...PROCESS_FACTORS, ...COMPOSITION_FACTORS];
+
+/**
+ * The range a factor starts with when a lab has no runs that vary it. The factor's own limits (lo, hi) are the
+ * widest it can be set to and are also what suggestSpace clips to; searching all of that from the first run put
+ * starting runs where nothing works (3 of 8 scored 0) and a later suggestion in a corner. `start` is the span the
+ * testers narrowed to by hand: FRR 2-5, flow 40-140 mL/min, N/P 4-10, PEG 0.5-3 mol% (its limits already).
+ * Runs that do vary the factor still decide the range (their span, clipped to the limits).
+ */
+export function startRange(f, observed = []) {
+  const obs = observed.filter(Number.isFinite);
+  const lo = obs.length ? Math.max(f.lo, Math.min(...obs)) : (f.start || [f.lo, f.hi])[0];
+  const hi = obs.length ? Math.min(f.hi, Math.max(...obs)) : (f.start || [f.lo, f.hi])[1];
+  // every run at one value: nothing to span, so the starting span again
+  return lo === hi ? { lo: (f.start || [f.lo, f.hi])[0], hi: (f.start || [f.lo, f.hi])[1] } : { lo, hi };
+}
 export const factorByKey = (key) => ALL_FACTORS.find((f) => f.key === key);
 
 /** mol% per lipid class for a composition record. */

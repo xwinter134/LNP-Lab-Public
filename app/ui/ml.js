@@ -11,14 +11,14 @@
 import { raw, fmt, field, table, chip, toast, header, kpi, download, todayISO, esc, fmtDate } from './kit.js';
 import { getRef, getSettings, compositionLabel } from '../refdata.js';
 import { selectionFor } from './data.js';
-import { buildRows, responseCounts, RESPONSE_DEFS, dataAccount } from '../calc/ml/dataset.js';
+import { buildRows, responseCounts, RESPONSE_DEFS, dataAccount, repeatNotes } from '../calc/ml/dataset.js';
 import { ALL_FACTORS, PROCESS_FACTORS, COMPOSITION_FACTORS, suggestSpace, mixtureInfo, pointToPlan, toUnit, compositionFromClasses, sameComposition,
-  classPercents, mixtureLimits, mixtureAt, canWeighOut, fromUnit } from '../calc/ml/space.js';
+  classPercents, mixtureLimits, mixtureAt, canWeighOut, fromUnit, startRange } from '../calc/ml/space.js';
 import { DEFAULT_GOALS, desirabilityCurve, overallDesirability, desirability } from '../calc/ml/objective.js';
 import { fitModels, score, readinessFor, startingDesign, predictAt } from '../calc/ml/optimizer.js';
 import { SPLITS } from '../calc/ml/model.js';
 import { MODES } from '../calc/ml/acquire.js';
-import { timesRun } from '../calc/ml/stopping.js';
+import { timesRun, mostlyLongShots, repeatOf } from '../calc/ml/stopping.js';
 import { partialDependence, desirabilityGrid } from '../calc/ml/explain.js';
 import { buildExperiment, productionDate, addDaysISO, nextWorkday as nextWorkdayISO, TYPES } from '../calc/experiment.js';
 import { checkSuggestions } from '../calc/ml/feasible.js';
@@ -32,6 +32,7 @@ import { predictionCheck } from '../calc/ml/predcheck.js';
 import { biologicalTargets, applyTargets, targetGoals, physchemAsLimits } from '../calc/ml/targets.js';
 import '../calc/ml/biotargets.js'; // registers the studies' targets (spec 7.9)
 import { runsNeeded } from '../calc/variables.js';
+import { goalProblems, rangeProblems, heldValues, heldNotes } from '../calc/ml/guard.js';
 import { transparencyCard, predictionFold, accountCsv, whyTable } from './mlpanel.js';
 import { csvLine } from '../calc/csv.js';
 
@@ -108,10 +109,7 @@ export async function render(el, ctx) {
   const handedOver = (ctx.params.factors || '').split(',').map((k) => k.trim()).filter((k) => ALL_FACTORS.some((f) => f.key === k));
   const spaceFrom = (keys) => keys.map((key) => {
     const f = ALL_FACTORS.find((x) => x.key === key);
-    const obs = measured.map((r) => r.factors[key]).filter(Number.isFinite);
-    const lo = obs.length ? Math.max(f.lo, Math.min(...obs)) : f.lo;
-    const hi = obs.length ? Math.min(f.hi, Math.max(...obs)) : f.hi;
-    return { key, name: f.name, unit: f.unit, step: f.step, lo: lo === hi ? f.lo : lo, hi: lo === hi ? f.hi : hi };
+    return { key, name: f.name, unit: f.unit, step: f.step, ...startRange(f, measured.map((r) => r.factors[key])) };
   });
   // Which lipid and mixer (spec 7.1): the one saved, while the data still has it, else the combination with most
   // measured runs. A selection handed over from Data is the data basis instead, so it filters nothing further.
@@ -162,6 +160,8 @@ export async function render(el, ctx) {
 
   /** Refit every surface: needed only when the data, the factors, the selection or the split strategy change. */
   function compute() {
+    // A range typed backwards or left empty has no suggestions to give: nothing is fitted from it.
+    if (rangeProblems(state.space).length) { report = null; fit = null; return; }
     fit = fitPrepared(prepNow(), { space: state.space, goals: state.goals, strategy: state.strategy, seed: state.seed, lipidByKey: ref.lipidByKey, rank: state.kernelRank });
     rescore();
     keepAnalysis(ctx, report?.fingerprint);
@@ -182,6 +182,16 @@ export async function render(el, ctx) {
     const counts = responseCounts(sel.target, state.space);
     const usable = report?.n ?? sel.target.length;
     const ready = readinessFor(usable);
+    // What each switched-off factor is held at (guard.js), for the factor table: the screen would otherwise
+    // drop the column without a word, while earlier runs spanning it are fitted as if it did not matter.
+    const observedF = {};
+    for (const f of ALL_FACTORS) {
+      const vals = measured.map((r) => r.factors[f.key]).filter(Number.isFinite);
+      observedF[f.key] = { n: vals.length, distinct: new Set(vals.map((v) => Math.round(v * 1e4) / 1e4)).size, lo: vals.length ? Math.min(...vals) : null, hi: vals.length ? Math.max(...vals) : null };
+    }
+    state.heldNotes = heldNotes({ space: state.space, held: heldValues({ space: state.space, settings, baseClasses: classPercents(baseComposition(ref, state), ref) }), observed: observedF });
+    // A sample measured twice: the Data used card says which result the model reads.
+    state.repeatNotes = repeatNotes(measured);
     const panel = transparencyCard({ state, prep, report, ref, settings, handed, rows, descriptorsOn: !!settings.mlDescriptors });
     const mlRounds = ctx.store.all('experiments').filter((e) => e.design?.ml?.fingerprint?.hash)
       .sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || ''))).map((e) => ({ id: e.id, name: e.name, fp: e.design.ml.fingerprint }));
@@ -252,17 +262,22 @@ export async function render(el, ctx) {
 
 /* ---------------- the one-line answer at the top ---------------- */
 function lede(report, ready, usable, state, source) {
-  if (!report) {
-    if (usable < 8) return `<div class="card" style="border-color:var(--c-ml)"><h2>Start here</h2>
+  if (!report || usable < 8) {
+    // Below 8 measured formulations there are no suggestions, with or without a fit: say how many are measured
+    // and how many are needed, and keep the way forward (the starting design) in front.
+    if (usable < 8) return `<div class="card" style="border-color:var(--c-ml)" id="mlStart"><h2>Start here</h2>
+      <p id="mlNeed"><b>${usable} of 8</b> measured runs needed before the first suggestions.</p>
       <p>${usable === 0 ? 'No formulation yet carries both a measured result for a goal and every factor chosen below.' : `${esc(source[0].toUpperCase() + source.slice(1))} ${usable === 1 ? 'has' : 'have'} a measured result and every factor chosen below (the Data used card above lists them).`}
-      A surface model needs about <b>8 runs</b> before it says anything, and about <b>15</b> before its quality can be tested honestly.</p>
+      A surface model needs 8 runs before it suggests anything, and about <b>15</b> before its quality can be tested honestly.</p>
       <p class="muted">The fastest way there is a spread-out starting design rather than runs clustered around one recipe. Choose the factors below, then take the starting design: a Latin hypercube improved by maximin swaps, which spreads runs through the interior where a surface model learns most. If you would rather have a classical design with a protocol and a worksheet, the <a href="#/doe">DoE screen</a> builds central composite and Box-Behnken designs and its runs feed this module just the same.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="seedBtn" data-n="${Math.max(8 - usable, 4)}" ${state.creating ? 'disabled' : ''}>Propose ${Math.max(8 - usable, 4)} starting runs</button><a class="btn" href="#/experiments?new=1&type=doe">Design a formal DoE instead</a></div></div>`;
+    const badRange = rangeProblems(state.space);
+    if (badRange.length) return `<div class="card" style="border-color:var(--c-ml)" id="mlRangeFix"><h2>Fix the search range first</h2>${badRange.map((p) => `<div class="note warn">${esc(p.text)}</div>`).join('')}<p class="muted">No suggestions are made from a range like that. Correct it in the factor table below, then fit the model.</p></div>`;
     return `<div class="card" style="border-color:var(--c-ml)"><h2>Ready</h2><p>${esc(source[0].toUpperCase() + source.slice(1))} can be used: the Data used card above lists them, and what was left out and why. Press <b>Fit model and suggest runs</b> to fit the model on them and get proposals.</p></div>`;
   }
   const s = report.suggestions;
   const best = report.scored?.[0];
-  if (!s?.picks?.length) return `<div class="card" style="border-color:var(--c-ml)"><h2>No suggestions yet</h2>${(report.warnings || []).map((w) => `<div class="note warn">${esc(w)}</div>`).join('') || '<p class="muted">Not enough measured runs for every active goal.</p>'}</div>`;
+  if (!s?.picks?.length) return `<div class="card" style="border-color:var(--c-ml)"><h2>No suggestions yet</h2>${report.verdict?.blocked ? `<p class="note warn" id="roundVerdict" data-level="blocked">${esc(report.verdict.sentence)}</p>` : ''}${(report.warnings || []).map((w) => `<div class="note warn">${esc(w)}</div>`).join('') || '<p class="muted">Not enough measured runs for every active goal.</p>'}</div>`;
   // Model quality as numbers in the value and names in the line under it: with three responses the names in
   // the value ran to four lines of headline type, and the verdict in words is one fold further down anyway.
   const fitted = report.responses.filter((r) => r.best);
@@ -279,7 +294,7 @@ function lede(report, ready, usable, state, source) {
   const pBeats = Math.max(...s.picks.map((p) => p.pBeatsBest ?? 0));
   const opt = report.optimum, optRuns = opt ? timesRun(opt.point, observed, report.space) : 0;
   return `<div class="card" style="border-color:var(--c-ml)" id="mlLede">
-    ${v ? `<p class="note verdict ${v.level === 'stop' ? 'ok' : ''}" id="roundVerdict" data-level="${v.level}">${esc(v.sentence)}<br><span class="muted" style="font-size:12.5px">${esc(v.evidence)}</span></p>` : ''}
+    ${v ? `<p class="note verdict ${v.level === 'stop' ? 'ok' : v.level === 'blocked' || v.level === 'unsure' ? 'warn' : ''}" id="roundVerdict" data-level="${v.level}">${esc(v.sentence)}${v.evidence ? `<br><span class="muted" style="font-size:12.5px">${esc(v.evidence)}</span>` : ''}</p>` : ''}
     <div class="grid g4">
       ${pick ? kpi('Take forward', raw(`<a href="#/formulation?batch=${esc(pick.batchId)}">${esc(pick.batchId || '–')}</a>`), `the model's pick: predicted ${fmt(pick.predictedD, 2)}, ${made(pick.runs.length)}`)
         : kpi('Run next', `${s.picks.length} setting${s.picks.length === 1 ? '' : 's'}`, MODES[state.mode].label.toLowerCase())}
@@ -322,7 +337,7 @@ function confirmNote(report, state) {
   // When the verdict is to stop, confirming is the recommended next step, so its button takes the primary look
   // and the one that makes another round gives it up.
   return `<div class="note" id="confirmNote">${esc(c.reason)}
-    <button id="addConfirm" ${report.verdict?.stop ? 'class="primary" ' : ''}${state.creating ? 'disabled ' : ''}style="padding:3px 10px;margin-left:6px">${esc(label)}</button></div>`;
+    <button id="addConfirm" ${report.verdict?.stop || mostlyLongShots(report.suggestions.picks) ? 'class="primary" ' : ''}${state.creating ? 'disabled ' : ''}style="padding:3px 10px;margin-left:6px">${esc(label)}</button></div>`;
 }
 
 /* ---------------- where the data comes from ---------------- */
@@ -377,6 +392,7 @@ function dataCard(acc, state, report) {
     ${state.excluded.length ? `<button type="button" id="mlUseAll" style="margin-top:8px;padding:4px 10px">Use every experiment again</button>` : ''}
     ${groups.length ? `<h2 style="font-size:13px;margin-top:12px">Left out (${nLeft})</h2><ul class="muted" id="mlLeftOut" style="margin:4px 0 0;padding-left:18px">${groups.map(([k, xs]) =>
       `<li data-reason="${k}"><b>${esc(LEFT_OUT[k])}</b> (${xs.length}): ${list(xs)}${detailOf(k, xs)}</li>`).join('')}</ul>` : '<p class="muted" id="mlLeftOut">Nothing left out: every formulation on record is used.</p>'}
+    ${state.repeatNotes?.length ? `<div class="note" id="repeatNote">${state.repeatNotes.slice(0, 3).map((x) => esc(x.text)).join('<br>')}${state.repeatNotes.length > 3 ? `<br>and ${state.repeatNotes.length - 3} more samples measured twice.` : ''} To use the other result, remove this one in Measurements.</div>` : ''}
     ${outsideSearch ? `<p class="muted">${outsideSearch} of the formulations used lie outside the search range set under Goals and factors. They still inform the model about that edge; suggestions stay inside the range.</p>` : ''}`;
   // Open until there is an answer to lead with; then it folds to its line, which still says what was fitted on.
   return fold(state, 'source', { title: 'Data used', say: esc(say), dflt: !report, cls: 'mlData', body });
@@ -407,31 +423,7 @@ function setupFold(state, auto, measured, counts, report) {
 const setupLeads = (state, report) => goalProblems(state.goals).length > 0 || !report.suggestions?.picks?.length;
 
 /* ---------------- goals ---------------- */
-/** Limits that cannot mean what they say. Caught here rather than silently degrading the score. */
-export function goalProblems(goals) {
-  const out = [];
-  for (const g of goals.filter((x) => x.on !== false)) {
-    const name = g.label || g.name;
-    const n = (v) => (v == null || v === '' ? null : Number(v));
-    if (g.goal === 'target') {
-      const [lo, t, hi] = [n(g.lo), n(g.target), n(g.hi)];
-      if (lo == null || t == null || hi == null) out.push(`${name}: the ideal value and both limits are needed.`);
-      else if (!(lo < hi)) out.push(`${name}: the low limit must be below the high limit.`);
-      else if (!(lo <= t && t <= hi)) out.push(`${name}: the ideal value ${t} is outside the acceptable range ${lo} to ${hi}.`);
-    } else if (g.goal === 'range') {
-      const [lo, hi] = [n(g.lo), n(g.hi)];
-      if (lo == null || hi == null) out.push(`${name}: both ends of the acceptable band are needed.`);
-      else if (!(lo < hi)) out.push(`${name}: the low end of the band must be below the high end.`);
-    } else {
-      const [best, worst] = [n(g.best), n(g.worst)];
-      if (best == null || worst == null) out.push(`${name}: both the ideal and the unacceptable value are needed.`);
-      else if (g.goal === 'minimize' && !(best < worst)) out.push(`${name}: for a goal of "as low as possible" the ideal ${best} must be below the unacceptable ${worst}. As entered, every run at or below ${best} scores the same.`);
-      else if (g.goal === 'maximize' && !(best > worst)) out.push(`${name}: for a goal of "as high as possible" the ideal ${best} must be above the unacceptable ${worst}. As entered, every run at or above ${best} scores the same.`);
-    }
-    if ((g.weight ?? 1) < 0) out.push(`${name}: a negative weight is not meaningful; use 0 to switch the goal off.`);
-  }
-  return out;
-}
+export { goalProblems };
 
 function goalsCard(state) {
   const rows = state.goals.map((g, i) => {
@@ -494,23 +486,28 @@ function spaceCard(state, auto, rows, counts, usable = null) {
     cov[f.key] = { n: vals.length, distinct: distinct.size, lo: vals.length ? Math.min(...vals) : null, hi: vals.length ? Math.max(...vals) : null };
   }
   const mix = mixtureInfo(state.space);
+  const bad = rangeProblems(state.space);
   const row = (f) => {
     const s = inSpace(f.key), c = cov[f.key];
+    const prob = bad.find((p) => p.key === f.key);
+    const flag = prob ? ` aria-invalid="true" title="${esc(prob.text)}" style="width:84px;border-color:var(--warn-text)"` : ' style="width:84px"';
     const status = !c.n ? chip('never recorded', 'warn') : c.distinct < 2 ? chip('held constant', 'warn') : c.distinct === 2 ? chip('two levels', 'info') : chip(`${c.distinct} levels`, 'ok');
     return { cells: [
       raw(`<input type="checkbox" name="s_on_${f.key}" ${s ? 'checked' : ''} style="width:auto" ${c.n ? '' : 'title="no batch records a value for this"'}>`),
       raw(`${esc(f.name)}${f.unit ? ` <span class="muted">${esc(f.unit)}</span>` : ''}`),
       raw(status),
       raw(c.n ? `<span class="muted">${atStep(c.lo, f)} – ${atStep(c.hi, f)}</span>` : '<span class="muted">–</span>'),
-      raw(s ? `<input type="number" step="any" name="s_lo_${f.key}" value="${stepValue(s.lo, f)}" style="width:84px">` : ''),
-      raw(s ? `<input type="number" step="any" name="s_hi_${f.key}" value="${stepValue(s.hi, f)}" style="width:84px">` : ''),
+      raw(s ? `<input type="number" step="any" name="s_lo_${f.key}" value="${stepValue(s.lo, f)}"${flag}>` : ''),
+      raw(s ? `<input type="number" step="any" name="s_hi_${f.key}" value="${stepValue(s.hi, f)}"${flag}>` : ''),
     ] };
   };
   return `<div class="card"><h2>What you are willing to change ${info('doe')}</h2>
     <p class="muted">Only factors that actually varied across your batches can be judged. A factor held constant is listed so you can see it was excluded for that reason, not because it does not matter.</p>
     <p id="spaceNeed" class="note">${esc(runsNeeded(state.space.length, usable ?? rows.length).sentence)}</p>
+    ${bad.length ? `<div id="rangeProblems">${bad.map((p) => `<div class="note warn" data-range="${esc(p.key)}">${esc(p.text)} No suggestions are made until it is fixed.</div>`).join('')}</div>` : ''}
     <h2 style="font-size:13px;margin-top:10px">Process</h2>${table(['Use', 'Factor', 'In your data', 'Observed', 'Search from', 'to'], PROCESS_FACTORS.map(row))}
     <h2 style="font-size:13px;margin-top:10px">Composition</h2>${table(['Use', 'Factor', 'In your data', 'Observed', 'Search from', 'to'], COMPOSITION_FACTORS.map(row))}
+    ${(state.heldNotes || []).length ? `<div id="heldNotes">${state.heldNotes.map((x) => `<div class="note ${x.varied ? 'warn' : ''}" data-held="${esc(x.key)}">${esc(x.text)}</div>`).join('')}</div>` : ''}
     ${mix ? `<div class="note">${info('mixture')} Varying lipid mol% is a different kind of change from varying the process: it moves you away from a composition with clinical precedent, and immune response and safety do not follow from particle size and encapsulation. Recent work on thermostable formulations deliberately froze the lipid ratios for that reason and optimised excipients instead. One case deserves naming: the reviews put organ targeting down to PEG content, PEG molecular weight and PEG tail length, so raising PEG to tidy up a dispersity figure can move where the particle ends up, and nothing on this screen would show it. Worth a thought before you let the optimiser roam here.<br><br>Lipid mol% has to total 100, so <b>${esc(mix.balance || 'no class')}</b> is left free to take up the slack while the others are varied. ${mix.balance ? '' : 'With every class varied there is nothing left to balance, so switch one off.'}</div>` : ''}
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button id="autoSpace">Suggest from my data</button><span class="muted" style="align-self:center">search ranges default to the span you have already run, widened by a quarter</span></div></div>`;
 }
@@ -520,6 +517,8 @@ function spaceCard(state, auto, rows, counts, usable = null) {
 const VERDICT = { weak: 'weak', fair: 'fair', good: 'good', strong: 'strong' };
 function modelFold(report, state) {
   if (!report.responses.length) return '';
+  // From 4 to 7 runs a Q² is computed but is not a quality verdict: the screen says so instead of "strong".
+  if (report.n < 8) return fold(state, 'model', { title: 'Model quality', say: `too few runs to judge (${report.n} of 8 needed)`, body: modelCard(report, state) });
   const say = report.responses.map((r) => {
     const name = esc(r.label || r.name);
     if (r.skipped) return `${name} skipped`;
@@ -542,7 +541,8 @@ function modelCard(report, state) {
     const gpLost = r.best && r.best.key !== 'gp' && r.gpQ2 != null && r.best.q2 != null && r.best.q2 - r.gpQ2 > 0.05;
     const beatsDummy = r.best && r.dummy && r.best.rmse != null && r.dummy.rmse != null ? (1 - r.best.rmse / r.dummy.rmse) : null;
     return `<div style="margin-top:12px"><h2 style="font-size:14px">${esc(r.label || r.name)} <span class="muted">${r.n} runs</span></h2>
-      <div class="note ${LEVEL_KIND[t.level]}"><b>${esc(t.headline)}</b><br>${esc(t.detail)}</div>
+      ${report.n < 8 ? `<div class="note warn"><b>Too few runs to judge</b><br>${r.n} runs is below the 8 a model needs. The Q² in the table is computed on so few held-out runs that it says nothing about quality in either direction.</div>`
+        : `<div class="note ${LEVEL_KIND[t.level]}"><b>${esc(t.headline)}</b><br>${esc(t.detail)}</div>`}
       ${beatsDummy != null ? `<p class="muted">Error is ${beatsDummy > 0 ? `${pct(beatsDummy)} lower than` : `${pct(-beatsDummy)} higher than`} simply predicting the average of every run.${r.noise ? ` Repeat runs put the measurement noise at about ± ${fmt(r.noise.sd, r.name === 'PDI' ? 3 : 1)} ${esc(r.unit || '')} on ${r.noise.df} degree${r.noise.df === 1 ? '' : 's'} of freedom, which the fit weighs as evidence of the floor no model can beat.${r.noise.df < 5 ? ' That few degrees of freedom is weak evidence: repeats that happen to agree barely lower the noise, ones that differ widely raise it.' : ''} ${info('noise')}` : ''}</p>` : ''}
       ${r.hit ? `<p class="muted">Of the ${r.hit.k} held-out runs it rated best, <b>${r.hit.hits}</b> really were in the best ${r.hit.k}; picking at random would average ${fmt(r.hit.byChance * r.hit.k, 1)}. Ranking is what the suggestions rely on, so this matters more than the error figures when Q² is modest.</p>` : ''}
       ${r.null ? `<p class="muted">Null check: shuffling the results and refitting the same way reaches Q² ${fmt(r.null.median, 2)} typically and ${fmt(r.null.high, 2)} at ${r.null.isMax ? 'best' : 'the ninth decile'}, over ${r.null.n} shuffles. ${r.best && r.best.q2 > r.null.high + 0.1 ? 'The real fit is clearly above that.' : 'The real fit is not clearly above that, so treat it as unproven.'}</p>` : ''}
@@ -597,8 +597,12 @@ function suggestionsCard(report, state, ref, env) {
   const head = ['#', ...(anyPurpose ? ['Placed to'] : []), ...report.space.map((f) => ({ label: `${f.name}${f.unit ? ` (${f.unit})` : ''}`, right: true })),
     ...(mx ? [{ label: `${mx.balanceName} (mol%, balance)`, right: true }] : []),
     ...goals.map((g) => ({ label: g.label || g.name, right: true })), { label: 'Beats best', right: true }, ...(anyWarn ? ['Check'] : [])];
+  // A suggestion at a setting that was already run is a repeat, and says so; it is also stored as one.
+  const repeats = s.picks.map((p) => repeatOf(p.point, report.observed, report.space));
+  const longShots = mostlyLongShots(s.picks);
+  const fewer = Math.max(1, s.picks.filter((p) => (p.pBeatsBest ?? 0) >= 0.05).length);
   const body = s.picks.map((p, i) => ({ cells: [
-    raw(`<b>${i + 1}</b>`),
+    raw(`<b>${i + 1}</b>${repeats[i] ? ` <span class="chip info" style="white-space:nowrap" data-repeat="${esc(repeats[i].batchId)}">repeat of ${esc(repeats[i].batchId)}</span>` : ''}`),
     ...(anyPurpose ? [raw(chip(p.purpose === 'learn' ? 'learn' : 'win', p.purpose === 'learn' ? 'info' : 'ok'))] : []),
     ...report.space.map((f) => atStep(p.point[f.key], f)),
     ...(mx ? [raw(`<span data-balance="${mixtureAt(p.point, mx).balance}">${fmt(mixtureAt(p.point, mx).balance, 1)}</span>`)] : []),
@@ -617,9 +621,11 @@ function suggestionsCard(report, state, ref, env) {
       body: `<ol class="muted" id="whyRuns">${s.picks.map((p) => `<li>${esc(p.rationale)}</li>`).join('')}</ol>
       <p class="muted">The ± is where 95 % of single batches made at that setting should land, by the model: its own uncertainty and the measurement scatter together, which is what each result will be held against. No two suggestions sit within 15 % of the searched range of each other on every factor, so the batch buys four answers rather than one answer four times.${mx ? ` ${molPct(mx.lo)}–${molPct(mx.hi)} mol% ${esc(mx.balanceName.toLowerCase())} is the band this module treats as ordinary.` : ''}</p>` })}
     ${anyWarn ? '<div class="note warn">The flagged runs sit outside the settings you have actually run, or need a lipid stock you do not have. The model has no data out there and this program carries no model of your mixing hardware, so check those settings against the rig before you make them, or narrow the search range.</div>' : ''}
+    ${longShots ? `<div class="note" id="longShots">Most of these runs have under 5 % chance of beating your best run, so they are unlikely to add much. Confirming the best candidate is the better use of batches${s.picks.length > 1 ? `; or make only the ${fewer === 1 ? 'best one' : `best ${fewer}`}` : ''}.</div>` : ''}
     ${report.verdict?.stop ? '' : confirmNote(report, state)}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      <button ${report.verdict?.stop ? '' : 'class="primary" '}id="makeExp" ${state.creating ? 'disabled' : ''}>Create an experiment from these ${s.picks.length} runs</button>
+      <button ${report.verdict?.stop || (longShots && s.confirm) ? '' : 'class="primary" '}id="makeExp" ${state.creating ? 'disabled' : ''}>Create an experiment from these ${s.picks.length} runs</button>
+      ${longShots && s.picks.length > 1 ? `<button id="makeFewer" data-k="${fewer}" ${state.creating ? 'disabled' : ''}>Make only the best ${fewer === 1 ? 'run' : `${fewer} runs`}</button>` : ''}
       <button id="exportCsv">Export CSV</button>
       <button id="reseed">Different proposals</button></div>
     ${report.optimum ? fold(state, 'optimum', { title: 'Where the model thinks the optimum is', cls: 'sub', frame: false,
@@ -885,6 +891,8 @@ function wire(el, ctx, ref, settings, state, report, h) {
     // A fresh run is a request for the answer, so the setup folds away again even if it was opened to edit;
     // the other sections stay as the user left them.
     delete state.open.setup;
+    const bad = rangeProblems(state.space);
+    if (bad.length) { toast(bad[0].text, 'warn'); h.draw(); return; }
     h.setRunning(true); h.draw();
     await new Promise((r) => setTimeout(r, 30)); // let the disabled button paint before the blocking fit
     try { h.compute(); } catch (e) { toast('Model fit failed: ' + e.message, 'warn'); }
@@ -900,11 +908,13 @@ function wire(el, ctx, ref, settings, state, report, h) {
   const busy = (on) => {
     state.creating = on;
     if (!h.shown()) return false;
-    el.querySelectorAll('#makeExp, #seedBtn, #addConfirm').forEach((b) => { b.disabled = on; });
+    el.querySelectorAll('#makeExp, #makeFewer, #seedBtn, #addConfirm').forEach((b) => { b.disabled = on; });
     return true;
   };
   root.querySelector('#seedBtn')?.addEventListener('click', (e) => {
     if (!state.space.length) { toast('Choose at least one factor first', 'warn'); return; }
+    const bad = rangeProblems(state.space);
+    if (bad.length) { toast(bad[0].text, 'warn'); return; }
     const n = Number(e.currentTarget.dataset.n) || 8; // exactly the number the button offered
     const mixture = mixtureLimits(state.space, classPercents(baseComposition(ref, state), ref));
     if (mixture && !mixture.room) { toast(mixture.reason, 'warn'); return; }
@@ -912,8 +922,15 @@ function wire(el, ctx, ref, settings, state, report, h) {
     createExperiment(ctx, ref, settings, state, pts.map((p) => ({ point: p })), 'Starting design (ML)', 'A spread-out set of runs so the optimiser has something to learn from.', busy);
   });
   root.querySelector('#reseed')?.addEventListener('click', () => { state.seed = (state.seed * 7 + 13) % 100000; h.rescore(); h.persist(); h.draw(); });
+  // A pick at a setting already run is labelled as the repeat it is (it reads as one on the batch record).
+  const labelled = (picks) => picks.map((p) => { const r = repeatOf(p.point, report.observed, report.space); return r ? { ...p, label: `repeat of ${r.batchId}` } : p; });
+  root.querySelector('#makeFewer')?.addEventListener('click', (e) => {
+    const k = Number(e.currentTarget.dataset.k) || 1;
+    createExperiment(ctx, ref, settings, state, labelled(report.suggestions.picks.slice().sort((a, b) => (b.pBeatsBest ?? 0) - (a.pBeatsBest ?? 0)).slice(0, k)),
+      `ML round ${roundNumber(ctx)}`, `Proposed by the ML optimizer (${MODES[state.mode].label.toLowerCase()}, seed ${state.seed}); only the ${k} most promising of ${report.suggestions.picks.length}.`, busy, report.fingerprint);
+  });
   root.querySelector('#makeExp')?.addEventListener('click', () => {
-    createExperiment(ctx, ref, settings, state, report.suggestions.picks, `ML round ${roundNumber(ctx)}`, `Proposed by the ML optimizer (${MODES[state.mode].label.toLowerCase()}, seed ${state.seed}).`, busy, report.fingerprint);
+    createExperiment(ctx, ref, settings, state, labelled(report.suggestions.picks), `ML round ${roundNumber(ctx)}`, `Proposed by the ML optimizer (${MODES[state.mode].label.toLowerCase()}, seed ${state.seed}).`, busy, report.fingerprint);
   });
   root.querySelector('#addConfirm')?.addEventListener('click', () => {
     const c = report.suggestions.confirm;
@@ -1011,14 +1028,17 @@ function wire(el, ctx, ref, settings, state, report, h) {
     else if ((m = n.match(/^c_(on|name|op|value)_(\d+)$/))) { state.constraints[+m[2]][m[1]] = v; redraw = true; recompute = !!report; }
     else if ((m = n.match(/^s_on_(.+)$/))) {
       const key = m[1];
-      if (v) { const f = ALL_FACTORS.find((x) => x.key === key); const obs = h.measured.map((r) => r.factors[key]).filter(Number.isFinite);
-        const lo = obs.length ? Math.max(f.lo, Math.min(...obs)) : f.lo, hi = obs.length ? Math.min(f.hi, Math.max(...obs)) : f.hi;
-        state.space = [...state.space, { key, name: f.name, unit: f.unit, step: f.step, lo: lo === hi ? f.lo : lo, hi: lo === hi ? f.hi : hi }]
+      if (v) { const f = ALL_FACTORS.find((x) => x.key === key);
+        state.space = [...state.space, { key, name: f.name, unit: f.unit, step: f.step, ...startRange(f, h.measured.map((r) => r.factors[key])) }]
           .sort((a, b) => ALL_FACTORS.findIndex((x) => x.key === a.key) - ALL_FACTORS.findIndex((x) => x.key === b.key));
       } else state.space = state.space.filter((s) => s.key !== key);
       h.invalidate(); report = null; redraw = true;
     }
-    else if ((m = n.match(/^s_(lo|hi)_(.+)$/))) { const s = state.space.find((x) => x.key === m[2]); if (s) s[m[1]] = v; recompute = !!report; refit = true; redraw = true; }
+    else if ((m = n.match(/^s_(lo|hi)_(.+)$/))) { const s = state.space.find((x) => x.key === m[2]); if (s) s[m[1]] = v;
+      // A range that cannot be searched takes the fit and its suggestions away rather than leave ones made from
+      // the range before; fixing it, the person fits again.
+      if (rangeProblems(state.space).length) { h.invalidate(); report = null; recompute = false; } else { recompute = !!report; refit = true; }
+      redraw = true; }
     else if (n === 'sel_combo') {
       // Another lipid or mixer is another data basis, so the fit and its fingerprint no longer apply.
       const [l, mx] = String(v).split('|');
