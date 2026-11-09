@@ -80,11 +80,16 @@ export function tffPlan({ module, start_mL, target_mg_mL, primary_mg_mL, rna_mg 
   const sa = module.surface_cm2;
   const minLoad_mg = (sa / 10000 / 0.5) * 1000;
   const maxLoad_mg = (sa / 10000 / 0.32) * 1000;
-  const reduceTo_mL = start_mL / ((target_mg_mL / primary_mg_mL) * 1.2);
+  // Concentrating only makes sense when the product is below the target. Above it the sheet's formula gives a volume
+  // LARGER than the start ("reduce 15 mL to 18.8 mL"), so there is nothing to reduce: the volume stays as it is and
+  // the step says why. (target 0.133 mg/mL is the default; a primary product of 0.2 mg/mL is already past it.)
+  const needed = target_mg_mL > primary_mg_mL;
+  const reduceTo_mL = needed ? start_mL / ((target_mg_mL / primary_mg_mL) * 1.2) : start_mL;
   const checks = [];
+  if (!needed) checks.push(`Already ${primary_mg_mL.toFixed(3)} mg/mL, at or above the ${target_mg_mL.toFixed(3)} mg/mL target: no concentrating needed, the volume stays ${start_mL.toFixed(2)} mL`);
   if (rna_mg != null && (rna_mg < minLoad_mg || rna_mg > maxLoad_mg))
     checks.push(`RNA load ${rna_mg.toFixed(1)} mg outside module window ${minLoad_mg.toFixed(1)}–${maxLoad_mg.toFixed(1)} mg`);
-  return { minLoad_mg, maxLoad_mg, reduceTo_mL, checks };
+  return { minLoad_mg, maxLoad_mg, reduceTo_mL, needed, checks };
 }
 
 /**
