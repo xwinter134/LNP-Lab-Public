@@ -65,8 +65,12 @@ test('batch record: RNA dilution, mixing, dialysis, final formulation, worked by
   close(c.v1, 13.345865, 1e-5, 'volume after buffer 1'); close(c.buffer2_mL, 4.404135, 1e-5, 'buffer 2'); close(c.vFinal_mL, 17.75, 1e-5, 'final volume');
   const b = biosafetyAliquot({ v_mL: 0.5, c_meas: 0.142, c_target: 0.05 });
   close(b.buffer1_mL, 0.567669, 1e-5, 'aliquot buffer 1'); close(b.buffer2_mL, 0.352331, 1e-5, 'aliquot buffer 2');
-  const t = tffPlan({ module: { surface_cm2: 20 }, start_mL: 10, target_mg_mL: 0.133, primary_mg_mL: 0.2 });
-  close(t.minLoad_mg, 4, 1e-9, 'TFF min load'); close(t.maxLoad_mg, 6.25, 1e-9, 'TFF max load'); close(t.reduceTo_mL, 12.5313, 1e-3, 'reduce to');
+  // concentrating to 0.8 mg/mL from 0.2 mg/mL: 10 mL / (4 x 1.2) by the sheet's formula
+  const t = tffPlan({ module: { surface_cm2: 20 }, start_mL: 10, target_mg_mL: 0.8, primary_mg_mL: 0.2 });
+  close(t.minLoad_mg, 4, 1e-9, 'TFF min load'); close(t.maxLoad_mg, 6.25, 1e-9, 'TFF max load'); close(t.reduceTo_mL, 10 / 4.8, 1e-9, 'reduce to'); assert.equal(t.needed, true);
+  // a product already above the target has nothing to reduce: the formula would give 12.53 mL from 10 mL
+  const n = tffPlan({ module: { surface_cm2: 20 }, start_mL: 10, target_mg_mL: 0.133, primary_mg_mL: 0.2 });
+  assert.equal(n.needed, false); close(n.reduceTo_mL, 10, 1e-12, 'volume unchanged'); assert.match(n.checks[0], /no concentrating needed/);
 });
 
 test('batch record: the "At the bench" numbers for two formulations, worked by hand from docs/FORMULAS.md', () => {

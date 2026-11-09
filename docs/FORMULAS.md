@@ -38,6 +38,7 @@ Compositions: `app/data/compositions.json` (mol% per lipid) and your own under M
 | 3 | RNA conc after dialysis | primary conc · DF |
 | 3 | DLS dilution 1:x | conc · 1000 / 4 |
 | 4 | TFF min / max RNA load, mg | SA/10000/0.5·1000 ; SA/10000/0.32·1000 (SA from the module) |
+| 4 | TFF reduce-to volume, mL | start ÷ (target ÷ primary × 1.2) when the product is below the target; at or above it nothing is concentrated and the volume stays as it is |
 | 4 | Reduce volume to, mL | V_start / ((C_target / primary conc) · 1.2) |
 | 5 | 1st compounding target | 1.33 · final conc |
 | 5 | DF1, buffer 1 | C_meas / C1 ; V·DF1 − V |
