@@ -68,3 +68,18 @@ test('Plackett-Burman: N the next multiple of 4, every column balanced, every pa
   // the first 12-run row is the published generator
   assert.deepEqual(plackettBurman(11)[0], [1, 1, -1, 1, 1, 1, -1, -1, -1, 1, -1]);
 });
+
+test('a bound left empty or a quantity below zero is refused, not made into runs at 0 or at a negative flow', () => {
+  const f = (over) => ({ ...ccdSpec, factors: [{ name: 'FRR', unit: '', low: 2, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }, { ...over }].filter((x) => x.name) });
+  const base = validateSpec({ ...f({}), centerPoints: 3, model: 'interaction', designType: 'full_factorial' });
+  assert.deepEqual(base.filter((m) => /low|below|cannot/.test(m)), [], 'ordinary ranges pass');
+  const emptyLow = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: null, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
+  assert.ok(emptyLow.some((m) => /FRR: enter both a low and a high/.test(m)));
+  const negFlow = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: 2, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: -10, high: 120, applyTo: 'tfr' }] });
+  assert.ok(negFlow.some((m) => /flow: tfr cannot be below 0 \(low is -10\)/.test(m)));
+  const zeroFrr = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'FRR', unit: '', low: 0, high: 4, applyTo: 'frr' }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
+  assert.ok(zeroFrr.some((m) => /cannot be run/.test(m)));
+  // a factor with no batch parameter behind it (a temperature in °C) may go below zero
+  const temp = validateSpec({ ...f({}), model: 'interaction', designType: 'full_factorial', factors: [{ name: 'temperature', unit: 'C', low: -5, high: 25 }, { name: 'flow', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }] });
+  assert.deepEqual(temp.filter((m) => /below|enter both/.test(m)), []);
+});

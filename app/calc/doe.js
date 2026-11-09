@@ -251,7 +251,14 @@ export function validateSpec(spec) {
         else if (!TWO_LEVEL_DESIGNS.includes(spec.designType)) e.push(`${factorLabel(x)} has no setting halfway between two ${factorLabel(x)}s, so it needs a 2-level design: the 2-level full factorial or Plackett-Burman (centre points are split between the two)`);
         continue;
       }
+      // An empty bound is not 0: Number(null) is 0, so a cleared Low passed as "FRR from 0" and made the runs at 0.
+      const given = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+      if (!given(x.low) || !given(x.high)) { e.push(`factor ${x.name}: enter both a low and a high`); continue; }
       if (!(Number(x.high) > Number(x.low))) e.push(`factor ${x.name}: high must exceed low`);
+      // A factor that sets a batch parameter (FRR, flow, N/P, mol% ...) sets a quantity that cannot be below zero;
+      // a ratio or a flow cannot be zero either. A low flow of -10 mL/min made batches with negative pump rates.
+      if (x.applyTo && Number(x.low) < 0) e.push(`factor ${x.name}: ${x.applyTo} cannot be below 0 (low is ${Number(x.low)})`);
+      else if (['frr', 'tfr'].includes(x.applyTo) && Number(x.low) === 0) e.push(`factor ${x.name}: a flow or a flow rate ratio of 0 cannot be run`);
       if (x.center != null && x.center !== '' && !(Number(x.low) < Number(x.center) && Number(x.center) < Number(x.high))) e.push(`factor ${x.name}: centre must lie strictly between low and high`);
     }
   }
