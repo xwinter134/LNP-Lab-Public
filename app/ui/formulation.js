@@ -1,5 +1,6 @@
 // Screen: Formulations — the list, grouped by the experiment that planned them, and one formulation's record:
 // the six steps with calculated targets beside the actuals the operator enters.
+import { info, wireLearn } from './learn.js';
 import { raw, fmt, field, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, redrawSoon, swapHtml, autoSaver, sharedRecord, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
 import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish, inputProblems, dialysisTimeProblem } from '../calc/batch_record.js';
@@ -258,6 +259,9 @@ function stepProgress(batch) {
   });
   return { steps, current };
 }
+
+/** A "?" after a field's label (the plain-language entry in Reference), for the labels a newcomer cannot read: FRR, quench, N/P. */
+const withHelp = (html, label, topic) => html.replace(`${esc(label)}</label>`, `${esc(label)} ${info(topic)}</label>`);
 
 export async function render(el, ctx) {
   const ref = getRef(ctx), settings = getSettings(ctx);
@@ -521,10 +525,10 @@ export async function render(el, ctx) {
       ${field({ id: 'rna_mass_mg', label: 'RNA input (mg)', value: c.mass, step: 0.1 })}`}
       ${field({ id: 'rna_working_mg_mL', label: 'RNA working conc. (mg/mL)', value: c.working, step: 0.05 })}
       ${field({ id: 'mixing_lipidStock_mM', label: 'Lipid stock (mM)', value: c.lipid_mM, step: 0.1 })}
-      ${field({ id: 'mixing_frr', label: 'FRR (aq : org)', value: c.frr, step: 0.5 })}
-      ${plan.process?.quench !== false ? field({ id: 'mixing_quenchFactor', label: 'Quench factor', value: plan.mixing.quenchFactor ?? settings.defaultQuenchFactor, step: 0.5 }) : ''}
+      ${withHelp(field({ id: 'mixing_frr', label: 'FRR (aq : org)', value: c.frr, step: 0.5 }), 'FRR (aq : org)', 'frr')}
+      ${plan.process?.quench !== false ? withHelp(field({ id: 'mixing_quenchFactor', label: 'Quench factor', value: plan.mixing.quenchFactor ?? settings.defaultQuenchFactor, step: 0.5 }), 'Quench factor', 'quench') : ''}
       ${field({ id: 'mixing_totalFlow', label: 'Total flow (mL/min)', value: plan.mixing.totalFlow || 112.5, step: 0.5 })}
-      ${field({ id: 'rna_np', label: 'N/P target (optional, overrides FRR for lipid volume)', value: plan.rna.np, step: 0.5, advanced: true })}
+      ${withHelp(field({ id: 'rna_np', label: 'N/P target (optional, overrides FRR for lipid volume)', value: plan.rna.np, step: 0.5, advanced: true }), 'N/P target (optional, overrides FRR for lipid volume)', 'np')}
       ${field({ id: 'plannedDate', label: 'Production date', type: 'date', value: batch.plannedDate })}
     </div>${(c.problems || []).map((p) => `<div class="note warn" role="alert">${esc(p.text)}</div>`).join('')}${stockThawHtml()}<p class="muted" style="margin:8px 0 0">The buffers, the device and the downstream steps are set in the process above.</p></div>`;
 
@@ -658,6 +662,7 @@ export async function render(el, ctx) {
       finishCard();
 
     const form = formEl = el.querySelector('#batchForm');
+    wireLearn(el);
     form.addEventListener('change', onChange);
     form.addEventListener('input', onInput);
     form.addEventListener('keydown', onKeydown);
