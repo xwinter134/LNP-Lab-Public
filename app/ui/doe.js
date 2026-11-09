@@ -8,7 +8,7 @@
 // what is in them. Before anything is measured the design itself is the only thing worth reading, and it comes
 // first, open.
 import { raw, fmt, field, table, chip, header, fmtDate, kpi, download, toast, todayISO, esc } from './kit.js';
-import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText } from '../calc/experiment.js';
+import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText, addDoeRun } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, MIXTURE_ORDERS, RESPONSES, designSummary, responsesForBatch, toRawDataCSV, toDesignCSV, toReal, specMode, specComponents, designColumns, processOrderOf, factorLabel, termLabel, isCategorical, categoricalName } from '../calc/doe.js';
 import { scheffeTerms, processTerms, crossedTerms, fitMixture, toPseudo } from '../calc/mixture.js';
 import { mixtureDesignFor } from '../calc/doe.js';
@@ -17,7 +17,7 @@ import { paretoEffects, residualPoints, qqPoints, qqLine, surfaceGrid, effectLin
 import { paretoSvg, residualSvg, qqSvg, obsPredSvg, surfaceSvg, surface3dSvg, surface3dOpeningYaw, SURFACE3D_PITCH, effectSvg, traceSvg } from './doeplots.js';
 import { tablePdf, tableCsv, tableTsv } from '../calc/pdf.js';
 import { designSvgFromRuns, designCaption, blendSvgFromRuns, blendCaption, blendLabels } from './designviz.js';
-import { describeId } from '../schema.js';
+import { describeId, usedIds } from '../schema.js';
 import { getSettings, getRef } from '../refdata.js';
 import { balanceColumn } from '../calc/composition.js';
 import { info, wireLearn } from './learn.js';
@@ -185,6 +185,21 @@ function sheetRows(ctx, slots) {
     else if (s.measurementId) { const m = ctx.store.get('measurements', s.measurementId); if (m) r.done[s.test] = m; }
   }
   return [...byName.values()];
+}
+
+/**
+ * "Add a run": one more formulation that is a copy of a run the design has, the centre point being the one a
+ * design most often needs more of (a centre run that went wrong, a third for the pure error). Before this the only
+ * way was a result typed on an existing run.
+ */
+function addRunHtml(runs) {
+  const first = runs.find((r) => r.point_type === 'center') || runs[0];
+  if (!first) return '';
+  return `<div id="addRunRow" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <label for="addRunSrc" style="margin:0">Add a run, a copy of</label>
+    <select id="addRunSrc" style="width:auto">${runs.map((r) => `<option value="${esc(r.run_id)}"${r.run_id === first.run_id ? ' selected' : ''}>${esc(r.run_id)} (${esc(r.point_type)})</option>`).join('')}</select>
+    <button type="button" id="addRun">Add run</button>
+    <span class="muted">A new formulation with the same settings, to make and measure. The design grows by one run.</span></div>`;
 }
 
 function wireData(el, ctx, sel, settings) {
@@ -365,6 +380,7 @@ function doeBody(el, ctx, sel) {
         <a class="btn" href="#/experiments?id=${esc(sel.id)}">The plan</a><a class="btn" href="#/formulation">Formulations</a></div>
       <div style="display:grid;grid-template-columns:minmax(0,2.3fr) minmax(220px,1fr);gap:18px;align-items:start">
         <div>${runTable}
+          ${addRunHtml(runs)}
           ${mode === 'process' ? '' : `<div class="muted" style="margin-top:2px">Lipids: ${comps.map((c) => `${esc(c.name)} ${sigfig(c.lo)}–${sigfig(c.hi)} mol%`).join(' · ')}, every run adds up to ${fmt(Number(spec.total) || 100, 0)}</div>`}
           ${!spec.factors?.length ? '' : `<div class="muted" style="margin-top:2px">${mode === 'process' ? 'Factors' : 'Process factors'}: ${spec.factors.map((f) => `${esc(factorLabel(f))} ${isCategorical(f) ? `${esc(categoricalName(f, -1))} / ${esc(categoricalName(f, 1))}` : `${sigfig(Number(f.low))} / ${sigfig(toReal(f, 0))} / ${sigfig(Number(f.high))}`}${f.applyTo ? (FACTORS.find((x) => x.key === f.applyTo)?.doeName === f.name ? '' : ` → ${FACTORS.find((x) => x.key === f.applyTo)?.name}`) : ' (record only)'}`).join(' · ')}${balance ? `. ${esc(balance.note)}` : ''}</div>`}
         </div>
@@ -652,6 +668,16 @@ function wireDoe(el, ctx, sel) {
     responses: spec.responses.map((r) => ({ name: r.name, label: SHORT[r.name] || r.name, unit: RESPONSES.find((x) => x.name === r.name)?.unit || '' })) });
   const subtitle = designSubtitle(spec, runs, DESIGN_TYPES[spec.designType]?.name || spec.designType, fmtDate(todayISO()));
   el.querySelectorAll('#orderSeg button').forEach((b) => b.addEventListener('click', () => ctx.navigate('doe', { ...ctx.params, id: sel.id, order: b.dataset.order })));
+  el.querySelector('#addRun')?.addEventListener('click', () => {
+    const runId = el.querySelector('#addRunSrc').value;
+    try {
+      const batches = sel.batchIds.map((id) => ctx.store.get('batches', id)).filter(Boolean);
+      const r = addDoeRun(sel, batches, runId, { takenFormulations: usedIds(ctx.store, 'formulation') });
+      ctx.store.transaction(() => { ctx.store.put('batches', r.batch); ctx.store.put('experiments', r.experiment); }, { what: `run ${r.run.run_id} of ${sel.id}` });
+      toast(`Added ${r.run.run_id} (${describeId(r.batch.id)}), a copy of ${runId}. Make it, then enter its results here.`, 'ok');
+      ctx.navigate('doe', { ...ctx.params, id: sel.id, run: r.run.run_id });
+    } catch (err) { toast(err.message, 'warn'); }
+  });
   // The click runs before the details toggles, so the state it is about to take is the opposite of now. A
   // control inside the line (a link, a "?") handles its own click and toggles nothing, so it is not recorded.
   el.querySelectorAll('details[data-fold] > summary').forEach((s) => s.addEventListener('click', (e) => {

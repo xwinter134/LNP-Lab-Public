@@ -225,6 +225,45 @@ export function buildExperiment(spec, env) {
   return { experiment, batches };
 }
 
+/**
+ * One more run of a designed experiment, made as a copy of a run it already has: a replicate of a centre point (the
+ * usual case: a centre run that went wrong, or a third one to see the pure error), or of any run. The experiment had
+ * no way to grow: its only workaround was a result typed on an existing run, which left it unclear whether the old
+ * value was replaced or averaged. The copy gets the next formulation number and the next run number, the source
+ * run's settings and plan, nothing recorded, and the measurements the source batch has slots for.
+ * @param exp         the DoE experiment (design.doe.runs, batchIds, expected)
+ * @param batches     the experiment's formulations
+ * @param runId       the run to repeat, e.g. 'R015'
+ * @param takenFormulations  every formulation id in use, for the numbering
+ * @returns {{ experiment, batch, run }} the experiment as it is now, the new formulation and the new run row
+ */
+export function addDoeRun(exp, batches, runId, { takenFormulations = [], perDay = 4 } = {}) {
+  const runs = exp?.design?.doe?.runs;
+  if (exp?.type !== 'doe' || !Array.isArray(runs)) throw new Error('only a designed experiment can take another run');
+  const src = runs.find((r) => r.run_id === runId);
+  if (!src) throw new Error(`there is no run ${runId} in ${exp.id}`);
+  const from = batches.find((b) => b.id === src.batchId);
+  if (!from) throw new Error(`run ${runId} has no formulation to copy`);
+  const next = Math.max(0, ...runs.map((r) => Number(String(r.run_id).replace(/\D/g, '')) || 0)) + 1;
+  const run_id = `R${String(next).padStart(3, '0')}`;
+  const order = Math.max(0, ...runs.map((r) => Number(r.run_order) || 0)) + 1;
+  const std = Math.max(0, ...runs.map((r) => Number(r.std_order) || 0)) + 1;
+  const id = makeFormulationAllocator(exp.id, [...takenFormulations, ...batches.map((b) => b.id)])();
+  const plannedDate = productionDate(exp.startDate, batches.length, perDay);
+  const batch = JSON.parse(JSON.stringify(from));
+  Object.assign(batch, { id, label: `${run_id} (${src.point_type})`, plannedDate, status: 'planned', actual: {}, notes: '', provenance: { source: 'manual' } });
+  batch.doe = { ...(from.doe || {}), run_id, run_order: order, std_order: std, point_type: src.point_type, well: null, coded: src.coded, replicateOf: src.run_id };
+  const run = { ...JSON.parse(JSON.stringify(src)), run_id, run_order: order, std_order: std, well: null, batchId: id, replicateOf: src.run_id };
+  const due = nextWorkday(addDaysISO(plannedDate, 1));
+  const tests = [...new Set((exp.expected || []).filter((s) => s.batchId === from.id && s.stage === 'final').map((s) => s.test))];
+  const slots = tests.map((test) => ({ id: `${id}_final_${test}`, batchId: id, stage: 'final', test, dueDate: due, status: 'open', measurementId: null, sampleName: sampleName({ batchId: id, stage: 'final' }) }));
+  const experiment = JSON.parse(JSON.stringify(exp));
+  experiment.design.doe.runs.push(run);
+  experiment.batchIds = [...exp.batchIds, id];
+  experiment.expected = [...(exp.expected || []), ...slots];
+  return { experiment, batch, run };
+}
+
 /** Progress and next due items for an experiment. */
 export function experimentProgress(exp, today) {
   const slots = exp.expected || [];

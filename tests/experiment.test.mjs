@@ -85,3 +85,33 @@ test('OFAT on N/P creates one batch per level with the factor applied; DoE full 
 });
 
 
+
+test('addDoeRun: a replicate of a centre run is a new formulation and run with the same settings and nothing recorded', async () => {
+  const { addDoeRun } = await import('../app/calc/experiment.js');
+  const doe = { designType: 'full_factorial', model: 'interaction', centerPoints: 1, replicates: 1, seed: 1, plateFormat: 96,
+    factors: [{ name: 'FRR', low: 2, high: 4, applyTo: 'frr' }, { name: 'flow_rate', unit: 'mL/min', low: 60, high: 120, applyTo: 'tfr' }],
+    responses: [{ name: 'particle_size_nm', goal: 'target', target: 90 }] };
+  const d = buildExperiment({ type: 'doe', name: 'd', startDate: '2026-10-20', compositionId: 363, doe, tests: ['dls', 'ee'] }, env());
+  const centre = d.batches.find((b) => b.doe.point_type === 'center');
+  const before = JSON.stringify(d.experiment);
+  const r = addDoeRun(d.experiment, d.batches, centre.doe.run_id);
+  assert.equal(JSON.stringify(d.experiment), before, 'the experiment passed in is not changed');
+  const n = d.batches.length;
+  assert.equal(r.batch.id, `E1-F${n + 1}`);
+  assert.equal(r.run.run_id, `R${String(n + 1).padStart(3, '0')}`);
+  assert.equal(r.run.point_type, 'center'); assert.equal(r.run.replicateOf, centre.doe.run_id);
+  assert.deepEqual(r.batch.plan.factors, centre.plan.factors);
+  assert.equal(r.batch.plan.mixing.frr, centre.plan.mixing.frr);
+  assert.equal(r.batch.status, 'planned'); assert.deepEqual(r.batch.actual, {});
+  assert.notEqual(r.batch.plan, centre.plan, 'a copy: changing one record must not change the other');
+  assert.equal(r.experiment.design.doe.runs.length, n + 1);
+  assert.equal(r.experiment.batchIds.length, n + 1);
+  const slots = r.experiment.expected.filter((s) => s.batchId === r.batch.id);
+  assert.deepEqual(slots.map((s) => s.test).sort(), ['dls', 'ee']);
+  assert.equal(slots[0].sampleName, `${r.batch.id}_final`); assert.equal(slots[0].status, 'open');
+  assert.throws(() => addDoeRun(d.experiment, d.batches, 'R999'), /no run R999/);
+  assert.throws(() => addDoeRun({ ...d.experiment, type: 'single' }, d.batches, 'R001'), /only a designed experiment/);
+  // a second one is numbered after the first
+  const r2 = addDoeRun(r.experiment, [...d.batches, r.batch], centre.doe.run_id);
+  assert.equal(r2.batch.id, `E1-F${n + 2}`);
+});
