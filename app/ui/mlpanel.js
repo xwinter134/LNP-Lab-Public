@@ -47,8 +47,9 @@ export const lipidName = (key, ref) => (key == null ? 'every lipid' : key === NO
 const mixerName = (m) => (m == null ? 'every mixer' : m === NOT_RECORDED ? 'mixer not recorded' : m);
 
 /** The lines of the data account that are not zero, in the order the formulations met them. */
-export function accountLines(steps) {
+export function accountLines(steps, mine) {
   const s = steps || {};
+  const m = mine || {};
   return [
     [s.handed, 'not in the selection from Data', 'not in the Data selection'],
     [s.otherLipid, 'filtered out: other lipid', 'other lipid'],
@@ -59,6 +60,8 @@ export function accountLines(steps) {
     [s.quality, 'a measurement not to be believed (data budget)', 'quality'],
     [s.mergedRuns, `merged into ${plural(s.mergedGroups || 0, 'point')} with their replicates (data budget)`, 'merged replicates'],
     [s.subselected, 'left out by the space-filling subselection (data budget)', 'subselection'],
+    [m.leftOut, 'left out by you (a result not believed)', 'left out by you'],
+    [m.failed, 'marked failed (no usable result)', 'marked failed'],
   ].filter(([v]) => v > 0);
 }
 
@@ -73,7 +76,7 @@ export function transparencyCard(o) {
   const sel = report?.selection || prep.sels[mode];
   const used = report ? report.n + (report.lipidModel?.others || 0) : sel.rows.length;
   const total = prep.total;
-  const lines = accountLines(sel.steps);
+  const lines = accountLines(sel.steps, { leftOut: state.leftOut?.length, failed: state.failed?.length });
   // The combination: asked on opening, the one with most data preselected; a hand-over from Data overrides it.
   const combo = handed ? `<span>Data: the selection from the Data overview</span>`
     : `<label for="selCombo" style="margin:0">Lipid and mixer</label>
