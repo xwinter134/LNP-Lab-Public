@@ -61,6 +61,8 @@ const testList = (ts) => ts.map((t) => TEST_LABEL[t] || t).join(' + ');
 // Whether the redraw after a manual save keeps the form open. Someone typing results one after another is still
 // at it, and folding the form under them would cost a click per result. Used once.
 let manualKeep = false;
+// What the last "Save result" stored, shown on the card after the redraw it causes: a toast alone is gone before it is read.
+let lastSaved = null;
 
 /** How far ahead "Coming" looks: a week, the span instrument time is booked in. */
 const DUE_AHEAD = 7;
@@ -124,6 +126,8 @@ export async function render(el, ctx) {
   // The manual form opens by itself when the address asks for a slot or a formulation (the "Measure" links of
   // an experiment and a formulation record), and stays open over the redraw its own save causes.
   const manualOpen = !!(ctx.params.slot || filterBatch || manualKeep);
+  const savedNow = manualKeep ? lastSaved : null;
+  lastSaved = null;
   manualKeep = false;
   const filters = readFilters(ctx.params);
 
@@ -142,7 +146,7 @@ export async function render(el, ctx) {
     // Spec 9.3, behind its setting: the grid of an experiment's formulations, above the one-result form, which
     // stays for what a grid cell cannot hold (potency with its cell line, remarks, a file reference).
     (settings.entryGrid ? entryCard(ctx, settings, experiments, batches, stored) : '') +
-    manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today) +
+    manualCard(ctx, settings, openSlots, batches, filterBatch, manualOpen, today, savedNow) +
     (inbox.length ? `<div class="card"><h2>Unassigned imports (${inbox.length})</h2>${table(['Sample name in file', 'Values', 'Assign to', ''], inbox.map((r) => ({ cells: [raw(`<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(r.sampleName)}</span>`), summarize(r), raw(`<select data-assign="${esc(r.id)}"><option value="">–</option>${openSlots.map((s) => `<option value="${esc(s.id)}">${esc(s.sampleName)} · ${esc(s.test)}</option>`).join('')}</select>`), raw(`<button data-assignbtn="${esc(r.id)}" style="padding:4px 8px">Assign</button> <button data-drop="${esc(r.id)}" style="padding:4px 8px">Drop</button>`)] })))}</div>` : '') +
     resultsCard(measurements, experiments, filters, filterBatch, added);
   // The "?" marks in the title. wireLearn guards against wiring the same element twice.
@@ -237,6 +241,9 @@ export async function render(el, ctx) {
     }
     saveMeasurement(ctx, settings, { slot, batchId, experimentId: slot?.experimentId || batches.find((b) => b.id === batchId)?.experimentId || null, stage: slot?.stage || stab?.stage || f.stage, test: f.test, values, date: g.date, operator: g.operator, sampleName: slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : batchId ? `${batchId}_${f.stage}` : ''), remarks: g.remarks, raw: g.fileRef ? { fileName: g.fileRef } : null, condition: slot?.condition ?? stab?.condition, timepoint: slot?.timepoint ?? stab?.timepoint, formulation: slot?.formulation });
     toast(check.warnings.length ? `Result saved. Worth a look: ${check.warnings.map((w) => w.text).join('; ')}` : 'Result saved', check.warnings.length ? 'warn' : 'ok');
+    const shown = (k, dp = 1) => (values[k] != null && Number.isFinite(Number(values[k])) ? Number(values[k]).toFixed(dp).replace(/\.0+$/, '') : null);
+    const nums = [shown('zave_nm') && `Z-ave ${shown('zave_nm')} nm`, shown('pdi', 3) && `PDI ${shown('pdi', 3)}`, shown('ee_pct') && `EE ${shown('ee_pct')} %`, shown('zeta_mV') && `zeta ${shown('zeta_mV')} mV`].filter(Boolean);
+    lastSaved = { text: `Saved ${slot?.sampleName || (stab ? sampleName({ batchId, condition: stab.condition, timepoint: stab.timepoint }) : `${batchId}_${f.stage}`)}${nums.length ? `: ${nums.join(', ')}` : ''}`, warn: check.warnings.map((w) => w.text) };
     manualKeep = true; render(el, ctx);
   });
 
@@ -883,7 +890,7 @@ function sheetFor(rows, fileName) {
  * first thing the form asks anyway: choosing it opens the rest, filled in for that sample, with no click in
  * between. "Free entry" opens it for a result nothing was expecting (a retest, an in-process sample).
  */
-function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today) {
+function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today, saved = null) {
   const horizon = addDays(today, DUE_AHEAD);
   const slots = openSlots.filter((s) => !filterBatch || s.batchId === filterBatch);
   const opt = (s) => `<option value="${esc(s.id)}"${s.id === ctx.params.slot ? ' selected' : ''}>${esc(`${s.sampleName} · ${s.test} · due ${fmtDate(s.dueDate)}`)}</option>`;
@@ -892,7 +899,8 @@ function manualCard(ctx, settings, openSlots, batches, filterBatch, open, today)
     const xs = slots.filter((s) => bucketOf(s.dueDate, today, horizon) === g);
     return xs.length ? `<optgroup label="${esc(label)}">${xs.map(opt).join('')}</optgroup>` : '';
   }).join('');
-  return `<div class="card" id="manualCard"><div id="manualForm">
+  const savedLine = saved ? `<div class="note ${saved.warn.length ? 'warn' : 'ok'}" id="savedLine" role="status">${esc(saved.text)}${saved.warn.length ? ` · worth a look: ${esc(saved.warn.join('; '))}` : ' · inside the QC limits'}</div>` : '';
+  return `<div class="card" id="manualCard">${savedLine}<div id="manualForm">
     <div class="foldLine"><h2>Type one result</h2>
       <select id="slotId" name="slotId" aria-label="Expected measurement (sorted by due date)"><option value="">Choose the sample, or free entry</option>${groups}</select>
       <button type="button" id="manualFree"${open ? ' hidden' : ''}>Free entry</button></div>
