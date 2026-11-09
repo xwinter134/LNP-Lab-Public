@@ -146,5 +146,25 @@ export function inputProblems(v = {}) {
   must('rna_stock_mg_mL', v.stock_mg_mL, 'RNA stock concentration', { unit: 'mg/mL', max: 100 });
   must('mixing_lipidStock_mM', v.lipidStock_mM, 'Lipid stock', { unit: 'mM', max: 500 });
   must('quick_volume_mL', v.volume_mL, 'Volume to formulate', { unit: 'mL', max: 100000 });
+  // What the operator writes down at the bench (record steps 2 to 5): a volume of -15 mL or 5 million mL was taken
+  // as recorded. Passed apart from the inputs above by the record, since these only warn and never stop the plan.
+  const vol = { unit: 'mL', max: 100000, hint: 'check that it is in mL' };
+  must('a_primary_mL', v.primary_mL, 'Primary product volume', vol);
+  must('ds_dialysis_start_mL', v.dialysis_start_mL, 'Dialysis start volume', vol);
+  must('a_dialysis_end_mL', v.dialysis_end_mL, 'Dialysis end volume', vol);
+  must('a_tff_end_mL', v.tff_end_mL, 'TFF end volume', vol);
+  must('ds_final_measured_mg_mL', v.measured_mg_mL, 'Measured RNA concentration', { unit: 'mg/mL', max: 50 });
+  must('ds_final_final_mg_mL', v.final_mg_mL, 'Final concentration', { unit: 'mg/mL', max: 50 });
   return out;
+}
+
+/**
+ * Dialysis start and end are datetime-local texts ("2026-03-02T09:30"). An end before the start is a typo
+ * (day or am/pm), not a finished dialysis. Returns a sentence, or null when either is missing or they are in order.
+ */
+export function dialysisTimeProblem(start, end) {
+  if (!start || !end) return null;
+  const s = Date.parse(start), e = Date.parse(end);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+  return e < s ? 'Dialysis end is before its start: check the date and the time.' : null;
 }

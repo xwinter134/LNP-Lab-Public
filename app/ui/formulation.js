@@ -2,7 +2,7 @@
 // the six steps with calculated targets beside the actuals the operator enters.
 import { raw, fmt, field, table, chip, toast, printHtml, header, todayISO, fmtDate, esc, redrawSoon, swapHtml, autoSaver, sharedRecord, ask } from './kit.js';
 import { getRef, getSettings, compositionLabel, lipidLabel } from '../refdata.js';
-import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish, inputProblems } from '../calc/batch_record.js';
+import { rnaDilution, mixingPlan, dialysisPlan, tffPlan, finalFormulationPlan, fillFinish, inputProblems, dialysisTimeProblem } from '../calc/batch_record.js';
 import { normaliseRoles, bufferAnswersTo } from '../calc/buffer.js';
 import { archivedSet } from '../calc/usage.js';
 import { VARIABLES, TYPED_VARIABLES, VARIABLE_STEPS, readVariable, sourceOf, checkVariable } from '../calc/variables.js';
@@ -113,6 +113,7 @@ function benchNumbers(c, batch) {
         from: `${rnaIn} ÷ RNA working conc. ${asTyped(c.working)} mg/mL`, wait: waitFor(noVolume, noMix, noMass) },
       { key: 'lipid_mL', label: 'Lipid / ethanol', v: m?.lipid_mL, unit: 'mL', digits: 2,
         sub: npNote || (batch.stockId ? `${batch.stockId} · ${asTyped(c.lipid_mM, 1)} mM` : 'lipid stock lot not chosen'),
+        link: batch.stockId ? null : newStockLink(batch),
         from: m ? `RNA phase ${fmt(m.rna_mL, 2)} mL ÷ FRR (aq : org) ${asTyped(c.frr)}` : '', wait: waitFor(noVolume, noMix, noMass) },
       // a process without quench has no quench to prepare
       ...(c.quench ? [{ key: 'quench_mL', label: 'Quench', v: m?.quench_mL, unit: 'mL', digits: 2,
@@ -158,6 +159,11 @@ function benchNumbers(c, batch) {
   return [working, syringes, pumps, ...(stepOf(proc, 'dialysis') ? [dialysis] : [])];
 }
 
+/** "weigh a new stock": the lipid stocks screen with this batch's composition ready (its own mol% when it varies them). */
+function newStockLink(batch) {
+  return { href: `#/stocks?new=1&compositionId=${encodeURIComponent(batch.compositionId)}`, text: 'weigh a new stock' };
+}
+
 /** A bench value as shown: the number, or "—" with what it is waiting for. Shared by the card and the worksheet. */
 const benchValue = (it) => {
   const ok = !it.wait && it.v != null && Number.isFinite(it.v);
@@ -172,7 +178,7 @@ function benchCard(groups) {
     return `<div class="benchTile${it.total ? ' total' : ''}${v.ok ? '' : ' waiting'}" data-bench="${it.key}" title="${esc(hover)}">
       <div class="bl">${esc(it.label)}</div>
       <div class="bv">${v.num}${v.ok ? `<span class="bu"> ${it.unit}</span>` : ''}</div>
-      ${v.sub ? `<div class="bs">${esc(v.sub)}</div>` : ''}</div>`;
+      ${v.sub ? `<div class="bs">${esc(v.sub)}</div>` : ''}${it.link ? `<div class="bs"><a href="${esc(it.link.href)}" data-newstock>${esc(it.link.text)}</a></div>` : ''}</div>`;
   };
   return `<div class="card benchCard" id="atBench">
     <div class="benchHead"><h2>At the bench</h2><span class="muted">In bench order. Hover a number for what it was worked out from.</span></div>
@@ -217,7 +223,7 @@ const STEP_RECORDS = [
     closed: (a) => entered(a.rna_date) || (entered(a.rna_stock_mL) && entered(a.rna_total_mL)) },
   { n: 2, keys: ['quench_lot', 'primary_mL'], closed: (a) => entered(a.primary_mL) },
   { n: 3, keys: ['dialysis_lot', 'dialysis_start', 'dialysis_exchange', 'dialysis_end', 'dialysis_end_mL', 'dialysis_remarks'],
-    closed: (a) => entered(a.dialysis_end_mL) || entered(a.dialysis_end) },
+    closed: (a) => entered(a.dialysis_end_mL) || (entered(a.dialysis_end) && !dialysisTimeProblem(a.dialysis_start, a.dialysis_end)) },
   { n: 4, keys: ['tff_lot', 'tff_end_mL'], closed: (a) => entered(a.tff_end_mL) },
   { n: 5, keys: ['compounded', 'prefilter_lot', 'sterile_lot', 'filtered'], closed: (a) => entered(a.filtered) },
   { n: 6, keys: ['storage', 'filled'], closed: (a) => entered(a.filled) },
@@ -424,8 +430,45 @@ export async function render(el, ctx) {
     if (formEl?.isConnected) swapHtml(el, draw);
   }
 
+  /**
+   * The values "Use planned values" writes, by the field they go to: the targets the Record sections show as
+   * hints. Dialysis ends at its start volume (no better target is known), the final steps take the dialysis
+   * estimate of the RNA concentration and the default final concentration. Rounded as the hints are.
+   */
+  function plannedValues(c) {
+    const r = (x, d) => (Number.isFinite(x) && x > 0 ? Number(x.toFixed(d)) : null);
+    return {
+      1: { a_rna_stock_mL: r(c.rnaStock_mL, 3), a_rna_total_mL: r(c.dil?.total_mL, 3) },
+      2: { a_primary_mL: r(c.mix?.primary_mL, 2) },
+      3: { a_dialysis_end_mL: r(c.startDia, 2) },
+      4: { a_tff_end_mL: r(c.tff?.reduceTo_mL, 2) },
+      5: { ds_final_measured_mg_mL: r(c.dia?.rna_mg_mL_est, 3), ds_final_final_mg_mL: r(settings.defaultFinal_mg_mL, 3) },
+    };
+  }
+  /** What is stored under a record field's name now (null when empty). */
+  const storedValue = (name) => (name.startsWith('a_') ? a[name.slice(2)] : name.startsWith('ds_final_') ? ds.finalFormulation[name.slice(9)] : null);
+  /** The planned values of step n whose fields are still empty: [[name, value]]. */
+  const pendingPlanned = (c, n) => Object.entries(plannedValues(c)[n] || {}).filter(([name, v]) => v != null && !entered(storedValue(name)));
+  /** One button for a step's Record section; absent when every planned field already has a value. */
+  const usePlannedButton = (c, n) => (pendingPlanned(c, n).length
+    ? `<div class="usePlanned"><button type="button" data-useplanned="${n}" title="Fill the empty fields of this step with the targets shown under them. Values already typed stay.">Use planned values</button> <span class="muted">fills the empty fields with their targets</span></div>` : '');
+  /** Fill step n's empty fields through the normal path (assign, store, redraw); typed values are never replaced. */
+  function usePlanned(n) {
+    const todo = pendingPlanned(compute(), n);
+    if (!todo.length) return;
+    for (const [name, v] of todo) assign({ name, type: 'number', value: String(v) });
+    stepOpen.set(n, true);
+    saver.now();
+    toast(`Step ${n}: ${todo.length} empty ${todo.length === 1 ? 'field' : 'fields'} filled with the planned ${todo.length === 1 ? 'value' : 'values'}`, 'ok');
+    swapHtml(el, draw);
+  }
+  /** A step's warnings about what was recorded in it (volumes, dialysis times). Shown, not blocking. */
+  const recordNotes = (fields, extra = []) => [...inputProblems(fields).map((p) => p.text), ...extra.filter(Boolean)]
+    .map((t) => `<div class="note warn" role="alert">${esc(t)}</div>`).join('');
+
   function draw() {
     const c = compute();
+    const pv = plannedValues(c);
     // Each stock with its freeze–thaw count (" · 3 F/T", "⚠" past the threshold in Settings); a stock or an RNA
     // lot deleted since stays named, marked so, rather than the menu falling back to "choose".
     const ft = (s) => ftTag(s, settings.ftWarnCycles);
@@ -444,7 +487,9 @@ export async function render(el, ctx) {
     };
     const tr = (label,target, actualHtml = '') => `<tr><td>${label}</td><td style="text-align:right"><b>${target}</b></td><td>${actualHtml}</td></tr>`;
     const tbl = (rows) => `<table><thead><tr><th>Parameter</th><th style="text-align:right">Target</th><th>Actual / record</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-    const inp = (name, val, w = 110, step = 'any') => `<input type="number" step="${step}" name="${name}" value="${esc(val ?? '')}" style="width:${w}px">`;
+    // data-plan: Enter in the empty field takes the target shown under it (onKeydown below)
+    const planOf = (name) => Object.values(pv).map((o) => o[name]).find((x) => x != null);
+    const inp = (name, val, w = 110, step = 'any') => `<input type="number" step="${step}" name="${name}" value="${esc(val ?? '')}" style="width:${w}px"${planOf(name) != null && !entered(val) ? ` data-plan="${planOf(name)}"` : ''}>`;
     const txt = (name, val, w = 160) => `<input type="text" name="${name}" value="${esc(val ?? '')}" style="width:${w}px">`; // val: the text as typed, escaped here
     // A step reads top to bottom: what is set up for it, what the plan works out (tiles, nothing to type), and
     // only the few values written down at the bench. Pump rates and other set values are shown, not asked again.
@@ -469,7 +514,7 @@ export async function render(el, ctx) {
       <span class="muted">${c.quick ? `Set the volume to make; the ${c.cargoName}, the phases and the pumps follow. No dilution, dialysis, TFF or final formulation.` : 'RNA dilution, mixing, dialysis, TFF, final formulation and fill, with targets and actuals.'}</span></div>`;
     const inputs = `<div class="card" id="inputsCard"><h2>Inputs</h2>${modeSeg}<div class="grid g4">
       ${field({ id: 'compositionId', label: 'Composition', type: 'select', value: batch.compositionId, options: ref.pick('compositions', batch.compositionId).map((x) => ({ value: x.id, label: compositionLabel(x, ref) })) })}
-      ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: batch.stockId || '', options: stockOpts })}
+      ${field({ id: 'stockId', label: 'Lipid stock lot', type: 'select', value: batch.stockId || '', options: stockOpts, hint: batch.stockId ? '' : raw(`<a href="${esc(newStockLink(batch).href)}" data-newstock>weigh a new stock</a>`) })}
       ${field({ id: 'rna_lotId', label: `RNA lot · ${c.cargoName}`, type: 'select', value: plan.rna.lotId || '', options: rnaOpts })}
       ${c.quick ? field({ id: 'quick_volume_mL', label: 'Volume to formulate (mL)', value: plan.volume_mL, step: 0.5, min: 0, hint: quickHint })
         : `${field({ id: 'rna_stock_mg_mL', label: 'RNA stock conc. (mg/mL)', value: c.stock_mg_mL, step: 0.01 })}
@@ -503,7 +548,7 @@ export async function render(el, ctx) {
       fld('Dilution buffer lot', txt('a_rna_diluent_lot', a.rna_diluent_lot || proc.aqueous?.buffer || '')),
       fld('Prepared by', txt('a_rna_operator', a.rna_operator || settings.operator)),
       fld('Date', `<input type="date" name="a_rna_date" value="${esc(a.rna_date || '')}">`),
-    ]))}` : '<div class="note">Set the RNA stock concentration (or choose an RNA lot) to compute the dilution.</div>';
+    ]) + usePlannedButton(c, 1))}` : '<div class="note">Set the RNA stock concentration (or choose an RNA lot) to compute the dilution.</div>';
 
     const m = c.mix;
     // The set-up (device, mixer, buffers) is shown read-only — it is changed in the process designer above.
@@ -532,7 +577,7 @@ export async function render(el, ctx) {
     ]))}${sec('Record', flds([
       c.quench ? fld('Quench buffer lot', txt('a_quench_lot', a.quench_lot || proc.quenchBuffer?.buffer || '')) : '',
       fld('Primary product volume (mL)', inp('a_primary_mL', a.primary_mL), targetHint(fmt(m.primary_mL, 2))),
-    ]))}
+    ]) + usePlannedButton(c, 2))}${recordNotes({ primary_mL: a.primary_mL })}
     ${m.checks.map((x) => `<div class="note warn">${esc(x)}</div>`).join('')}
 ` : `<div class="note warn">${esc(c.err || (c.quick ? 'Enter the volume to formulate to compute the mixing plan.' : 'Enter RNA input to compute the mixing plan.'))}</div>`;
 
@@ -552,7 +597,7 @@ export async function render(el, ctx) {
       fld('End', `<input type="datetime-local" name="a_dialysis_end" value="${esc(a.dialysis_end || '')}">`),
       fld('End volume (mL)', inp('a_dialysis_end_mL', a.dialysis_end_mL), c.dia ? `dilution factor ${fmt(c.dia.dilutionFactor, 3)} · RNA ≈ ${fmt(c.dia.rna_mg_mL_est, 3)} mg/mL` : ''),
       fld('Remarks', txt('a_dialysis_remarks', a.dialysis_remarks)),
-    ]))}`;
+    ]) + usePlannedButton(c, 3))}${recordNotes({ dialysis_start_mL: ds.dialysis.start_mL, dialysis_end_mL: a.dialysis_end_mL }, [dialysisTimeProblem(a.dialysis_start, a.dialysis_end)])}`;
 
     // Ticking TFF adds a TFF step to the process (after the dialysis), unticking takes it out: the same as doing
     // it in the designer, so the drawing and this step cannot disagree.
@@ -569,7 +614,7 @@ export async function render(el, ctx) {
         kv('Reduce volume to at least', c.tff ? fmt(c.tff.reduceTo_mL, 2) : '–', 'mL'),
       ]))}${c.tff?.checks?.length ? `<div class="ticks">${c.tff.checks.map((x) => `<span class="chip warn">${esc(x)}</span>`).join('')}</div>` : ''}${sec('Record', flds([
         fld('End volume (mL)', inp('a_tff_end_mL', a.tff_end_mL), c.tff ? targetHint(fmt(c.tff.reduceTo_mL, 2)) : ''),
-      ]))}` : `<p class="muted">Skipped: ${dia ? 'dialysis volume goes' : 'the product goes'} straight to final formulation.</p>`}`;
+      ]) + usePlannedButton(c, 4))}${recordNotes({ tff_end_mL: a.tff_end_mL })}` : `<p class="muted">Skipped: ${dia ? 'dialysis volume goes' : 'the product goes'} straight to final formulation.</p>`}`;
 
     const cp = c.comp;
     const buf1Select = `<select name="ds_final_buffer1">${bufferOpts('dialysis', ds.finalFormulation.buffer1).map((o) => `<option value="${esc(o.value)}" ${o.value === ds.finalFormulation.buffer1 ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
@@ -588,7 +633,7 @@ export async function render(el, ctx) {
     ]))}${sec('Final product', kvs([
       kv('Final volume', cp ? fmt(cp.vFinal_mL, 2) : '–', 'mL'),
       kv('RNA', cp ? fmt(cp.rna_mg, 2) : '–', 'mg'),
-    ]))}<div class="ticks">${tick('a_compounded', a.compounded, 'Compounded')}${tick('a_filtered', a.filtered, 'Filtered')}</div>`;
+    ]))}${recordNotes({ measured_mg_mL: ds.finalFormulation.measured_mg_mL, final_mg_mL: ds.finalFormulation.final_mg_mL })}<div class="ticks">${tick('a_compounded', a.compounded, 'Compounded')}${tick('a_filtered', a.filtered, 'Filtered')}</div>${usePlannedButton(c, 5)}`;
 
     const step6 = `${table(['Container', 'Count', 'Fill (mL)', { label: 'Total (mL)', right: true }, ''], ds.fill.map((f, i) => ({ cells: [raw(txt(`fill_container_${i}`, f.container, 140)), raw(inp(`fill_count_${i}`, f.count, 80, 1)), raw(inp(`fill_mL_${i}`, f.fill_mL, 80)), fmt(f.count * f.fill_mL, 2), raw(`<button data-rmfill="${i}" style="padding:3px 8px">✕</button>`)] })))}
       <div style="display:flex;gap:10px;align-items:center;margin-top:6px"><button id="addFill" style="padding:5px 10px">+ Container</button><span class="muted">Total ${fmt(c.fill?.total_mL, 2)} mL of ${cp ? fmt(cp.vFinal_mL, 2) : '–'} mL available</span>
@@ -615,6 +660,8 @@ export async function render(el, ctx) {
     const form = formEl = el.querySelector('#batchForm');
     form.addEventListener('change', onChange);
     form.addEventListener('input', onInput);
+    form.addEventListener('keydown', onKeydown);
+    form.querySelectorAll('[data-useplanned]').forEach((b) => b.addEventListener('click', () => usePlanned(Number(b.dataset.useplanned))));
     form.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
     // The designer's own buttons (add, remove, move a step) change the process whole.
     wireProcessButtons(form, () => plan.process, (next) => { plan.process = next; reflow(); saver.now(); swapHtml(el, draw); }, ref);
@@ -683,7 +730,9 @@ export async function render(el, ctx) {
         <span class="muted">Marks ${esc(batch.id)} produced and saves it. Its results are entered next, under <a href="#/measurements?batch=${esc(batch.id)}">Measurements</a>.</span></div></div>`;
     }
     const next = nextPlanned();
-    return `<div class="card finishCard done" id="finishCard"><div class="finishRow">
+    // Marked produced with no lipid stock lot chosen: said here, not asked in a dialog. The record stays as it is.
+    const noStock = batch.stockId ? '' : `<div class="note warn" id="noStockNote" role="alert">No lipid stock lot is chosen for ${esc(batch.id)}, so the record does not say which stock it was made from. Choose it under Inputs, or <a href="${esc(newStockLink(batch).href)}" data-newstock>weigh a new stock</a>.</div>`;
+    return `<div class="card finishCard done" id="finishCard">${noStock}<div class="finishRow">
       <span class="finishTick" aria-hidden="true">✓</span><span><b>${esc(batch.id)} is ${esc(batch.status)}.</b> ${next ? `Next still to make: <b>${esc(next.id)}</b>${next.label ? ` · ${esc(next.label)}` : ''}.` : exp ? 'Every formulation of this experiment is made.' : ''}</span></div>
       <div class="finishRow">${next ? `<a class="btn primary" id="finishNext" href="#/formulation?batch=${esc(next.id)}">Go to ${esc(next.id)}</a>` : ''}
         ${exp ? `<a class="btn${next ? '' : ' primary'}" id="finishBack" href="#/experiments?id=${esc(exp.id)}">Back to ${esc(describeId(exp.id))}</a>` : ''}
@@ -836,6 +885,17 @@ export async function render(el, ctx) {
     const t = e.target;
     if (t.tagName === 'SELECT' || t.type === 'checkbox' || t.type === 'radio') return; // these send change as well
     if (assign(t)) saver.soon();
+  }
+
+  // Enter in an empty actual field that shows a target takes that target, as if it had been typed. Anywhere else
+  // (a typed value, a field without a target) Enter does what it did.
+  function onKeydown(e) {
+    const t = e.target;
+    if (e.key !== 'Enter' || !t.dataset?.plan || t.value !== '') return;
+    e.preventDefault();
+    t.value = t.dataset.plan;
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    t.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   function print(c) {
