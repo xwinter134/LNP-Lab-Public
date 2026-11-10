@@ -185,7 +185,7 @@ function list(el, ctx, ref) {
         <span class="xr-id"><a href="#/experiments?id=${esc(e.id)}">${esc(describeId(e.id))}</a></span>
         <span class="xr-name">${nameRepeatsType(e.name, e.type) ? '' : `${esc(e.name)}<span class="muted"> · </span>`}<span class="muted" title="${esc(typeName(e))}">${esc(typeShortOf(e))} · ${n} formulation${n === 1 ? '' : 's'}</span>${verdictOf(e) ? `<span class="xr-result">Result: ${esc(verdictOf(e))}</span>` : ''}</span>
         <span class="xr-prog" title="${p.done} of ${p.total} measurements done"><span class="xr-bar"><i style="width:${pct}%"></i></span><span class="xr-n">${p.done} / ${p.total}</span>${p.overdue ? ` <span class="xr-late">${p.overdue} overdue</span>` : ''}</span>
-        <span class="xr-due muted">${p.nextDue ? `next due ${esc(fmtDate(p.nextDue))}` : `started ${esc(fmtDate(e.startDate))}`}</span>
+        <span class="xr-due muted">${p.nextDue ? `next measurement ${esc(fmtDate(p.nextDue))}` : `started ${esc(fmtDate(e.startDate))}`}</span>
         <span class="xr-st">${stageChip(e)}</span>
       </summary>
       <div class="xr-body">${open ? body(e) : ''}</div>
@@ -512,7 +512,7 @@ function wizard(el, ctx, ref, settings, type) {
     const s = { ...state };
     s.stability = { formulations: state.stability.formulations.map((f, i) => ({ compositionId: Number(f.compositionId), label: `F${i + 1}` })), conditions: state.stability.conditions, timepoints: timepoints(), tests: state.stability.tests, potencyAt: parseNumberList(state.stability.potencyAtText) };
     s.ofat = ofatMixers() ? { factor: state.ofat.factor, levels: ofatMixers().map((m) => m.id), labels: Object.fromEntries(ofatMixers().map((m) => [m.id, m.name])) }
-      : { factor: state.ofat.factor, levels: parseNumberList(state.ofat.levelsText) };
+      : { factor: state.ofat.factor, levels: parseNumberList(state.ofat.levelsText), levelsText: state.ofat.levelsText };
     s.doe = doeSpec();
     if (type === 'doe') s.tests = [...new Set([...state.tests, ...s.doe.responses.map((r) => RESPONSES.find((x) => x.name === r.name)?.source[0]).filter(Boolean)])];
     s.comparison = { compositionIds: state.comparison.compositionIds.map(Number) };
@@ -1140,7 +1140,7 @@ function detail(el, ctx, ref, settings, id) {
     ${kpi('N/P', np != null ? fmt(np, 1) : '–', ionizablePct ? `ionizable ${fmt(ionizablePct, 1)} mol% · ${cargo} usually about ${cargoInfo(cargo).defaultNP}` : 'needs ionizable class in composition')}
     ${kpi('Mixing', first ? `${fmt(first.plan.mixing.totalFlow, 1)} mL/min` : '–', first ? `FRR ${fmt(first.plan.mixing.frr, 1)} : 1 · quench ×${first.plan.mixing.quenchFactor}` : '')}
     ${kpi('Progress', `${p.done} / ${p.total}`, p.overdue ? `${p.overdue} overdue` : p.dueToday.length ? `${p.dueToday.length} due today` : '')}
-    ${kpi('Next due', p.nextDue ? fmtDate(p.nextDue) : 'nothing open', '')}
+    ${kpi('Next measurement due', p.nextDue ? fmtDate(p.nextDue) : 'nothing open', '')}
   </div>`;
 
   // A factor by the short name the bench uses (FRR, TFR, PEG mol%): a run of an optimizer round or a design varies

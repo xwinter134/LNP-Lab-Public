@@ -14,6 +14,6 @@ test('emptyState: without an action there is no button', () => {
 });
 test('kpi: an empty value gets .empty, a real one does not', () => {
   assert.match(kpi('Lipid stock', 'not chosen'), /class="v empty"/);
-  assert.match(kpi('Next due', 'nothing open'), /class="v empty"/);
+  assert.match(kpi('Next measurement due', 'nothing open'), /class="v empty"/);
   assert.match(kpi('N/P', '5.2'), /class="v"/);
 });
