@@ -199,7 +199,10 @@ export const catalogEntry = (id) => CATALOG.find((e) => e.id === id) || null;
 
 /** The hash the "Set this up" button points at, carrying the factors when the caller has them. */
 export function setupLink(e, factorKeys = []) {
-  const keys = factorKeys.filter(Boolean).join(',');
+  // The blend already chooses the PEG and ionizable mol%, so a crossed design refuses them as process factors
+  // (validateDoe); passing them on opened a wizard that was disabled from the start.
+  const blendChosen = e.screen.includes('mode=crossed') ? ['peg_pct', 'ionizable_pct'] : [];
+  const keys = factorKeys.filter((x) => x && !blendChosen.includes(x)).join(',');
   if (!keys) return `#/${e.screen}`;
   return `#/${e.screen}${e.screen.includes('?') ? '&' : '?'}factors=${encodeURIComponent(keys)}`;
 }

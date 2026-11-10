@@ -2,7 +2,7 @@
 // the wizard can build, or quotes a batch count the wizard will not produce, is worse than no catalogue.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORIES, CATALOG, runsFor, fitsFactors, catalogIn, catalogEntry, affordable, catalogGaps } from '../app/calc/designs.js';
+import { CATEGORIES, CATALOG, runsFor, fitsFactors, setupLink, catalogIn, catalogEntry, affordable, catalogGaps } from '../app/calc/designs.js';
 import { DESIGN_TYPES, buildDesign } from '../app/calc/doe.js';
 import { TYPES } from '../app/calc/experiment.js';
 import { TOPICS } from '../app/learn/topics.js';
@@ -112,4 +112,12 @@ test('every catalogue entry has a figure, drawn from the generator for a design'
   assert.equal(dots('full_factorial'), 8 + 1, 'eight corners and a centre');
   assert.equal(dots('bbd'), 12 + 1, 'twelve edge midpoints and a centre');
   assert.equal(dots('ccd_faced'), 8 + 6 + 1, 'corners, six face points, a centre');
+});
+
+test('setupLink: a crossed design is not handed the lipid mol% factors the blend already chooses', () => {
+  const crossed = CATALOG.find((e) => e.id === 'crossed');
+  const link = setupLink(crossed, ['frr', 'tfr', 'peg_pct', 'np', 'ionizable_pct']);
+  assert.match(link, /factors=frr%2Ctfr%2Cnp$/);
+  const ccd = CATALOG.find((e) => e.id === 'ccd_faced');
+  assert.match(setupLink(ccd, ['frr', 'peg_pct']), /factors=frr%2Cpeg_pct$/);
 });
