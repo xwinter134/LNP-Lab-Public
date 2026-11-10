@@ -138,7 +138,13 @@ export async function render(el, ctx) {
   const openSlots = experiments.reduce((s, e) => s + (e.expected || []).filter((x) => x.status === 'open').length, 0);
   const stocks = ctx.store.all('stocks');
   const expiring = stocks.filter((s) => s.expiry && s.expiry <= addDays(today, 7));
-  const active = experiments.filter((e) => e.status !== 'done');
+  // Active means work is left: a formulation still to make or a measurement still open. An experiment whose every
+  // result is in is not marked done by itself, but counting it here contradicted "Everything planned is made and
+  // measured" in the next step; it is mentioned as finished instead.
+  const hasWork = (e) => (e.expected || []).some((x) => x.status === 'open') || batches.some((b) => b.experimentId === e.id && ['planned', 'produced'].includes(b.status));
+  const notDone = experiments.filter((e) => e.status !== 'done');
+  const active = notDone.filter(hasWork);
+  const finished = notDone.filter((e) => !hasWork(e));
   const inbox = ctx.store.count('inbox');
   const flagged = measurements.filter((m) => (m.flags || []).some((f) => f.level === 'warn')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
 
@@ -181,7 +187,7 @@ export async function render(el, ctx) {
       ${kpi('Due today', dueToday.length, overdue.length ? `${overdue.length} overdue` : 'nothing late')}
       ${kpi('Measurements open', openSlots, `${measurements.length} recorded`)}
       ${kpi('Stocks expiring', raw(`<span style="color:${expiring.length ? 'var(--warn)' : 'inherit'}">${expiring.length}</span>`), 'within 7 days')}
-      ${kpi('Active experiments', active.length, active.length ? `${active.length === 1 ? '1 open' : `${active.length} open`}: ${active.slice(0, 2).map((e) => describeId(e.id)).join(', ')}${active.length > 2 ? ' …' : ''}` : 'none open')}
+      ${kpi('Active experiments', active.length, (active.length ? `${active.length === 1 ? '1 open' : `${active.length} open`}: ${active.slice(0, 2).map((e) => describeId(e.id)).join(', ')}${active.length > 2 ? ' …' : ''}` : 'none open') + (finished.length ? `${active.length ? ' · ' : ', '}${finished.length} fully measured, not marked done` : ''))}
     </div>
     ${empty ? `<div class="card"><h2>Getting started</h2><ol style="margin:0;padding-left:18px;line-height:1.8">
       <li><a href="#/advisor">Say what you are trying to find out</a> and the planner will name a design, or <a href="#/designs">browse the catalogue</a> if you already know.</li>
