@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildExperiment, flowsFromTotal, experimentProgress, parseNumberList, stabilityTimepoints } from '../app/calc/experiment.js';
+import { buildExperiment, flowsFromTotal, experimentProgress, parseNumberList, checkOfatLevels, stabilityTimepoints } from '../app/calc/experiment.js';
 import { DEFAULT_SETTINGS } from '../app/refdata.js';
 
 const env = () => ({ settings: DEFAULT_SETTINGS, takenFormulations: [], experimentId: 'E1' });
@@ -126,4 +126,23 @@ test('typeNameOf: an optimizer round is called one, everything else keeps its ty
   assert.equal(typeShortOf({ type: 'doe' }), 'DoE');
   assert.equal(typeNameOf({ type: 'mystery' }), 'mystery');
   assert.equal(typeNameOf(null), '');
+});
+
+test('OFAT levels get the DoE wizard checks: no negative or zero flows, no duplicates, no silent drops, two levels at least', () => {
+  const errs = (k, t) => checkOfatLevels(k, t).errors.join(' | ');
+  assert.deepEqual(checkOfatLevels('tfr', '60, 90, 120'), { levels: [60, 90, 120], errors: [] });
+  assert.deepEqual(checkOfatLevels('np', '3; 4,5; 6').levels, [3, 4.5, 6], 'semicolons allow a decimal comma');
+  assert.match(errs('tfr', '-10, 0, 60'), /cannot be set below 0 \(-10\)/);
+  assert.match(errs('tfr', '0, 60'), /of 0 cannot be run/);
+  assert.match(errs('tfr', '60,60,60'), /60 is typed more than once/);
+  assert.match(errs('tfr', '60,abc,120'), /"abc" is not a number/);
+  assert.match(errs('np', '6'), /at least two levels/);
+  assert.match(errs('peg_pct', '1, 150'), /cannot pass 100/);
+  assert.match(errs('aq_pH', '4, 15'), /pH lies between/);
+  // buildExperiment refuses the same text, so a spec carrying it cannot create the batches
+  const mk = (levelsText) => () => buildExperiment({ type: 'ofat', name: 'o', startDate: '2026-10-20', compositionId: 363, ofat: { factor: 'tfr', levels: parseNumberList(levelsText), levelsText } }, env());
+  assert.throws(mk('-10, 0, 60'), /below 0/);
+  assert.throws(mk('60,abc,120'), /not a number/);
+  assert.throws(mk(''), /at least one level/);
+  assert.doesNotThrow(mk('60, 90'));
 });

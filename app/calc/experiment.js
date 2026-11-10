@@ -105,6 +105,34 @@ export function parseNumberList(text) {
 }
 
 /**
+ * The levels typed for a one-factor-at-a-time experiment, read with the checks the DoE wizard makes on its
+ * ranges: a word that is not a number is reported, not dropped (parseNumberList alone would silently turn
+ * "60, abc, 120" into two levels); a quantity cannot be negative, a flow, a ratio or an N/P cannot be zero, a
+ * mol% cannot pass 100 and a pH lies between 0 and 14; the same level twice is one formulation made twice;
+ * and one level compares nothing. Returns {levels, errors}; errors is empty when the levels can be run.
+ */
+export function checkOfatLevels(factorKey, text) {
+  const f = FACTORS.find((x) => x.key === factorKey);
+  const name = f?.name || factorKey;
+  const raw = String(text ?? '');
+  const tokens = (raw.includes(';') ? raw.split(/[;\s]+/).map((t) => t.replace(',', '.')) : raw.split(/[,\s]+/)).filter((t) => t !== '');
+  const errors = [];
+  const levels = [];
+  const bad = tokens.filter((t) => !Number.isFinite(Number(t)));
+  if (bad.length) errors.push(`${bad.map((t) => `"${t}"`).join(', ')} ${bad.length === 1 ? 'is' : 'are'} not a number: ${name} levels are numbers like ${f?.range ? f.range.join(', ') : '3, 6, 9'}`);
+  for (const t of tokens) if (Number.isFinite(Number(t))) levels.push(Number(t));
+  const neg = levels.filter((v) => v < 0);
+  if (neg.length) errors.push(`${name} cannot be set below 0 (${neg.join(', ')})`);
+  else if (['np', 'frr', 'tfr', 'quench', 'lipid_mM', 'rna_mg_mL'].includes(factorKey) && levels.some((v) => v === 0)) errors.push(`${name} of 0 cannot be run`);
+  if (['peg_pct', 'ionizable_pct'].includes(factorKey) && levels.some((v) => v > 100)) errors.push(`${name} is a mol% and cannot pass 100`);
+  if (factorKey === 'aq_pH' && levels.some((v) => v < 0 || v > 14)) errors.push('a pH lies between 0 and 14');
+  const dup = [...new Set(levels.filter((v, i) => levels.indexOf(v) !== i))];
+  if (dup.length) errors.push(`${dup.join(', ')} ${dup.length === 1 ? 'is' : 'are'} typed more than once: list each level once (replicates belong to a reference or DoE experiment)`);
+  if (levels.length === 1 && !bad.length) errors.push('type at least two levels to compare, e.g. 3, 6, 9, 12');
+  return { levels, errors };
+}
+
+/**
  * Stability timepoints in days, from the wizard's fields: the custom list when one was typed, otherwise every
  * `intervalDays` from 0 to `durationDays`, with the duration itself always the last pull even when the
  * interval does not land on it.
@@ -175,7 +203,13 @@ export function buildExperiment(spec, env) {
     case 'ofat': {
       const f = FACTORS.find((x) => x.key === spec.ofat.factor);
       // Refused rather than created empty: an experiment with no formulations has nothing to make or measure.
-      if (!spec.ofat.levels?.length) throw new Error(f?.categorical ? `tick at least one ${f.name.toLowerCase()} to compare` : 'type at least one level for the factor, e.g. 3, 6, 9, 12');
+      if (!spec.ofat.levels?.length && !spec.ofat.levelsText) throw new Error(f?.categorical ? `tick at least one ${f.name.toLowerCase()} to compare` : 'type at least one level for the factor, e.g. 3, 6, 9, 12');
+      // The wizard hands over the text it parsed, so what it could not read is reported here instead of dropped.
+      if (spec.ofat.levelsText != null && !f?.categorical) {
+        const chk = checkOfatLevels(spec.ofat.factor, spec.ofat.levelsText);
+        if (!chk.levels.length && !chk.errors.length) throw new Error('type at least one level for the factor, e.g. 3, 6, 9, 12');
+        if (chk.errors.length) throw new Error(chk.errors.join('; '));
+      }
       // A mixer level is labelled by its name ("Mixer KNAUER IJM 3"), from the names the wizard stored with the spec.
       (spec.ofat.levels || []).forEach((lv) => finalSlots(mkBatch(`${f?.name || spec.ofat.factor} ${levelText(spec.ofat.factor, lv, spec.ofat.labels)}`, spec.compositionId, { [spec.ofat.factor]: lv })));
       design.factor = spec.ofat.factor; design.levels = spec.ofat.levels;
