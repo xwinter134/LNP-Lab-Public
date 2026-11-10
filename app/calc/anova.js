@@ -66,7 +66,8 @@ export function anova(fit, runs, terms) {
 
 /** One plain sentence on lack of fit, for the fold. */
 export function lackOfFitSentence(lof) {
-  const pf = (p) => (p < 0.001 ? '< 0.001' : p.toFixed(2));
+  // three decimals, the table's own rounding: 0.015 read "0.01" in the sentence beside "0.015" in the table
+  const pf = (p) => (p < 0.001 ? '< 0.001' : p.toFixed(3));
   if (lof.state === 'significant') return `Lack of fit is significant (p ${pf(lof.p)}): the model shape misses something; add centre points or a higher-order term.`;
   if (lof.state === 'none') return `No sign of lack of fit (p ${pf(lof.p)}): the model shape is consistent with the replicate scatter.`;
   if (lof.state === 'untestable-saturated') return 'Replicates exist but no degrees of freedom are left over for lack of fit: the model uses every distinct setting.';

@@ -67,3 +67,8 @@ test('F cdf against a table value: F(3,10) = 3.708 gives p = 0.05; F(1,2)=18.51 
   near(fTestP(3.7083, 3, 10), 0.05, 5e-4);
   near(fTestP(18.5128, 1, 2), 0.05, 5e-4);
 });
+
+test('the lack-of-fit sentence rounds p the way the table does (0.015, not 0.01)', () => {
+  assert.match(lackOfFitSentence({ state: 'none', p: 0.015 }), /\(p 0\.015\)/);
+  assert.match(lackOfFitSentence({ state: 'significant', p: 0.0004 }), /\(p < 0\.001\)/);
+});
