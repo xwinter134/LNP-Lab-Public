@@ -7,7 +7,7 @@
 // design's own model, scores each predicted point with the same desirability curves the optimizer uses, and
 // walks the coded box for the best overall score — so the DoE screen and the optimizer cannot disagree about
 // what "good" means, only about how well they know the surface.
-import { ols } from './stats.js';
+import { ols, predictionAt } from './stats.js';
 import { toReal, isCategorical } from './doe.js';
 import { DEFAULT_GOALS, overallDesirability } from './ml/objective.js';
 
@@ -64,7 +64,9 @@ export function boxTerms(names, model) {
  * @param runs  design runs with {run_id, batchId, coded}
  * @param vals  {run_id: {responseName: value}}
  * @returns null when there is nothing to balance (fewer than two scored responses with a fit), else
- *   {coded, real, predicted, scatter, parts, D, best: {run_id, batchId, D, values}, used, skipped}
+ *   {coded, real, predicted, interval, scatter, parts, D, best: {run_id, batchId, D, values}, used, skipped, fits, terms}
+ *   `interval` holds, per response, predictionAt() at the recommended setting: the 95 % CI of the mean there and
+ *   the 95 % PI of one batch made there, the interval a confirmation run is held against.
  */
 export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
   const names = (spec.factors || []).map((f) => f.name);
@@ -126,9 +128,10 @@ export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
     coded: best.coded,
     real: Object.fromEntries(spec.factors.map((f) => [f.name, toReal(f, best.coded[f.name])])),
     predicted: best.predicted,
-    // the residual scatter of each fit: a batch made at this setting will land about this far off, at best
+    interval: Object.fromEntries(used.map((g) => [g.name, predictionAt(fits[g.name], terms.map((t) => t.f(best.coded)))])),
+    // the residual scatter of each fit: the floor under how far one batch made here lands from the prediction
     scatter: Object.fromEntries(used.map((g) => [g.name, fits[g.name].se])),
-    parts: best.parts, D: best.D, best: bestRun, used, skipped, blocked,
+    parts: best.parts, D: best.D, best: bestRun, used, skipped, blocked, fits, terms,
     // where each factor's search stopped: the outermost level that was run
     extent: Object.fromEntries(names.map((n, i) => [n, ext[i]])),
   };

@@ -6,6 +6,19 @@ starts at 0.15.0; the entries before it describe how the app got there.
 
 The version you are running is shown at the foot of the sidebar.
 
+## Unreleased: intervals, the equation, confirmation runs
+
+- **Prediction and confidence intervals.** The recommended setting shows, for every response, the 95 % interval
+  one batch made there should fall in (the PI), in place of the residual "scatter ±". The printed report too.
+- **Confirmation runs.** "Plan confirmation runs" adds formulations at the recommended setting to the
+  experiment, made and measured like its runs but never fitted into the model. The prediction and its interval
+  are stored when they are planned; once measured, the screen says whether the mean of the runs fell inside.
+- **Coefficients with their 95 % CI**, and **the equation** in coded and in real units (one per mixer when the
+  mixer is a factor; none, with the reason, when a factor's centre is off the middle of its range).
+- **Case statistics and the run order.** A table per run (leverage, studentised and R-student residuals, Cook's
+  distance, DFFITS), a plot of the residuals in run order with the Durbin–Watson statistic, and the verdict now
+  says when the residuals drift with the run order (the order added to the model as a column, p < 0.01).
+
 ## 0.15.0: siRNA or mRNA, one view, a real 3D surface, Insights you can ask anything
 
 From the user's second review (October 2026).

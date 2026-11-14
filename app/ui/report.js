@@ -467,6 +467,9 @@ export function designFits(spec, runs, measurements, { model = spec.model } = {}
   return { mode, comps, names, vals, terms, fits, model };
 }
 
+/** A 95 % interval as "84.2 – 97.9", to the decimals the response is read to. */
+const piText = (iv, name) => (iv && iv.every(Number.isFinite) ? `${sigfig(iv[0], 3, { maxDp: name === 'PDI' ? 3 : 2 })} – ${sigfig(iv[1], 3, { maxDp: name === 'PDI' ? 3 : 2 })}` : '–');
+
 function balanceBlock(spec, runs, vals, model) {
   let b;
   try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
@@ -484,11 +487,11 @@ function balanceBlock(spec, runs, vals, model) {
     ${blocked}
     <div class="two">
       ${ptable(['Factor', { label: 'Setting', right: true }, { label: 'coded', right: true }], spec.factors.map((f) => ({ cells: [esc(factorLabel(f)), esc(`${setting(f, b.real[f.name])}${f.unit ? ` ${f.unit}` : ''}`), esc(sigfig(b.coded[f.name], 2))] })))}
-      ${ptable(['Response', { label: 'Predicted', right: true }, { label: 'scatter ±', right: true }, 'Goal', { label: 'Score', right: true }], b.parts.map((p) => ({ cells: [esc(SHORT[p.name] || p.name), esc(sigfig(b.predicted[p.name], 3, { maxDp: 3 })), esc(sigfig(b.scatter[p.name], 2, { maxDp: 3 })), esc(goalText(p)), fmt(p.d, 2)] })))}
+      ${ptable(['Response', { label: 'Predicted', right: true }, { label: '95 % PI, one batch', right: true }, 'Goal', { label: 'Score', right: true }], b.parts.map((p) => ({ cells: [esc(SHORT[p.name] || p.name), esc(sigfig(b.predicted[p.name], 3, { maxDp: 3 })), esc(piText(b.interval?.[p.name]?.pi, p.name)), esc(goalText(p)), fmt(p.d, 2)] })))}
     </div>
     <p>Overall score <b>${fmt(b.D, 2)}</b> <span class="muted">(0 = unacceptable on something, 1 = ideal on everything)</span>${b.best ? ` · best run made: ${esc(b.best.run_id)} (${esc(b.best.batchId || '')}) at <b>${fmt(b.best.D, 2)}</b>` : ''}.</p>
     ${edge.length && !b.blocked?.length ? `<p class="note">${edge.map((f) => esc(factorLabel(f))).join(' and ')} ${edge.length === 1 ? 'sits' : 'sit'} at the edge of the range run, so the best setting may lie beyond it; the model cannot see past the ranges.</p>` : ''}
-    <p class="note">A prediction from the runs made, inside the ranges run. "Scatter" is each model's residual spread, about how far one batch will land from the prediction. Make two or three batches at this setting before relying on it.${b.skipped.length ? ` Not included: ${esc(b.skipped.map((x) => `${SHORT[x.name] || x.name} (${x.why})`).join('; '))}.` : ''}</p>`;
+    <p class="note">A prediction from the runs made, inside the ranges run. The PI is where 95 % of single batches made at this setting should land: the model's own uncertainty there and the scatter of a batch together. Make two or three batches at this setting before relying on it.${b.skipped.length ? ` Not included: ${esc(b.skipped.map((x) => `${SHORT[x.name] || x.name} (${x.why})`).join('; '))}.` : ''}</p>`;
 }
 
 function driversBlock(spec, d) {

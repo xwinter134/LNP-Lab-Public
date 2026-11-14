@@ -17,19 +17,12 @@
 // at all (fitVerdict, at the end of this file), which reads the plots above so the screen can lead with a
 // sentence and fold the pictures behind it.
 
-import { tTestP, fTestP } from './stats.js';
+import { tTestP, fTestP, tCritical } from './stats.js';
 import { toReal, isCategorical, categoricalName } from './doe.js';
 
-/** Two-sided critical t by bisection on the p value: exact enough, and avoids a second special function. */
-export function tCritical(df, alpha = 0.05) {
-  if (!(df > 0)) return null;
-  let lo = 0, hi = 100;
-  for (let i = 0; i < 80; i++) {
-    const mid = (lo + hi) / 2;
-    if (tTestP(mid, df) > alpha) lo = mid; else hi = mid;
-  }
-  return (lo + hi) / 2;
-}
+// The critical t lives with the other distributions in stats.js, so that a prediction interval can be built
+// there; it is exported from here as well because the screens and results.js have always found it here.
+export { tCritical };
 
 /**
  * Terms ranked by how big they are against their own standard error.
@@ -221,6 +214,96 @@ export function blendTrace(fit, terms, comps, { total = 100, base = {}, steps = 
   }).filter((l) => l.points.length);
 }
 
+/* ---------------- one row per run: how much each run moves the fit ---------------- */
+
+/** The F value with P(F > f) = q on (df1, df2), by bisection on fTestP: the median at q = 0.5. */
+export function fQuantile(q, df1, df2) {
+  if (!(df1 > 0) || !(df2 > 0) || !(q > 0 && q < 1)) return null;
+  let lo = 0, hi = 1;
+  while (fTestP(hi, df1, df2) > q && hi < 1e6) hi *= 2;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (fTestP(mid, df1, df2) > q) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * The case statistics of a fit, the table Design-Expert calls the diagnostics report: per run its measured
+ * and predicted value, the residual, its leverage, the internally and externally studentised residual, Cook's
+ * distance and DFFITS, and its place in the run order.
+ *
+ *   Cook's distance  how far every fitted value moves when this run is left out, in units of the fit's own
+ *                    uncertainty: r²/p · h/(1 − h). A run can be well fitted (small residual) and still decide
+ *                    the model (large leverage), which is what Cook's distance catches and a residual cannot.
+ *                    Held against the median of F(p, n − p), Cook and Weisberg's limit, which is about 1.
+ *   DFFITS           the same question for the run's own fitted value, t·√(h/(1 − h)); its usual limit is
+ *                    2√(p/n).
+ *
+ * @param fit   an ols() fit
+ * @param runs  [{label, order}] in fit order; `order` is the run order the batches were made in
+ */
+export function caseStatistics(fit, runs = []) {
+  if (!fit?.beta || !fit.residuals?.length) return { rows: [], cookLimit: null, dffitsLimit: null };
+  const n = fit.n, p = fit.p, df = n - p;
+  const rows = fit.residuals.map((e, i) => {
+    const h = fit.leverage?.[i] ?? 0;
+    const r = fit.se != null && fit.se > 0 && h < 1 ? e / (fit.se * Math.sqrt(1 - h)) : null;
+    const t = externalStudent(r, df);
+    return {
+      label: runs[i]?.label || `run ${i + 1}`, order: runs[i]?.order ?? null,
+      measured: fit.yhat[i] + e, predicted: fit.yhat[i], resid: e, leverage: h, student: r, rstudent: t,
+      cook: r != null && h < 1 ? (r * r / p) * (h / (1 - h)) : null,
+      dffits: t != null && Number.isFinite(t) && h < 1 ? t * Math.sqrt(h / (1 - h)) : null,
+    };
+  });
+  return { rows, cookLimit: df > 0 ? fQuantile(0.5, p, df) : null, dffitsLimit: 2 * Math.sqrt(p / n) };
+}
+
+/**
+ * Do the residuals follow the order the runs were made in? A drift over the days of an experiment (a stock
+ * ageing, an instrument warming, a new lot halfway) is not in the model and shows up here and nowhere else:
+ * the residuals against the fitted values can be shapeless while every late run sits above the line.
+ *
+ * The test is the one a statistician would run: the run order added to the model as one more column, and its
+ * coefficient tested on n − p − 1 df. Regressing the residuals on the order directly would count them as n
+ * independent numbers when they carry only n − p, and on a Box-Behnken of 15 runs that called one clean fit in
+ * ten drifting. So the order is first stripped of what the model's own columns already explain (with the fit's
+ * X and (X'X)⁻¹), and only what is left is held against the residuals.
+ *
+ * The Durbin–Watson statistic, Σ(eₜ − eₜ₋₁)²/Σeₜ² over the residuals in run order, is reported beside it (about 2
+ * when neighbours are unrelated, towards 0 when they resemble each other) but not tested: its limits depend on
+ * the design matrix and are not worth approximating for a number that is shown, not acted on.
+ *
+ * @param fit    an ols() fit (needs X and inv)
+ * @param order  the run order of each run in fit order (numbers; ties and gaps allowed)
+ * @returns {{slope, t, p, df, dw, n}|null}
+ */
+export function runOrderTrend(fit, order) {
+  const n = fit?.residuals?.length || 0;
+  if (!fit?.X || !fit.inv || !order || order.length !== n || n < 6) return null;
+  const o = order.map(Number);
+  if (!o.every(Number.isFinite)) return null;
+  const e = fit.residuals, X = fit.X, p = fit.p;
+  const df = n - p - 1;
+  // the order with the model's columns projected out: o − X (X'X)⁻¹ X'o
+  const Xto = X[0].map((_, j) => X.reduce((s, r, i) => s + r[j] * o[i], 0));
+  const b = fit.inv.map((row) => row.reduce((s, v, j) => s + v * Xto[j], 0));
+  const oc = o.map((v, i) => v - X[i].reduce((s, x, j) => s + x * b[j], 0));
+  const soo = oc.reduce((s, v) => s + v * v, 0);
+  const sse = e.reduce((s, v) => s + v * v, 0);
+  const seq = o.map((v, i) => [v, e[i]]).sort((a, c) => a[0] - c[0]);
+  let num = 0;
+  for (let i = 1; i < n; i++) num += (seq[i][1] - seq[i - 1][1]) ** 2;
+  const dw = sse > 0 ? num / sse : null;
+  if (!(df > 0) || !(soo > 1e-12 * o.reduce((s, v) => s + v * v, 0)) || !(sse > 0)) return { slope: null, t: null, p: null, df, dw, n };
+  const eo = e.reduce((s, v, i) => s + v * oc[i], 0);
+  const slope = eo / soo;
+  const s2 = (sse - slope * eo) / df;
+  const t = s2 > 0 ? slope / Math.sqrt(s2 / soo) : Math.sign(slope) * Infinity;
+  return { slope, t, p: Number.isFinite(t) ? tTestP(t, df) : 0, df, dw, n };
+}
+
 /* ---------------- what drives each response, in words ---------------- */
 
 /**
@@ -375,6 +458,8 @@ export function driverSentence(label, d, { unit = '', term = (s) => s, text = (s
 // Predicted R² is held to the usual rule: within 0.2 of adjusted R², and 0.5 or more before its numbers are
 // read as more than a lead (the same 0.5 the "What drives each response" card warns at).
 export const VERDICT_LIMITS = { shapeAlpha: 0.01, lofAlpha: 0.05, outlierAlpha: 0.05, minShapeDf: 4, minNormalDf: 8, gap: 0.2, weakQ2: 0.5 };
+// Drift in the run order is a screening test like the shape checks and sits at their 0.01, and it needs one
+// residual df more than they do, which the order column takes.
 
 const pText = (p) => (p < 0.001 ? '< 0.001' : sigfig(p, 2));
 // R² to two decimals as the rest of the screen writes it, so 0.80 is not "0.8" here and 0.80 beside it
@@ -502,8 +587,14 @@ export function settingKey(setting) {
  *   weak        predicted R² from 0 to 0.5 without the gap that makes it overfitting
  *   normality   Ryan–Joiner: the normal plot of the studentised residuals less straight than its 1 % limit;
  *               not reported beside an outlier, a missing term or a funnel, which then bend the plot
+ *   drift       the residuals follow the run order (runOrderTrend, p < 0.01): something changed while the runs
+ *               were made; needs each run's `order`
  *   leverage    a run above 2p/n, or fitted exactly (≥ 0.99): its residual checks nothing (a note, not a fault:
  *               in a complete design no run reaches 2p/n, so this means runs are missing)
+ *
+ * Cook's distance is not among them. Simulated on clean 18-run CCDs, a run passed the usual limit (the median of
+ * F(p, n − p)) in four fits of ten, because a corner run with a quadratic has leverage near 0.65 and needs only
+ * a residual of 2.2 SD to pass it. It is in the case statistics, where it can be read beside the run's residual.
  *
  * The shape checks need residual degrees of freedom to mean anything; below minShapeDf they are skipped and
  * the sentence says so rather than calling the residuals shapeless. Normality waits for minNormalDf (below).
@@ -516,8 +607,8 @@ export function settingKey(setting) {
  * time: a corner's leverage pulls the fit onto it and hides part of its own error, which no residual can show.
  *
  * @param fit   an ols() or fitMixture() fit
- * @param runs  [{label, setting}] in fit order: what to call each run, and its setting (an object of coded
- *              values, or a key) for finding the replicates
+ * @param runs  [{label, setting, order}] in fit order: what to call each run, its setting (an object of coded
+ *              values, or a key) for finding the replicates, and its place in the run order (optional)
  * @param o     {fuller}: the model to suggest when a term is missing, as the words after "try" ("the quadratic
  *              model"); without it the advice is general
  * @returns {{level: 'sound'|'note'|'warn', sentence: string, plot: string, flags: Array, checks: object}}
@@ -643,6 +734,17 @@ export function fitVerdict(fit, runs = [], { fuller = null, limits = {} } = {}) 
     }
   }
 
+  // ---- the order the runs were made in
+  const orders = runs.length === n ? runs.map((r) => r?.order) : [];
+  const drift = shapeTestable && df >= L.minShapeDf + 1 && orders.length === n && orders.every((o) => o != null && o !== '' && Number.isFinite(Number(o))) ? runOrderTrend(fit, orders) : null;
+  checks.drift = drift;
+  if (drift?.p != null && drift.p < L.shapeAlpha) {
+    const up = drift.slope > 0;
+    flags.push({ kind: 'drift', level: 'warn', plot: 'run-order',
+      say: `The residuals drift with the run order (later runs come out ${up ? 'higher' : 'lower'} than the model says, p ${pText(drift.p)}): something changed while the runs were made, such as a stock, a lot or the instrument; check the batch records, and next time run the design in blocks by day.`,
+      short: `residuals drift with the run order (p ${pText(drift.p)})` });
+  }
+
   // ---- runs the fit leans on
   const levLimit = Math.min(0.99, (2 * p) / n);
   const heavy = rs.filter((x) => x.h > levLimit + 1e-9);
@@ -654,7 +756,7 @@ export function fitVerdict(fit, runs = [], { fuller = null, limits = {} } = {}) 
       short: `leans on ${listOf(heavy.map((x) => x.label))} (leverage ${listOf(heavy.map((x) => sigfig(x.h, 2)))})` });
   }
 
-  const ORDER = ['outlier', 'lackOfFit', 'noSignal', 'overfit', 'curvature', 'funnel', 'weak', 'normality', 'leverage'];
+  const ORDER = ['outlier', 'lackOfFit', 'noSignal', 'overfit', 'curvature', 'funnel', 'drift', 'weak', 'normality', 'leverage'];
   flags.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
   const warn = flags.filter((x) => x.level === 'warn');
   if (warn.length) return { level: 'warn', sentence: warn[0].say, plot: warn[0].plot, flags, checks };
@@ -664,6 +766,7 @@ export function fitVerdict(fit, runs = [], { fuller = null, limits = {} } = {}) 
     ...(shapeTestable ? ['residuals shapeless'] : []),
     ...(outlierTestable && !mild.length ? ['no run stands out'] : []),
     ...(lof?.p != null ? ['no lack of fit'] : []),
+    ...(drift?.p != null ? ['no drift over the run order'] : []),
     q2 != null ? `predicted R² ${r2Text(q2)}` : `R² ${r2Text(fit.r2)}`,
   ];
   const chance = mild.length

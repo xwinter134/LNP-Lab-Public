@@ -8,20 +8,22 @@
 // what is in them. Before anything is measured the design itself is the only thing worth reading, and it comes
 // first, open.
 import { raw, fmt, field, table, chip, header, fmtDate, kpi, download, toast, todayISO, esc } from './kit.js';
-import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText } from '../calc/experiment.js';
+import { FACTORS, TYPES, productionDate, isCategoricalFactor, levelText, confirmationRuns } from '../calc/experiment.js';
 import { DESIGN_TYPES, MODEL_TYPES, MIXTURE_ORDERS, RESPONSES, designSummary, responsesForBatch, toRawDataCSV, toDesignCSV, toReal, specMode, specComponents, designColumns, processOrderOf, factorLabel, termLabel, isCategorical, categoricalName } from '../calc/doe.js';
 import { scheffeTerms, processTerms, crossedTerms, fitMixture, toPseudo } from '../calc/mixture.js';
 import { mixtureDesignFor } from '../calc/doe.js';
 import { designTableModel, designSubtitle } from '../calc/designtable.js';
-import { paretoEffects, residualPoints, qqPoints, qqLine, surfaceGrid, effectLines, blendTrace, sigfig, processDrivers, blendDrivers, driverSentence, fitVerdict } from '../calc/diagnostics.js';
-import { paretoSvg, residualSvg, qqSvg, obsPredSvg, surfaceSvg, surface3dSvg, surface3dOpeningYaw, SURFACE3D_PITCH, effectSvg, traceSvg } from './doeplots.js';
+import { paretoEffects, residualPoints, qqPoints, qqLine, surfaceGrid, effectLines, blendTrace, sigfig, processDrivers, blendDrivers, driverSentence, fitVerdict, caseStatistics } from '../calc/diagnostics.js';
+import { paretoSvg, residualSvg, qqSvg, obsPredSvg, runOrderSvg, surfaceSvg, surface3dSvg, surface3dOpeningYaw, SURFACE3D_PITCH, effectSvg, traceSvg } from './doeplots.js';
 import { tablePdf, tableCsv, tableTsv } from '../calc/pdf.js';
 import { designSvgFromRuns, designCaption, blendSvgFromRuns, blendCaption, blendLabels } from './designviz.js';
-import { describeId } from '../schema.js';
+import { describeId, usedIds } from '../schema.js';
 import { getSettings, getRef } from '../refdata.js';
 import { balanceColumn } from '../calc/composition.js';
 import { info, wireLearn } from './learn.js';
-import { ols } from '../calc/stats.js';
+import { ols, coefficientCIs } from '../calc/stats.js';
+import { realEquation, equationText, codedEquationText } from '../calc/equation.js';
+import { confirmationPlan, confirmationResult } from '../calc/confirm.js';
 import { flatRows } from './insights.js';
 import { balancedOptimum, boxTerms } from '../calc/balance.js';
 import { wireFigures } from './charts.js';
@@ -382,7 +384,7 @@ function doeBody(el, ctx, sel) {
 
   if (!anyFit) return kpis + runsFold + exportFold + fitCard;
   return kpis
-    + (mode === 'process' ? balanceCard(spec, runs, vals, model) : '')
+    + (mode === 'process' ? balanceCard(spec, runs, vals, model, sel, ctx) : '')
     + driversCard({ spec, mode, terms, comps, names, resps, fits, respSel, link })
     + fitCard + runsFold + coefFold + exportFold;
 }
@@ -432,13 +434,33 @@ function coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) {
   const say = `${esc(SHORT[respSel] || respSel)}: ${mode === 'process'
     ? `${real} of ${pe.effects.length} terms pass p < 0.05`
     : `Scheffé blend model${mode === 'crossed' ? ' crossed with the process' : ''}`}, R² ${fmt(fit.r2, 3)}${opt ? ` · ${opt.say}` : ''}`;
-  const html = `${table(['Term', { label: 'Coefficient', right: true }, { label: 'SE', right: true }, { label: 't', right: true }, { label: 'p', right: true }, ''],
-      terms.map((t, i) => ({ cells: [termLabel(t.name, names), fmt(fit.beta[i], 3), fmt(fit.stdErr?.[i], 3), fmt(fit.tValues?.[i], 2), p3(fit.pValues?.[i]), raw(`<b>${stars(fit.pValues?.[i])}</b>`)] })))}
+  const ci = coefficientCIs(fit);
+  const html = `${table(['Term', { label: 'Coefficient', right: true }, { label: 'SE', right: true }, { label: '95 % CI', right: true }, { label: 't', right: true }, { label: 'p', right: true }, ''],
+      terms.map((t, i) => ({ cells: [termLabel(t.name, names), fmt(fit.beta[i], 3), fmt(fit.stdErr?.[i], 3), ci ? raw(`<span style="white-space:nowrap">${fmt(ci[i][0], 3)} to ${fmt(ci[i][1], 3)}</span>`) : '–', fmt(fit.tValues?.[i], 2), p3(fit.pValues?.[i]), raw(`<b>${stars(fit.pValues?.[i])}</b>`)] })))}
       <div class="muted" style="margin-top:6px">R² ${fmt(fit.r2, 3)} · adjusted ${fmt(fit.adjR2, 3)} · residual SE ${fmt(fit.se, 3)}. ${mode === 'process'
         ? 'Coded units: a coefficient is the change per half range.'
-        : `Scheffé model, no intercept: a lipid's coefficient is the predicted response for that lipid alone at the top of its range, and a pairwise term is how much the blend beats (or misses) the straight average of the two. Blends in pseudo-components${mode === 'crossed' ? ', process factors in coded units' : ''}.`} * p < 0.05, ** p < 0.01, *** p < 0.001.</div>
+        : `Scheffé model, no intercept: a lipid's coefficient is the predicted response for that lipid alone at the top of its range, and a pairwise term is how much the blend beats (or misses) the straight average of the two. Blends in pseudo-components${mode === 'crossed' ? ', process factors in coded units' : ''}.`} * p < 0.05, ** p < 0.01, *** p < 0.001. A 95 % CI that does not include 0 is the same finding as p < 0.05.</div>
+      ${mode === 'process' ? equationsHtml(fit, terms, spec, respSel) : ''}
       ${opt ? opt.html : ''}`;
   return { say, html };
+}
+
+/**
+ * The model as an equation, twice: in coded units, where the coefficients compare, and in the units the
+ * factors were set in, to put numbers into (calc/equation.js says why both, and when the second cannot be had).
+ */
+function equationsHtml(fit, terms, spec, respSel) {
+  const lhs = WORD[respSel] || respSel;
+  const label = (n) => factorLabel(n);
+  const coded = codedEquationText(fit.beta, terms, { lhs, label });
+  const real = realEquation(fit.beta, terms, spec.factors);
+  const eqBox = (t) => `<p style="font-family:ui-monospace,Menlo,monospace;font-size:12px;margin:4px 0;word-break:break-word">${esc(t)}</p>`;
+  return `<h3 style="margin-top:12px">The equation</h3>
+    <p class="muted small" style="margin:0">In coded units (−1 to +1), where the sizes of the coefficients compare:</p>${eqBox(coded)}
+    ${real.ok
+      ? `<p class="muted small" style="margin:8px 0 0">In the units the factors were set in${spec.factors.some((f) => f.unit) ? ` (${spec.factors.filter((f) => f.unit && !isCategorical(f)).map((f) => `${factorLabel(f)} in ${f.unit}`).join(', ')})` : ''}, to put numbers into; these coefficients depend on the units and do not compare:</p>
+        ${real.equations.map((e) => `${e.level ? `<p class="muted small" style="margin:6px 0 0">${esc(e.level.replace(/^mixer = /, 'mixer '))}:</p>` : ''}${eqBox(equationText(e, { lhs, label }))}`).join('')}`
+      : `<p class="muted small" style="margin:8px 0 0">No equation in real units: ${esc(real.why)}.</p>`}`;
 }
 
 /**
@@ -446,7 +468,7 @@ function coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) {
  * else because it is what the design was for; the summary, the diagnostics and the single-response optimum
  * further down are how to check it.
  */
-function balanceCard(spec, runs, vals, model) {
+function balanceCard(spec, runs, vals, model, sel, ctx) {
   let b;
   try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
   if (!b) return '';
@@ -465,13 +487,53 @@ function balanceCard(spec, runs, vals, model) {
     <p class="muted">Where the fitted models together come closest to every goal at once (the goals are in the table): the setting to try next.</p>
     <div class="grid g2" style="align-items:start">
       <div>${table(['Factor', { label: 'Setting', right: true }, { label: 'coded', right: true }], spec.factors.map((f) => ({ cells: [factorLabel(f), `${setting(f, b.real[f.name])}${f.unit ? ' ' + f.unit : ''}`, sigfig(b.coded[f.name], 2)] })))}</div>
-      <div>${table(['Response', { label: 'Predicted', right: true }, { label: 'scatter ±', right: true }, 'Goal', { label: 'Score', right: true }], b.parts.map((p) => ({ cells: [SHORT[p.name] || p.name, sigfig(b.predicted[p.name], 3, { maxDp: 3 }), sigfig(b.scatter[p.name], 2, { maxDp: 3 }), goalText(p), raw(scoreChip(p.d))] })))}</div>
+      <div>${table(['Response', { label: 'Predicted', right: true }, { label: '95 % PI, one batch', right: true }, 'Goal', { label: 'Score', right: true }], b.parts.map((p) => ({ cells: [SHORT[p.name] || p.name, sigfig(b.predicted[p.name], 3, { maxDp: 3 }), intervalText(b.interval?.[p.name]?.pi, p.name), goalText(p), raw(scoreChip(p.d))] })))}</div>
     </div>
     ${blocked}
     <p style="margin:10px 0 0">Overall score <b>${fmt(b.D, 2)}</b> <span class="muted">(1 = every goal met)</span>${b.best ? ` · best run you made: <a href="#/formulation?batch=${esc(b.best.batchId)}">${esc(b.best.run_id)}</a> at <b>${fmt(b.best.D, 2)}</b>` : ''}.</p>
     ${edge.length && !b.blocked?.length ? `<div class="note" style="margin-top:8px">${edge.map((f) => esc(factorLabel(f))).join(' and ')} ${edge.length === 1 ? 'sits' : 'sit'} at the edge of the range you ran: the best setting may lie beyond it, and only a design over a wider range can tell.</div>` : ''}
-    <p class="muted small" style="margin-top:4px">A prediction inside the ranges you ran; "scatter" is about how far one batch lands from it. Make two or three batches here before relying on it.${b.skipped.length ? ` Not included: ${b.skipped.map((x) => `${esc(SHORT[x.name] || x.name)} (${esc(x.why)})`).join('; ')}.` : ''}</p></div>`;
+    <p class="muted small" style="margin-top:4px">A prediction inside the ranges you ran. The PI ${info('pi')} is where 95 % of single batches made at this setting should land: the model's own uncertainty there and the scatter of a batch together. Confirm it with two or three batches before relying on it.${b.skipped.length ? ` Not included: ${b.skipped.map((x) => `${esc(SHORT[x.name] || x.name)} (${esc(x.why)})`).join('; ')}.` : ''}</p>
+    ${confirmationBlock(b, sel, ctx, model)}</div>`;
 }
+
+/** A 95 % interval as "84.2 – 97.9", to the decimals the response is read to. */
+function intervalText(iv, name) {
+  if (!iv || !iv.every(Number.isFinite)) return '–';
+  const dp = name === 'PDI' ? 3 : 2;
+  return raw(`<span style="white-space:nowrap">${sigfig(iv[0], 3, { maxDp: dp })} – ${sigfig(iv[1], 3, { maxDp: dp })}</span>`);
+}
+
+/**
+ * The confirmation runs at the recommended setting: a button to plan them before there are any, then how they
+ * came out against the interval the model gave when they were planned (calc/confirm.js). The latest round is
+ * read; an earlier one stays in the record of the experiment.
+ */
+function confirmationBlock(b, sel, ctx, model) {
+  const rounds = sel.design.doe.confirmations || [];
+  const last = rounds[rounds.length - 1];
+  const plan = `<div class="confirmPlan" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <button id="planConfirm" class="primary" title="Add formulations at this setting to the experiment, to be made and measured like its runs; the model is not fitted to them">Plan confirmation runs</button>
+      <label class="inline">at this setting, <input type="number" name="confirmN" min="1" max="12" value="3" style="width:4em"> batches</label>
+      <span class="muted small">The prediction and its interval are stored with them now, so the check cannot move to meet the result.</span></div>`;
+  if (!last) return b.blocked?.length ? '' : plan;
+  const ms = ctx.store.all('measurements');
+  const values = {};
+  for (const id of last.batchIds || []) {
+    const v = responseValues(ms, id);
+    for (const [k, x] of Object.entries(v)) (values[k] ||= []).push(x);
+  }
+  const r = confirmationResult(last, values, { label: (n) => SHORT[n] || n });
+  const moved = spec0(sel).factors.some((f) => Math.abs((last.coded?.[f.name] ?? 0) - (b.coded[f.name] ?? 0)) > 0.05);
+  const rows = r.rows.map((x) => ({ cells: [SHORT[x.name] || x.name, sigfig(x.predicted, 3, { maxDp: x.name === 'PDI' ? 3 : 2 }), intervalText(x.lo != null ? [x.lo, x.hi] : null, x.name),
+    x.m ? `${sigfig(x.mean, 3, { maxDp: x.name === 'PDI' ? 3 : 2 })} (n = ${x.m})` : '–', raw(x.inside == null ? '' : chip(x.inside ? 'inside' : 'outside', x.inside ? 'ok' : 'warn'))] }));
+  const links = (last.batchIds || []).map((id) => `<a href="#/formulation?batch=${esc(id)}">${esc(id)}</a>`).join(', ');
+  return `<h3 style="margin-top:14px">Confirmation ${info('confirmation')}</h3>
+    <p class="note ${r.level}" id="confirmVerdict" data-level="${r.level}">${esc(r.sentence)}</p>
+    ${table(['Response', { label: 'Predicted', right: true }, { label: '95 % PI, mean of the runs', right: true }, { label: 'Measured mean', right: true }, ''], rows)}
+    <p class="muted small">${links} · planned ${esc(fmtDate(last.date))}${last.model && last.model !== model ? ` with the ${esc(MODEL_TYPES[last.model] || last.model).toLowerCase()} model` : ''}.${moved ? ' The recommended setting has moved since these were planned; they still test the setting they were made at.' : ''}</p>
+    ${moved && !b.blocked?.length ? plan : ''}`;
+}
+const spec0 = (sel) => sel.design.doe.spec;
 
 /**
  * Whether to believe the fit, then what it looks like.
@@ -493,7 +555,8 @@ function diagnostics(fit, terms, names, spec, measured, goal, params, comps = []
   const res = residualPoints(fit, rows);
   const pareto = paretoEffects(fit, terms);
   const qq = qqPoints(fit.residuals);
-  const verdict = fitVerdict(fit, measured.map((r) => ({ label: r.run_id, setting: r.coded })), { fuller });
+  const verdict = fitVerdict(fit, measured.map((r) => ({ label: r.run_id, setting: r.coded, order: r.run_order })), { fuller });
+  const cases = caseStatistics(fit, measured.map((r) => ({ label: r.run_id, order: r.run_order })));
 
   // which slice of the surface, and which factor the effect plot walks along. A categorical factor (a mixer)
   // is never an axis: a surface "between" two mixers is the model talking about a mixer that does not exist.
@@ -557,6 +620,8 @@ function diagnostics(fit, terms, names, spec, measured, goal, params, comps = []
       caption: 'On the line the residuals are normal, and the p values can be taken at face value.' },
     { key: 'measured-vs-predicted', title: 'Measured against predicted', say: 'measured vs predicted', svg: obsPredSvg(res),
       caption: `Drawn from the runs the model was fitted on, so it flatters; predicted R² ${fmt(fit.predR2, 3)} is the honest version.` },
+    { key: 'run-order', title: 'Residuals in run order', say: 'run order', svg: runOrderSvg(cases.rows),
+      caption: `The runs in the order they were made: a slope or a step means something changed during the experiment.${verdict.checks.drift?.dw != null ? ` Durbin–Watson ${fmt(verdict.checks.drift.dw, 2)} (about 2 when neighbours are unrelated).` : ''}` },
   ];
   const figure = (c) => `<div class="fig" data-fig="${c.key}">${figHead(c.title)}${c.svg}<p class="muted small">${c.caption}</p></div>`;
   // the plot the verdict points at, or the plainest one when the one it names cannot be drawn
@@ -565,7 +630,7 @@ function diagnostics(fit, terms, names, spec, measured, goal, params, comps = []
   const others = verdict.level === 'warn' ? verdict.flags.slice(1).map((f) => f.short) : [];
   // the effect plot needs one numeric factor to walk along, and a second factor (numeric or a mixer) to be worth a fold
   const effectOn = !blend && !!ef && names.length >= 2;
-  const folded = [...rest.map((c) => c.say), ...(trace.length ? ['lipid traces'] : []), ...(grid ? ['surface'] : []), ...(effectOn ? ["one factor's effect"] : [])];
+  const folded = [...rest.map((c) => c.say), ...(trace.length ? ['lipid traces'] : []), ...(grid ? ['surface'] : []), ...(effectOn ? ["one factor's effect"] : []), 'case statistics'];
   const foldSay = folded.length > 1 ? `${folded.slice(0, -1).join(', ')} and ${folded[folded.length - 1]}` : folded.join('');
 
   return `<h2 style="margin-top:14px">Is this fit any good? ${info('diagnostics')}</h2>
@@ -585,6 +650,7 @@ function diagnostics(fit, terms, names, spec, measured, goal, params, comps = []
           ${sel('fa', names[ia], fOpts, '')}<span class="muted">against</span>${sel('fb', names[ib], fOpts, '')}${sliceSel}</div>
         ${surfaceBox('main')}
         <p class="muted small">What the model claims${sliceSay ? ` with ${esc(sliceSay)}` : ''}${held.length ? `${sliceSay ? ' and' : ','} ${esc(held.join(' and '))} held at the centre (in 3D only the runs made there stand at their measured value; the others belong to other slices)` : sliceSay ? '' : ' over the whole design'}; where there are no runs it is the model talking, not your runs.</p></div>` : ''}
+    ${caseTable(cases)}
     ${effectOn ? `<div class="fig" data-fig="effect-of-one-factor"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h3 style="flex:1">Effect of one factor</h3>${dlButtons}
           ${sel('ef', ef, fOpts, '')}<span class="muted">split by</span>${sel('eg', eg, [{ value: 'none', label: 'nothing' }, ...gOpts.filter((o) => o.value !== ef)], '')}</div>
         ${effectSvg(effectLines(fit, terms, names, ef, eg || null, { levels: cat.has(eg) ? [-1, 1] : undefined }), { factor: ef, against: eg || null, response: SHORT[params.response] || '', spec, label: factorLabel,
@@ -592,6 +658,21 @@ function diagnostics(fit, terms, names, spec, measured, goal, params, comps = []
         <p class="muted small">${eg ? 'Parallel lines mean the two factors do not interact; lines that cross or fan out mean the effect of one depends on the other.' : 'This factor with the others at their centre; split it by a second to see whether that shape depends on it.'}</p></div>` : ''}
     </div>
     </details>`;
+}
+
+/**
+ * One row per run: what the plots show as points, as numbers. Cook's distance and DFFITS over their usual
+ * limits are marked; they are not in the verdict, because on a small design a corner run passes them by
+ * itself (calc/diagnostics.js fitVerdict), but a reader checking one run wants them.
+ */
+function caseTable(cs) {
+  if (!cs.rows.length) return '';
+  const mark = (v, lim, dp) => (v == null ? '–' : lim != null && Math.abs(v) > lim ? raw(`<b class="warn-text" title="over the usual limit of ${fmt(lim, 2)}">${fmt(v, dp)}</b>`) : fmt(v, dp));
+  const rows = cs.rows.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map((r) => ({ cells: [r.order ?? '–', raw(mono(esc(r.label))), sigfig(r.measured, 4), sigfig(r.predicted, 4), sigfig(r.resid, 3, { sign: true }),
+    fmt(r.leverage, 3), mark(r.student, 2, 2), mark(r.rstudent, 3.5, 2), mark(r.cook, cs.cookLimit, 3), mark(r.dffits, cs.dffitsLimit, 2)] }));
+  return `<div class="fig" data-fig="case-statistics" style="grid-column:1/-1">${figHead('Case statistics')}
+    ${table([{ label: 'Order', right: true }, 'Run', { label: 'Measured', right: true }, { label: 'Predicted', right: true }, { label: 'Residual', right: true }, { label: 'Leverage', right: true }, { label: 'Student', right: true }, { label: 'R-student', right: true }, { label: "Cook's D", right: true }, { label: 'DFFITS', right: true }], rows)}
+    <p class="muted small">In run order. Leverage is how much a run sets its own fitted value; Cook's distance how far all the fitted values move without it (marked above ${fmt(cs.cookLimit, 2)}, the median of F); DFFITS the same for its own value (marked above ${fmt(cs.dffitsLimit, 2)}). R-student is the residual against the error estimated without the run.</p></div>`;
 }
 
 /**
@@ -654,6 +735,7 @@ function wireDoe(el, ctx, sel) {
     folds.set(`${sel.id}:${s.parentElement.dataset.fold}`, !s.parentElement.open);
   }));
   wireSurface(el);
+  el.querySelector('#planConfirm')?.addEventListener('click', () => planConfirmation(el, ctx, sel));
   el.querySelector('#expPdf')?.addEventListener('click', () => {
     whenSaved(download(`${sel.id}_design.pdf`, tablePdf({ title: `${sel.id} · ${sel.name || 'Design'}`, subtitle,
       columns: dt.columns, rows: dt.rows, footer: `LNP Lab · ${order === 'run' ? 'run order' : 'standard order'}`,
@@ -672,6 +754,37 @@ function wireDoe(el, ctx, sel) {
       ta.remove();
       toast(ok ? `${dt.rows.length} rows copied` : 'Could not reach the clipboard; use the CSV export', ok ? 'ok' : 'warn');
     }
+  });
+}
+
+/**
+ * Store the confirmation runs: the formulations and their result slots added to the experiment, the setting
+ * and the frozen prediction beside the design. One write, so formulations never exist without the entry that
+ * says what they confirm.
+ */
+function planConfirmation(el, ctx, sel) {
+  const { spec, runs } = sel.design.doe;
+  const model = MODEL_TYPES[ctx.params.model] ? ctx.params.model : spec.model;
+  const ms = ctx.store.all('measurements');
+  const vals = Object.fromEntries(runs.map((r) => [r.run_id, responseValues(ms, r.batchId)]));
+  let b = null;
+  try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
+  if (!b) { toast('No recommended setting to confirm', 'warn'); return; }
+  const n = Math.max(1, Math.min(12, Math.round(Number(el.querySelector('[name=confirmN]')?.value) || 3)));
+  const batches = Object.fromEntries(sel.batchIds.map((id) => [id, ctx.store.get('batches', id)]).filter(([, x]) => x));
+  let made;
+  try {
+    made = confirmationRuns(sel, batches, confirmationPlan(b, { model, n, date: todayISO() }),
+      { takenFormulations: usedIds(ctx.store, 'formulation'), startDate: todayISO() });
+  } catch (e) { toast(e.message, 'warn'); return; }
+  const exp = { ...sel, batchIds: [...sel.batchIds, ...made.batches.map((x) => x.id)], expected: [...(sel.expected || []), ...made.slots],
+    design: { ...sel.design, doe: { ...sel.design.doe, confirmations: [...(sel.design.doe.confirmations || []), made.confirmation] } } };
+  ctx.store.transaction(() => {
+    made.batches.forEach((x) => ctx.store.put('batches', x));
+    ctx.store.put('experiments', exp);
+  }, {
+    what: `${n} confirmation run${n === 1 ? '' : 's'}`, again: 'Plan confirmation runs',
+    onSaved: () => { toast(`${made.batches.map((x) => x.id).join(', ')} planned at the recommended setting`, 'ok'); render(el, ctx); },
   });
 }
 

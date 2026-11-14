@@ -83,6 +83,23 @@ export function residualSvg(points) {
   return frame(band + dots, { xlab: 'fitted value', ylab: 'studentised residual', x0, x1, y0: -m, y1: m, title: 'residuals against fitted values' });
 }
 
+/* ---------------- residuals in run order ---------------- */
+
+/** Studentised residuals against the run order, joined in that order: a drift is a slope, a new lot a step. */
+export function runOrderSvg(rows) {
+  const use = rows.filter((r) => r.student != null && Number.isFinite(Number(r.order))).slice().sort((a, b) => a.order - b.order);
+  if (use.length < 3) return '';
+  const x0 = use[0].order, x1 = use[use.length - 1].order;
+  if (!(x1 > x0)) return '';
+  const m = Math.max(2.6, ...use.map((p) => Math.abs(p.student))) * 1.1;
+  const sx = scaler(x0, x1, L, W - R), sy = scaler(-m, m, H - B, T);
+  const band = `<rect x="${L}" y="${sy(2)}" width="${W - R - L}" height="${sy(-2) - sy(2)}" fill="var(--ok)" opacity=".07"/>
+    <line x1="${L}" x2="${W - R}" y1="${sy(0)}" y2="${sy(0)}" class="mn" stroke-dasharray="2 4"/>`;
+  const path = `<polyline points="${use.map((p) => `${sx(p.order).toFixed(1)},${sy(p.student).toFixed(1)}`).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1" opacity=".45"/>`;
+  const dots = use.map((p) => `<circle cx="${sx(p.order).toFixed(1)}" cy="${sy(p.student).toFixed(1)}" r="4" fill="${Math.abs(p.student) > 2 ? 'var(--warn-text)' : 'var(--accent)'}" opacity=".85"><title>${esc(p.label)}: run ${p.order}, studentised residual ${nice(p.student)}</title></circle>`).join('');
+  return frame(band + path + dots, { xlab: 'run order', ylab: 'studentised residual', x0, x1, y0: -m, y1: m, title: 'residuals in run order' });
+}
+
 /* ---------------- normal plot of the residuals ---------------- */
 
 export function qqSvg(points, line) {

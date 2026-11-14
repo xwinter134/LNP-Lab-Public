@@ -171,7 +171,7 @@ test('the demo DoE: the balanced setting, what drives each response, the run tab
   assert.match(t, /Plan A central composite, face-centred design over FRR 2–4, total flow 60–120 mL\/min and PEG mol% 1–2\.5 mol%: 18 runs \(6 axial, 8 factorial, 4 center\), made in randomised order and fitted with a quadratic model \(9 terms and an intercept, 8 residual df\)\. Responses: Size \(target 80\), PDI \(as low as possible\) and EE \(as high as possible\)\./);
   assert.match(t, /Composition #1[\s\S]*PEG-lipid mol% set run by run by the design/);
   assert.match(t, /Process FRR 2 : 1 to 4 : 1 \(varied\) · total flow 60 mL\/min to 120 mL\/min \(varied\)/, 'a varied setting is printed as the range it was varied over');
-  assert.match(t, /Recommended setting: the best balance of all responses[\s\S]*Factor Setting coded FRR[\s\S]*Response Predicted scatter ± Goal Score Size \(nm\)[\s\S]*Overall score 0\.\d\d/);
+  assert.match(t, /Recommended setting: the best balance of all responses[\s\S]*Factor Setting coded FRR[\s\S]*Response Predicted 95 % PI, one batch Goal Score Size \(nm\)[\s\S]*Overall score 0\.\d\d/);
   assert.match(t, /What drives each response Size (falls|rises) with [\s\S]*R² 0\.\d\d · predicted R² [\s\S]*PDI [\s\S]*EE/);
   assert.match(t, /Runs and results Label Run order FRR total flow mL\/min PEG mol% Lot Planned Z-ave \(nm\) mean ± SD/);
   for (let i = 1; i <= 18; i++) assert.match(t, new RegExp(`R0${String(i).padStart(2, '0')} \\(\\w+\\)`), `run ${i} in the run table`);

@@ -46,10 +46,64 @@ export function ols(X, y) {
   const stdErr = mse != null ? beta.map((_, j) => Math.sqrt(Math.max(0, mse * inv[j][j]))) : null;
   const tValues = stdErr ? beta.map((b, j) => (stdErr[j] > 0 ? b / stdErr[j] : null)) : null;
   const pValues = tValues ? tValues.map((t) => (t == null ? null : tTestP(t, n - p))) : null;
-  const leverage = X.map((r) => r.reduce((s, xi, i) => s + xi * r.reduce((s2, xj, j) => s2 + inv[i][j] * xj, 0), 0));
+  const leverage = X.map((r) => quadForm(inv, r));
   const press = residuals.reduce((s, e, i) => s + (e / (1 - leverage[i])) ** 2, 0);
   const predR2 = sst > 0 ? 1 - press / sst : null;
-  return { beta, r2, adjR2, predR2, press, residuals, yhat, n, p, se, stdErr, tValues, pValues, leverage };
+  // `inv` is (X'X)⁻¹, kept so that a prediction anywhere can carry its own interval (predictionAt, below), and
+  // `X` so that a check can ask what a column outside the model would add (the run-order drift, diagnostics.js)
+  return { beta, r2, adjR2, predR2, press, residuals, yhat, n, p, se, stdErr, tValues, pValues, leverage, inv, X };
+}
+
+/** x' A x for a symmetric matrix A. */
+const quadForm = (A, x) => x.reduce((s, xi, i) => s + xi * x.reduce((s2, xj, j) => s2 + A[i][j] * xj, 0), 0);
+
+/**
+ * Two-sided critical t on df degrees of freedom: the t a statistic has to pass for p < alpha. By bisection on
+ * the p value, which is exact enough and needs no second special function.
+ */
+export function tCritical(df, alpha = 0.05) {
+  if (!(df > 0)) return null;
+  let lo = 0, hi = 100;
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2;
+    if (tTestP(mid, df) > alpha) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * What a fitted model says at one setting, with the two intervals that answer two different questions.
+ *
+ *   CI  where the mean of all batches made here lies: the model's own uncertainty, se·√(x'(X'X)⁻¹x). It
+ *       narrows as runs are added and is the interval to compare two settings by.
+ *   PI  where the next result lands: the same plus the scatter of a batch, se·√(1/m + x'(X'X)⁻¹x) for the mean of
+ *       m new batches (m = 1, one batch). It never narrows below the batch scatter, however many runs went into
+ *       the model, and it is the interval a confirmation run is held against.
+ *
+ * Both on the fit's residual degrees of freedom, so with few spare runs t is large and the intervals say so.
+ * @param fit  an ols() fit (or anything with beta, se, inv, n, p)
+ * @param x    the regressor row at the setting, in the fit's column order
+ * @param o    {alpha, m}
+ * @returns {{mean, seMean, sePred, df, t, ci: [lo, hi], pi: [lo, hi], m}|null}
+ */
+export function predictionAt(fit, x, { alpha = 0.05, m = 1 } = {}) {
+  if (!fit?.beta || !fit.inv || !x || x.length !== fit.beta.length) return null;
+  const mean = x.reduce((s, v, i) => s + v * fit.beta[i], 0);
+  const df = fit.n - fit.p;
+  if (!(df > 0) || fit.se == null) return { mean, seMean: null, sePred: null, df, t: null, ci: null, pi: null, m };
+  const h = Math.max(0, quadForm(fit.inv, x));
+  const reps = Math.max(1, Number(m) || 1);
+  const seMean = fit.se * Math.sqrt(h), sePred = fit.se * Math.sqrt(1 / reps + h);
+  const t = tCritical(df, alpha);
+  return { mean, seMean, sePred, df, t, h, m: reps, ci: [mean - t * seMean, mean + t * seMean], pi: [mean - t * sePred, mean + t * sePred] };
+}
+
+/** Each coefficient's two-sided confidence interval, beta ± t·SE on the residual df; null where there is no SE. */
+export function coefficientCIs(fit, alpha = 0.05) {
+  if (!fit?.beta || !fit.stdErr) return null;
+  const t = tCritical(fit.n - fit.p, alpha);
+  if (t == null) return null;
+  return fit.beta.map((b, j) => [b - t * fit.stdErr[j], b + t * fit.stdErr[j]]);
 }
 
 /** Two-sided p-value of a t statistic with df degrees of freedom (regularised incomplete beta). */

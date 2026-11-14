@@ -560,8 +560,9 @@ export async function demoModeAndDoeToMl({ page, open, base }) {
   await expectText(page, '#designLine', /18 runs[\s\S]*all measured/, 'every run has results');
   await expectText(page, '#main', /Is this fit any good\?/, 'the diagnostics card');
   await expectText(page, '#balanceCard', /Best balance of all responses[\s\S]*Overall score\s*0\.\d\d/, 'one setting that balances every response leads the page');
+  await expectText(page, '#balanceCard', /95 % PI, one batch[\s\S]*Size \(nm\)\s*\d+(\.\d)?\s*\d+(\.\d)? – \d+/, 'the recommended setting carries a prediction interval');
   // the verdict leads, one sentence, beside the one plot it points at; every other plot is one click away
-  await expectText(page, '#fitVerdict', /^The fit looks sound: residuals shapeless, no run stands out, no lack of fit, predicted R² 0\.9\d\.$/, 'a sound fit says so, and what was checked');
+  await expectText(page, '#fitVerdict', /^The fit looks sound: residuals shapeless, no run stands out, no lack of fit, no drift over the run order, predicted R² 0\.9\d\.$/, 'a sound fit says so, and what was checked');
   if (await page.locator('#fitVerdict').getAttribute('data-plot') !== 'measured-vs-predicted') throw new Error('a sound fit should show measured against predicted');
   await expectText(page, '#fitCard', /Measured against predicted/i, 'observed-predicted, open beside the verdict');
   if (await page.locator('#plotsFold').evaluate((d) => d.open)) throw new Error('the other diagnostic plots should fold under the verdict');
@@ -570,6 +571,7 @@ export async function demoModeAndDoeToMl({ page, open, base }) {
   await page.click('#plotsFold > summary');
   await expectText(page, '#plotsFold', /Which terms are real[\s\S]*Residuals against fitted/i, 'Pareto and residuals');
   await expectText(page, '#plotsFold', /Normal plot of the residuals/i, 'normal plot');
+  await expectText(page, '#plotsFold', /Residuals in run order[\s\S]*Case statistics[\s\S]*Cook's D/i, 'run order and the case statistics');
   await expectText(page, '#main', /The fitted surface[\s\S]*circles are the runs you measured/i, 'the surface, with the runs on it');
   const svgs = await page.locator('#main svg').count();
   if (svgs < 7) throw new Error(`expected the design diagram plus six diagnostic plots, found ${svgs} svg`);

@@ -1,10 +1,12 @@
-// DoE designs: generation, coding and the CSV exchange format (columns a Python or R analysis can read back).
+// DoE designs: generation, coding and the CSV exports (columns a Python or R analysis can read).
 //
-// The design generation is a port of doe_pipeline/design.py and config.py, so the app produces the same coded
-// matrices, point types, run ids and real-unit settings as `run_pipeline.py design`. The run order is randomised
-// with the app's own seeded generator (numpy's permutation cannot be reproduced in the browser); to adopt the
-// pipeline's order and plate wells, import its run_plan.csv. Analysis stays with the pipeline (statsmodels):
-// the app exports config YAML + raw_data.csv and imports the result CSVs. A quick in-app fit is in stats.js.
+// The design generation began as a port of doe_pipeline/design.py and config.py, so the coded matrices, point
+// types, run ids and real-unit settings are the ones `run_pipeline.py design` writes. The run order is
+// randomised with the app's own seeded generator (numpy's permutation cannot be reproduced in the browser).
+// The analysis is the app's own: the fit in stats.js (with its intervals), the diagnostics in diagnostics.js,
+// the balanced optimum in balance.js and the confirmation runs in confirm.js. What leaves the app is two CSVs,
+// the design (toDesignCSV) and the measured responses beside it (toRawDataCSV); nothing is imported back, and
+// there is no YAML export. parsePandasCSV, at the end, reads a CSV pandas wrote, for a check by hand.
 
 import { batchDrift } from './stability.js';
 import { mixtureDesign, crossedDesign, mixturePool, scheffeTerms, processTerms, crossedTerms, toPseudo } from './mixture.js';

@@ -234,3 +234,53 @@ export function experimentProgress(exp, today) {
   const nextDue = open.map((s) => s.dueDate).sort()[0] || null;
   return { total: slots.length, done, open: open.length, overdue: overdue.length, nextDue, dueToday: open.filter((s) => s.dueDate === today) };
 }
+
+/**
+ * Confirmation runs for a designed experiment: `plan.n` new formulations made at the recommended setting,
+ * added to the same experiment so they are planned, made and measured like its runs, but kept out of the
+ * design's own runs, so the model is never fitted to the batches that are to test it (calc/confirm.js).
+ *
+ * Each is a copy of the plan of one of the design's own formulations (a centre run's when there is one, since
+ * the centre is what the design held everything else at) with every design factor set to the recommended
+ * value, the pump flows and the quick-mode mRNA worked out again from it.
+ *
+ * @param exp      the DoE experiment
+ * @param batches  its formulations, {id: batch}
+ * @param plan     confirmationPlan() (calc/confirm.js): {coded, real, n}
+ * @param env      {takenFormulations: [ids in use], startDate, settings}
+ * @returns {{batches: Array, slots: Array, confirmation: object}} the confirmation entry for exp.design.doe
+ */
+export function confirmationRuns(exp, batches, plan, env = {}) {
+  const doe = exp?.design?.doe;
+  if (!doe?.spec || !plan?.coded) throw new Error('only a designed experiment has a recommended setting to confirm');
+  const spec = doe.spec;
+  const centre = doe.runs.find((r) => r.point_type === 'center' && batches[r.batchId]) || doe.runs.find((r) => batches[r.batchId]);
+  const template = centre && batches[centre.batchId];
+  if (!template) throw new Error('no formulation of this design to copy the recipe from');
+  const nextFormulation = makeFormulationAllocator(exp.id, env.takenFormulations || []);
+  const before = (exp.design.doe.confirmations || []).reduce((a, c) => a + (c.batchIds?.length || 0), 0);
+  const start = nextWorkday(env.startDate || new Date().toISOString().slice(0, 10));
+  const tests = exp.spec?.tests?.length ? exp.spec.tests : ['dls', 'ee'];
+  const out = [], slots = [];
+  for (let i = 0; i < plan.n; i++) {
+    const p = JSON.parse(JSON.stringify(template.plan || {}));
+    const recorded = {};
+    for (const f of spec.factors || []) {
+      const v = isCategorical(f) ? categoricalLevel(f, plan.coded[f.name]) : plan.real[f.name];
+      recorded[f.name] = v;
+      if (f.applyTo) FACTORS.find((x) => x.key === f.applyTo)?.apply(p, v);
+    }
+    p.factors = recorded;
+    p.mixing = p.mixing || {};
+    p.mixing.flows = flowsFromTotal(p.mixing.totalFlow, p.mixing.frr, effectiveQuench(p));
+    syncQuick(p);
+    const run_id = `C${before + i + 1}`;
+    const b = { id: nextFormulation(), experimentId: exp.id, label: `${run_id} (confirmation)`, compositionId: template.compositionId,
+      stockId: template.stockId || null, plannedDate: productionDate(start, i, exp.spec?.batchesPerDay || 4), status: 'planned', plan: p, actual: {}, notes: '',
+      doe: { run_id, point_type: 'confirmation', coded: { ...plan.coded }, confirmation: true } };
+    out.push(b);
+    const due = nextWorkday(addDaysISO(b.plannedDate, 1));
+    for (const t of tests) slots.push({ id: `${b.id}_final_${t}`, batchId: b.id, stage: 'final', test: t, dueDate: due, status: 'open', measurementId: null, sampleName: sampleName({ batchId: b.id, stage: 'final' }) });
+  }
+  return { batches: out, slots, confirmation: { ...plan, batchIds: out.map((b) => b.id) } };
+}
