@@ -260,3 +260,6 @@ export function pairwiseAfterAnova(groups, anova) {
   const adj = holmSidak(pairs.map((x) => x.p));
   return pairs.map((x, k) => ({ ...x, pAdj: adj[k] }));
 }
+
+/** The regularised incomplete beta I_x(a, b), for distributions built on it elsewhere (the noncentral F, designeval.js). */
+export const betaIncomplete = (a, b, x) => betaI(a, b, x);

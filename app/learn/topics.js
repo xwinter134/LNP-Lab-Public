@@ -266,6 +266,15 @@ export const TOPICS = {
     trap: 'Trusting a lack-of-fit test whose centre replicates were made from one stock on one morning. Their scatter is then smaller than real batch-to-batch noise, and every model looks as if it misses something. Make replicates as separate batches, spread through the run order.',
     see: ['q2', 'overfit', 'noise', 'center'],
   },
+  fitsummary: {
+    group: 'Modelling', title: 'Which model: fit summary, reduction, Box-Cox',
+    what: 'Three checks of whether the model a design was planned for is the one its results support: the model orders side by side, the terms each response needs, and whether the response wants a transform.',
+    why: 'A design is planned for a model before anything is measured. The data may need less (no interaction is real, and every term the model carries without need widens every interval) or more (lack of fit says a term is missing). Choosing by eye from the coefficient table is how models end up with whatever terms happened to look large.',
+    numbers: [['Sequential p', 'what an order adds over the one below; the suggestion is the highest order with p < 0.05'], ['Lack of fit p', 'below 0.05: the model misses the replicates'], ['Reduction', 'backward on AICc, keeping a main effect while a term containing it stays'], ['Box-Cox', 'λ = 1 inside the 95 % interval: no transform; 0 is the log']],
+    doing: 'Start from the suggested order, then try the reduced model and compare predicted R²: a reduced model that predicts as well with fewer terms gives narrower intervals at the optimum. A log transform is worth checking for particle size when the scatter grows with the size.',
+    trap: 'Reducing a screening design to its significant terms and then reading the p values of what is left as if no choice had been made. They are optimistic; confirmation runs are the honest test.',
+    see: ['pi', 'confirmation', 'overfit'],
+  },
   pi: {
     group: 'Modelling', title: 'Prediction and confidence intervals',
     what: 'Two ranges around a predicted value. The confidence interval (CI) is where the true mean at that setting lies; the prediction interval (PI) is where the next batch made there will land.',

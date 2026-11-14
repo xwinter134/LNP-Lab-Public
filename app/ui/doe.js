@@ -23,6 +23,7 @@ import { balanceColumn } from '../calc/composition.js';
 import { info, wireLearn } from './learn.js';
 import { ols, coefficientCIs } from '../calc/stats.js';
 import { realEquation, equationText, codedEquationText } from '../calc/equation.js';
+import { fitSummary, termsForResponses, boxCox, REDUCED } from '../calc/modelselect.js';
 import { confirmationPlan, confirmationResult } from '../calc/confirm.js';
 import { flatRows } from './insights.js';
 import { balancedOptimum, boxTerms } from '../calc/balance.js';
@@ -279,7 +280,7 @@ function doeBody(el, ctx, sel) {
   const complete = runs.filter((r) => resps.every((n) => vals[r.run_id][n] != null)).length;
   const sm = designSummary(spec, runs);
   const respSel = resps.includes(ctx.params.response) ? ctx.params.response : resps[0];
-  const model = MODEL_TYPES[ctx.params.model] ? ctx.params.model : spec.model;
+  const model = modelChoice(spec, ctx.params.model);
 
   // One model behind the table and all three exports, so what is read and what is exported cannot drift.
   const order = ctx.params.order === 'run' ? 'run' : 'std';
@@ -304,21 +305,27 @@ function doeBody(el, ctx, sel) {
   const mixTerms = mode === 'process' ? [] : scheffeTerms(comps.map((c) => c.name), spec.mixtureOrder || 'quadratic');
   // The process terms come from the builder the balanced optimum uses, so the card and the fits below it are
   // the same models, and each term knows whether it is a main effect, an interaction or a square.
-  const terms = mode === 'process' ? boxTerms(names, model)
+  // A process model can be the design's own or that model reduced response by response (calc/modelselect.js);
+  // every reader below takes the terms of its own response from `termsOf`, so a reduced model is the same model
+  // in the card, the verdict, the coefficients and the optimum.
+  const plan = mode === 'process' ? termsForResponses(spec, runs, vals, model) : null;
+  const terms = mode === 'process' ? plan.full
     : mode === 'mixture' ? mixTerms
     : crossedTerms(mixTerms, processTerms(names, processOrderOf({ ...spec, model })));
+  const termsOf = (name) => plan?.of[name]?.terms || terms;
   // One fit per response, all made the same way: the summary reads every response, the plots and the
   // coefficient table read the selected one, and the two must not be able to disagree.
   const fitOf = (name) => {
     const measured = runs.filter((r) => vals[r.run_id][name] != null);
     const y = measured.map((r) => vals[r.run_id][name]);
-    const fit = measured.length > terms.length
-      ? (mode === 'process' ? ols(measured.map((r) => terms.map((t) => t.f(r.coded))), y) : fitMixture(measured.map((r) => r.coded), y, terms))
+    const ts = termsOf(name);
+    const fit = measured.length > ts.length
+      ? (mode === 'process' ? ols(measured.map((r) => ts.map((t) => t.f(r.coded))), y) : fitMixture(measured.map((r) => r.coded), y, ts))
       : null;
-    return { fit, measured };
+    return { fit, measured, terms: ts, removed: plan?.of[name]?.removed || [] };
   };
   const fits = Object.fromEntries(resps.map((n) => [n, fitOf(n)]));
-  const { fit, measured } = fits[respSel];
+  const { fit, measured, terms: rterms } = fits[respSel];
   const anyFit = resps.some((n) => fits[n].fit?.beta);
   const goal = spec.responses.find((r) => r.name === respSel) || {};
   const withData = runs.filter((r) => resps.some((n) => vals[r.run_id][n] != null)).length;
@@ -345,15 +352,19 @@ function doeBody(el, ctx, sel) {
   // The response and model selects stay outside every fold: they decide what the verdict below is about, and a
   // select that has to be found inside a closed section is a select nobody uses.
   // The next model up, for a verdict that finds a term missing; a quadratic needs a third level to stand on.
+  const baseOrder = model === REDUCED ? spec.model : model;
   const fuller = mode !== 'process' ? null
-    : model === 'linear' ? 'the model with interactions (Model terms, above)'
-    : model === 'interaction' && (DESIGN_TYPES[spec.designType]?.levels || 2) >= 3 ? 'the quadratic model (Model terms, above)' : null;
+    : baseOrder === 'linear' ? 'the model with interactions (Model terms, above)'
+    : baseOrder === 'interaction' && (DESIGN_TYPES[spec.designType]?.levels || 2) >= 3 ? 'the quadratic model (Model terms, above)' : null;
+  const modelOptions = [...Object.entries(MODEL_TYPES).map(([id, l]) => ({ value: id, label: l })),
+    ...(mode === 'process' ? [{ value: REDUCED, label: `Reduced: ${(MODEL_TYPES[spec.model] || spec.model).replace(/ \(.*\)$/, '').toLowerCase()}, terms chosen by AICc` }] : [])];
   const fitCard = `<div class="card" id="fitCard"><h2>Model fit</h2>
-      <div class="grid g3" id="modelForm">${field({ id: 'response', label: 'Response', type: 'select', value: respSel, options: resps.map((n) => ({ value: n, label: SHORT[n] || n })) })}${field({ id: 'model', label: 'Model terms', type: 'select', value: model, options: Object.entries(MODEL_TYPES).map(([id, l]) => ({ value: id, label: l })) })}</div>
+      <div class="grid g3" id="modelForm">${field({ id: 'response', label: 'Response', type: 'select', value: respSel, options: resps.map((n) => ({ value: n, label: SHORT[n] || n })) })}${field({ id: 'model', label: 'Model terms', type: 'select', value: model, options: modelOptions })}</div>
+      ${mode === 'process' && measured.length ? whichModel({ spec, runs, vals, names, respSel, model, link, fit, rterms, removed: fits[respSel].removed, open: folds.get(`${sel.id}:which`) ?? false }) : ''}
       ${fit?.beta
-        ? diagnostics(fit, terms, names, spec, measured, goal, { ...ctx.params, response: respSel }, mode === 'process' ? [] : comps,
+        ? diagnostics(fit, rterms, names, spec, measured, goal, { ...ctx.params, response: respSel }, mode === 'process' ? [] : comps,
             { open: folds.get(`${sel.id}:plots`) ?? false, fuller }) || '<p class="muted">Too few runs to draw the diagnostics.</p>'
-        : `<p class="muted">${esc(fit?.note || `Needs more than ${terms.length} runs with ${SHORT[respSel] || respSel} (${measured.length} so far).`)}</p>`}</div>`;
+        : `<p class="muted">${esc(fit?.note || `Needs more than ${rterms.length} runs with ${SHORT[respSel] || respSel} (${measured.length} so far).`)}</p>`}</div>`;
 
   const runsFold = fold('runs', !anyFit, 'Design and runs',
     `${sm.runs} runs, ${complete === sm.runs ? 'all measured' : `${complete} of ${sm.runs} measured`} · the table and the design diagram, as PDF, CSV or to paste`,
@@ -373,7 +384,7 @@ function doeBody(el, ctx, sel) {
         <button id="expPdf">Export PDF</button><button id="expCsv">Export CSV</button><button id="expCopy">Copy for paste</button>
         <span class="muted">exactly the ${dt.rows.length} rows and ${dt.columns.length} columns above, in the order shown</span></div>`);
 
-  const coef = fit?.beta ? coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) : null;
+  const coef = fit?.beta ? coefficients(fit, rterms, spec, goal, { mode, comps, names, respSel }) : null;
   const coefFold = coef ? fold('coef', false, 'Coefficients and the one-response optimum', coef.say, coef.html) : '';
 
   // Everything this design can say is said on this screen. The export is for taking the numbers somewhere
@@ -384,8 +395,8 @@ function doeBody(el, ctx, sel) {
 
   if (!anyFit) return kpis + runsFold + exportFold + fitCard;
   return kpis
-    + (mode === 'process' ? balanceCard(spec, runs, vals, model, sel, ctx) : '')
-    + driversCard({ spec, mode, terms, comps, names, resps, fits, respSel, link })
+    + (mode === 'process' ? balanceCard(spec, runs, vals, model, sel, ctx, termsOf) : '')
+    + driversCard({ spec, mode, comps, names, resps, fits, respSel, link })
     + fitCard + runsFold + coefFold + exportFold;
 }
 
@@ -395,11 +406,11 @@ function doeBody(el, ctx, sel) {
  * away; the predicted R² sits beside each sentence because a sentence from a poor model reads just as fluently
  * as one from a good model.
  */
-function driversCard({ spec, mode, terms, comps, names, resps, fits, respSel, link }) {
+function driversCard({ spec, mode, comps, names, resps, fits, respSel, link }) {
   // a process factor in the lab's words (FRR, total flow, PEG mol%); a lipid is already called what it is
   const word = (s) => esc(names.includes(s) ? factorLabel(s) : s);
   const items = resps.map((n) => {
-    const { fit, measured } = fits[n];
+    const { fit, measured, terms } = fits[n];
     const label = `<a href="${esc(link({ response: n }))}" title="show the plots for ${esc(SHORT[n] || n)}"><b>${esc(WORD[n] || n)}</b></a>`;
     if (!fit?.beta) return `<li>${label}: ${esc(fit?.note || `needs more than ${terms.length} measured runs, ${measured.length} so far`)}.</li>`;
     const d = mode === 'process' ? processDrivers(fit, terms, spec.factors)
@@ -445,6 +456,48 @@ function coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) {
   return { say, html };
 }
 
+/** The model the screen fits: the one in the URL when the design can have it, else the design's own. */
+export function modelChoice(spec, asked) {
+  if (MODEL_TYPES[asked]) return asked;
+  if (asked === REDUCED && specMode(spec) === 'process') return REDUCED;
+  return spec.model;
+}
+
+/** What balancedOptimum needs for a model choice: its order, and for a reduced model each response's own terms. */
+const optimumOptions = (spec, model, termsOf) => (model === REDUCED ? { model: spec.model, termsFor: termsOf } : { model });
+
+/**
+ * Which model the data support, for the response being read, folded under one line that says the suggestion:
+ * the fit summary of the three orders (calc/modelselect.js fitSummary), what the reduced model removed when it
+ * is the one in use, and whether a power transform is worth trying (Box-Cox). The transform is advice here:
+ * applying it is left to the export, so every number on this screen stays in the response's own units.
+ */
+function whichModel({ spec, runs, vals, names, respSel, model, link, fit, rterms, removed, open }) {
+  const rows = runs.filter((r) => Number.isFinite(vals[r.run_id]?.[respSel])).map((r) => ({ coded: r.coded, y: vals[r.run_id][respSel] }));
+  if (rows.length < 3) return '';
+  const fs = fitSummary(rows, names, { levels: DESIGN_TYPES[spec.designType]?.levels || 2 });
+  const bc = fit?.beta ? boxCox(rows.map((r) => rterms.map((t) => t.f(r.coded))), rows.map((r) => r.y)) : null;
+  const order = model === REDUCED ? spec.model : model;
+  const pv = (p) => (p == null ? '–' : p < 0.001 ? raw('&lt; 0.001') : fmt(p, 3));
+  const mname = (m) => (MODEL_TYPES[m] || m || '').replace(/ \(.*\)$/, '');
+  const table1 = table(['Model', { label: 'Sequential p', right: true }, { label: 'Lack of fit p', right: true }, { label: 'Adjusted R²', right: true }, { label: 'Predicted R²', right: true }, ''],
+    fs.rows.map((r) => ({ cells: [r.model === order ? raw(`<b>${esc(mname(r.model))}</b>`) : raw(`<a href="${esc(link({ model: r.model }))}">${esc(mname(r.model))}</a>`),
+      r.aliased ? '–' : pv(r.seqP), r.aliased ? '–' : pv(r.lofP), r.aliased ? '–' : fmt(r.adjR2, 3), r.aliased ? '–' : fmt(r.predR2, 3),
+      raw(r.aliased ? `<span class="muted">${esc(r.why)}</span>` : r.model === fs.suggested ? chip('suggested', 'ok') : '')] })));
+  const bcSay = !bc ? ''
+    : bc.open ? 'Box-Cox: the runs cannot tell one power transform from another, so none is called for.'
+    : bc.advice.name === 'none' ? `Box-Cox: no transform needed (λ = 1 is inside the 95 % interval ${sigfig(bc.ci[0], 2)} to ${sigfig(bc.ci[1], 2)}).`
+    : bc.ratio < 3 ? `Box-Cox points to a ${bc.advice.name} transform (λ ${sigfig(bc.lambda, 2)}, interval ${sigfig(bc.ci[0], 2)} to ${sigfig(bc.ci[1], 2)}), but the largest value is only ${sigfig(bc.ratio, 2)} times the smallest, so a transform would barely change the fit.`
+    : `Box-Cox suggests a ${bc.advice.name} transform (λ ${sigfig(bc.lambda, 2)}, 95 % interval ${sigfig(bc.ci[0], 2)} to ${sigfig(bc.ci[1], 2)}, λ = 1 outside it): the scatter grows with the value, and the p values and intervals here are less even across the range than they look. Fit the transformed response from the exported CSV to check.`;
+  const say = [`suggested: ${mname(fs.suggested) || '–'}`.toLowerCase(), ...(model === REDUCED ? [`reduced to ${rterms.length} of ${rterms.length + removed.length} terms`] : []), ...(bc && bc.advice.name !== 'none' && bc.ratio >= 3 ? [`Box-Cox: ${bc.advice.name}`] : [])].join(' · ');
+  return `<details class="fold sub" id="whichFold" data-fold="which" ${open ? 'open' : ''}><summary><h2>Which model? ${info('fitsummary')}</h2><span class="fold-say">${esc(say)}</span></summary>
+    ${table1}
+    <p class="muted small">Sequential p: whether that order's added terms (interactions over main effects, squares over interactions) explain more than chance. The suggestion is the highest order where they do: ${esc(fs.why)}. ${fs.suggested !== order && fs.suggested ? `<a href="${esc(link({ model: fs.suggested }))}">Use the ${esc(mname(fs.suggested).toLowerCase())} model</a>.` : ''}${fs.better ? ` The ${esc(mname(fs.better.model).toLowerCase())} model predicts better all the same (predicted R² ${fmt(fs.better.predR2, 3)}): its added terms fail as a block while one of them may be real, which the reduced model can keep on its own.` : ''}</p>
+    ${model === REDUCED ? `<p class="muted small">Reduced model: ${removed.length ? `removed ${removed.map((r) => esc(termLabel(r.name, names))).join(', ')} one at a time, each lowering AICc; main effects stay while a term containing them does` : 'every term of the model lowers AICc, so none was removed'}.</p>`
+      : `<p class="muted small"><a href="${esc(link({ model: REDUCED }))}">Reduce the model</a> to the terms each response needs (backward elimination on AICc, hierarchical).</p>`}
+    ${bcSay ? `<p class="muted small">${esc(bcSay)}</p>` : ''}</details>`;
+}
+
 /**
  * The model as an equation, twice: in coded units, where the coefficients compare, and in the units the
  * factors were set in, to put numbers into (calc/equation.js says why both, and when the second cannot be had).
@@ -468,9 +521,9 @@ function equationsHtml(fit, terms, spec, respSel) {
  * else because it is what the design was for; the summary, the diagnostics and the single-response optimum
  * further down are how to check it.
  */
-function balanceCard(spec, runs, vals, model, sel, ctx) {
+function balanceCard(spec, runs, vals, model, sel, ctx, termsOf) {
   let b;
-  try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
+  try { b = balancedOptimum(spec, runs, vals, optimumOptions(spec, model, termsOf)); } catch { b = null; }
   if (!b) return '';
   const goalText = (p) => {
     const g = b.used.find((x) => x.name === p.name);
@@ -492,7 +545,7 @@ function balanceCard(spec, runs, vals, model, sel, ctx) {
     ${blocked}
     <p style="margin:10px 0 0">Overall score <b>${fmt(b.D, 2)}</b> <span class="muted">(1 = every goal met)</span>${b.best ? ` · best run you made: <a href="#/formulation?batch=${esc(b.best.batchId)}">${esc(b.best.run_id)}</a> at <b>${fmt(b.best.D, 2)}</b>` : ''}.</p>
     ${edge.length && !b.blocked?.length ? `<div class="note" style="margin-top:8px">${edge.map((f) => esc(factorLabel(f))).join(' and ')} ${edge.length === 1 ? 'sits' : 'sit'} at the edge of the range you ran: the best setting may lie beyond it, and only a design over a wider range can tell.</div>` : ''}
-    <p class="muted small" style="margin-top:4px">A prediction inside the ranges you ran. The PI ${info('pi')} is where 95 % of single batches made at this setting should land: the model's own uncertainty there and the scatter of a batch together. Confirm it with two or three batches before relying on it.${b.skipped.length ? ` Not included: ${b.skipped.map((x) => `${esc(SHORT[x.name] || x.name)} (${esc(x.why)})`).join('; ')}.` : ''}</p>
+    <p class="muted small" style="margin-top:4px">A prediction inside the ranges you ran; the PI ${info('pi')} is where 95 % of single batches made here should land.${b.skipped.length ? ` Not included: ${b.skipped.map((x) => `${esc(SHORT[x.name] || x.name)} (${esc(x.why)})`).join('; ')}.` : ''}</p>
     ${confirmationBlock(b, sel, ctx, model)}</div>`;
 }
 
@@ -512,9 +565,8 @@ function confirmationBlock(b, sel, ctx, model) {
   const rounds = sel.design.doe.confirmations || [];
   const last = rounds[rounds.length - 1];
   const plan = `<div class="confirmPlan" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
-      <button id="planConfirm" class="primary" title="Add formulations at this setting to the experiment, to be made and measured like its runs; the model is not fitted to them">Plan confirmation runs</button>
-      <label class="inline">at this setting, <input type="number" name="confirmN" min="1" max="12" value="3" style="width:4em"> batches</label>
-      <span class="muted small">The prediction and its interval are stored with them now, so the check cannot move to meet the result.</span></div>`;
+      <button id="planConfirm" class="primary" title="Add formulations at this setting to the experiment, made and measured like its runs but never fitted into the model. The prediction and its interval are stored with them now, so the check cannot move to meet the result.">Plan confirmation runs</button>
+      <label class="inline"><input type="number" name="confirmN" min="1" max="12" value="3" style="width:4em"> batches ${info('confirmation')}</label></div>`;
   if (!last) return b.blocked?.length ? '' : plan;
   const ms = ctx.store.all('measurements');
   const values = {};
@@ -764,11 +816,12 @@ function wireDoe(el, ctx, sel) {
  */
 function planConfirmation(el, ctx, sel) {
   const { spec, runs } = sel.design.doe;
-  const model = MODEL_TYPES[ctx.params.model] ? ctx.params.model : spec.model;
+  const model = modelChoice(spec, ctx.params.model);
   const ms = ctx.store.all('measurements');
   const vals = Object.fromEntries(runs.map((r) => [r.run_id, responseValues(ms, r.batchId)]));
+  const plan = termsForResponses(spec, runs, vals, model);
   let b = null;
-  try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
+  try { b = balancedOptimum(spec, runs, vals, optimumOptions(spec, model, (n) => plan.of[n]?.terms)); } catch { b = null; }
   if (!b) { toast('No recommended setting to confirm', 'warn'); return; }
   const n = Math.max(1, Math.min(12, Math.round(Number(el.querySelector('[name=confirmN]')?.value) || 3)));
   const batches = Object.fromEntries(sel.batchIds.map((id) => [id, ctx.store.get('batches', id)]).filter(([, x]) => x));

@@ -68,14 +68,17 @@ export function boxTerms(names, model) {
  *   `interval` holds, per response, predictionAt() at the recommended setting: the 95 % CI of the mean there and
  *   the 95 % PI of one batch made there, the interval a confirmation run is held against.
  */
-export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
+export function balancedOptimum(spec, runs, vals, { model = spec.model, termsFor = null } = {}) {
   const names = (spec.factors || []).map((f) => f.name);
   if (!names.length || names.length > 4) return null;
   const skipped = [];
   const goals = goalsFor(spec, skipped);
-  const terms = boxTerms(names, model);
+  // one set of terms for every response, unless `termsFor` gives each its own (a reduced model, modelselect.js)
+  const common = boxTerms(names, model);
+  const termsOf = (name) => termsFor?.(name) || common;
   const fits = {};
   for (const g of goals) {
+    const terms = termsOf(g.name);
     const rows = runs.filter((r) => Number.isFinite(vals[r.run_id]?.[g.name]));
     if (rows.length <= terms.length) { skipped.push({ name: g.name, why: `${rows.length} runs measured, the model needs more than ${terms.length}` }); continue; }
     const fit = ols(rows.map((r) => terms.map((t) => t.f(r.coded))), rows.map((r) => vals[r.run_id][g.name]));
@@ -85,7 +88,7 @@ export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
   const used = goals.filter((g) => fits[g.name]);
   if (used.length < 2) return null;
 
-  const predict = (c) => Object.fromEntries(used.map((g) => [g.name, terms.reduce((s, t, j) => s + t.f(c) * fits[g.name].beta[j], 0)]));
+  const predict = (c) => Object.fromEntries(used.map((g) => [g.name, termsOf(g.name).reduce((s, t, j) => s + t.f(c) * fits[g.name].beta[j], 0)]));
   // Search the region the runs cover, not only the cube: a rotatable or circumscribed CCD ran its axial points
   // past ±1. Per factor out to the furthest level run, and no further from the centre than the furthest run,
   // so the corners of that wider box (never run) are not searched either.
@@ -128,10 +131,10 @@ export function balancedOptimum(spec, runs, vals, { model = spec.model } = {}) {
     coded: best.coded,
     real: Object.fromEntries(spec.factors.map((f) => [f.name, toReal(f, best.coded[f.name])])),
     predicted: best.predicted,
-    interval: Object.fromEntries(used.map((g) => [g.name, predictionAt(fits[g.name], terms.map((t) => t.f(best.coded)))])),
+    interval: Object.fromEntries(used.map((g) => [g.name, predictionAt(fits[g.name], termsOf(g.name).map((t) => t.f(best.coded)))])),
     // the residual scatter of each fit: the floor under how far one batch made here lands from the prediction
     scatter: Object.fromEntries(used.map((g) => [g.name, fits[g.name].se])),
-    parts: best.parts, D: best.D, best: bestRun, used, skipped, blocked, fits, terms,
+    parts: best.parts, D: best.D, best: bestRun, used, skipped, blocked, fits, terms: Object.fromEntries(used.map((g) => [g.name, termsOf(g.name)])),
     // where each factor's search stopped: the outermost level that was run
     extent: Object.fromEntries(names.map((n, i) => [n, ext[i]])),
   };

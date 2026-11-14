@@ -23,8 +23,9 @@ import { scheffeTerms, processTerms, crossedTerms, fitMixture } from '../calc/mi
 import { designTableModel } from '../calc/designtable.js';
 import { paretoEffects, residualPoints, qqPoints, qqLine, processDrivers, blendDrivers, driverSentence, sigfig } from '../calc/diagnostics.js';
 import { paretoSvg, residualSvg, qqSvg, obsPredSvg } from './doeplots.js';
-import { ols } from '../calc/stats.js';
+import { ols, coefficientCIs } from '../calc/stats.js';
 import { balancedOptimum, boxTerms } from '../calc/balance.js';
+import { termsForResponses, REDUCED } from '../calc/modelselect.js';
 import { batchIndex } from '../calc/indexes.js';
 import { processOf, processSummary, modeOf } from '../calc/process.js';
 import { processSvg } from './processviz.js';
@@ -450,29 +451,33 @@ export function designFits(spec, runs, measurements, { model = spec.model } = {}
   const names = (spec.factors || []).map((f) => f.name);
   const vals = Object.fromEntries(runs.map((r) => [r.run_id, responsesForBatch(measurements, r.batchId).values]));
   const mixTerms = mode === 'process' ? [] : scheffeTerms(comps.map((c) => c.name), spec.mixtureOrder || 'quadratic');
-  const terms = mode === 'process' ? boxTerms(names, model)
+  // a reduced model (calc/modelselect.js) keeps each response's own terms, as the screen does
+  const plan = mode === 'process' ? termsForResponses(spec, runs, vals, model) : null;
+  const terms0 = mode === 'process' ? plan.full
     : mode === 'mixture' ? mixTerms
       : crossedTerms(mixTerms, processTerms(names, processOrderOf({ ...spec, model })));
   const fits = {};
   for (const r of spec.responses || []) {
     const measured = runs.filter((x) => vals[x.run_id][r.name] != null);
     const y = measured.map((x) => vals[x.run_id][r.name]);
+    const terms = plan?.of[r.name]?.terms || terms0;
     let fit = null;
     if (measured.length > terms.length) {
       try { fit = mode === 'process' ? ols(measured.map((x) => terms.map((t) => t.f(x.coded))), y) : fitMixture(measured.map((x) => x.coded), y, terms); }
       catch (e) { fit = { note: e.message }; }
     }
-    fits[r.name] = { fit, measured };
+    fits[r.name] = { fit, measured, terms };
   }
-  return { mode, comps, names, vals, terms, fits, model };
+  return { mode, comps, names, vals, terms: terms0, fits, model, plan };
 }
 
 /** A 95 % interval as "84.2 – 97.9", to the decimals the response is read to. */
 const piText = (iv, name) => (iv && iv.every(Number.isFinite) ? `${sigfig(iv[0], 3, { maxDp: name === 'PDI' ? 3 : 2 })} – ${sigfig(iv[1], 3, { maxDp: name === 'PDI' ? 3 : 2 })}` : '–');
 
-function balanceBlock(spec, runs, vals, model) {
+function balanceBlock(spec, runs, vals, model, plan = null) {
   let b;
-  try { b = balancedOptimum(spec, runs, vals, { model }); } catch { b = null; }
+  const opts = model === REDUCED ? { model: spec.model, termsFor: (n) => plan?.of[n]?.terms } : { model };
+  try { b = balancedOptimum(spec, runs, vals, opts); } catch { b = null; }
   if (!b) return '';
   const goalText = (p) => {
     const g = b.used.find((x) => x.name === p.name);
@@ -496,11 +501,11 @@ function balanceBlock(spec, runs, vals, model) {
 
 function driversBlock(spec, d) {
   const items = (spec.responses || []).map((r) => {
-    const n = r.name, { fit, measured } = d.fits[n];
+    const n = r.name, { fit, measured } = d.fits[n], terms = d.fits[n].terms || d.terms;
     const label = `<b>${esc(WORD[n] || n)}</b>`;
-    if (!fit?.beta) return `<li>${label}: ${esc(fit?.note || `needs more than ${d.terms.length} measured runs, ${measured.length} so far`)}.</li>`;
-    const dr = d.mode === 'process' ? processDrivers(fit, d.terms, spec.factors)
-      : blendDrivers(fit, d.terms, d.comps, { total: Number(spec.total) || 100, reference: blendReference(measured, d.comps), factors: d.names.length ? spec.factors : [] });
+    if (!fit?.beta) return `<li>${label}: ${esc(fit?.note || `needs more than ${terms.length} measured runs, ${measured.length} so far`)}.</li>`;
+    const dr = d.mode === 'process' ? processDrivers(fit, terms, spec.factors)
+      : blendDrivers(fit, terms, d.comps, { total: Number(spec.total) || 100, reference: blendReference(measured, d.comps), factors: d.names.length ? spec.factors : [] });
     const q = fit.predR2, weak = q == null || q < 0.5;
     const facts = [`R² ${fmt(fit.r2, 2)}`, `predicted R² ${q == null ? 'not available' : fmt(q, 2)}`];
     return `<li>${driverSentence(label, dr, { unit: UNIT[n], term: (s) => esc(d.names.includes(s) ? factorLabel(s) : s), text: esc, maxDp: n === 'PDI' ? 3 : 2 })} <span class="muted">${facts.join(' · ')}</span>${weak ? ' <i class="flag">below 0.5: a lead to check, not a finding</i>' : ''}</li>`;
@@ -519,11 +524,12 @@ function modelBlock(spec, d, counter) {
   // the Pareto's bars carry the terms in the lab's words, as the coefficient table above them does
   const named = (pe) => ({ ...pe, effects: pe.effects.map((e) => ({ ...e, name: termLabel(e.name, d.names) })) });
   return (spec.responses || []).map((r) => {
-    const { fit, measured } = d.fits[r.name];
+    const { fit, measured } = d.fits[r.name], terms = d.fits[r.name].terms || d.terms;
     const title = `Model for ${SHORT[r.name] || r.name}`;
-    if (!fit?.beta) return `<h2>${esc(title)}</h2><p class="muted">${esc(fit?.note || `Not fitted: needs more than ${d.terms.length} runs with this response, ${measured.length} so far.`)}</p>`;
-    const coef = ptable(['Term', { label: 'Coefficient', right: true }, { label: 'SE', right: true }, { label: 't', right: true }, { label: 'p', right: true }, ''],
-      d.terms.map((t, i) => ({ cells: [esc(termLabel(t.name, d.names)), fmt(fit.beta[i], 3), fmt(fit.stdErr?.[i], 3), fmt(fit.tValues?.[i], 2), p3(fit.pValues?.[i]), `<b>${stars(fit.pValues?.[i])}</b>`] })), 'coef');
+    if (!fit?.beta) return `<h2>${esc(title)}</h2><p class="muted">${esc(fit?.note || `Not fitted: needs more than ${terms.length} runs with this response, ${measured.length} so far.`)}</p>`;
+    const ci = coefficientCIs(fit);
+    const coef = ptable(['Term', { label: 'Coefficient', right: true }, { label: 'SE', right: true }, { label: '95 % CI', right: true }, { label: 't', right: true }, { label: 'p', right: true }, ''],
+      terms.map((t, i) => ({ cells: [esc(termLabel(t.name, d.names)), fmt(fit.beta[i], 3), fmt(fit.stdErr?.[i], 3), ci ? `${fmt(ci[i][0], 3)} to ${fmt(ci[i][1], 3)}` : '–', fmt(fit.tValues?.[i], 2), p3(fit.pValues?.[i]), `<b>${stars(fit.pValues?.[i])}</b>`] })), 'coef');
     const units = d.mode === 'process' ? 'Coded units: a coefficient is the change per half range.' : `Scheffé model, no intercept; blends in pseudo-components${d.mode === 'crossed' ? ', process factors in coded units' : ''}.`;
     let plots = '';
     if (measured.length >= 4) {
@@ -531,7 +537,7 @@ function modelBlock(spec, d, counter) {
       const qq = qqPoints(fit.residuals);
       const name = SHORT[r.name] || r.name;
       const figs = [
-        { svg: paretoSvg(named(paretoEffects(fit, d.terms))), title: `${name}: which terms are real`, caption: 'Bars are |t|, the coefficient against its own standard error; past the dashed line a term would come up less than one time in twenty by chance.' },
+        { svg: paretoSvg(named(paretoEffects(fit, terms))), title: `${name}: which terms are real`, caption: 'Bars are |t|, the coefficient against its own standard error; past the dashed line a term would come up less than one time in twenty by chance.' },
         { svg: residualSvg(pts), title: `${name}: residuals against fitted`, caption: 'Should be a shapeless band; a funnel or a curve means the model is the wrong shape.' },
         { svg: qqSvg(qq, qqLine(qq)), title: `${name}: normal plot of the residuals`, caption: 'On the line, the p values can be taken at face value.' },
         { svg: obsPredSvg(pts), title: `${name}: measured against predicted`, caption: `The runs the model was fitted on, so this flatters it; the predicted R² (${fmt(fit.predR2, 3)}) is the honest version.` },
@@ -580,14 +586,14 @@ export function experimentReport({ exp, batches, measurements = [], ref, setting
   if (!res.measuredRows) {
     results = `<h2>Results</h2><p>Nothing measured yet: the statistics, the data table and the figures fill in with the first result.</p>${exp.type === 'stability' ? `<h3>Plan</h3>${stabilityTable(exp, res, { qc, today })}` : ''}`;
   } else if (doe) {
-    const d = designFits(doe.spec, doe.runs, ms, { model: MODEL_TYPES[model] ? model : doe.spec.model });
+    const d = designFits(doe.spec, doe.runs, ms, { model: MODEL_TYPES[model] || (model === REDUCED && specMode(doe.spec) === 'process') ? model : doe.spec.model });
     const anyFit = Object.values(d.fits).some((f) => f.fit?.beta);
     const batchesById = Object.fromEntries(batches.map((b) => [b.id, b]));
     // A model picked on Design & results is what the screen showed, so it is what is printed, said once here.
-    const modelName = (m) => (MODEL_TYPES[m] || m || '').replace(/ \(.*\)$/, '').toLowerCase();
+    const modelName = (m) => (m === REDUCED ? `reduced (AICc, per response) ${(MODEL_TYPES[doe.spec.model] || '').replace(/ \(.*\)$/, '').toLowerCase()}` : (MODEL_TYPES[m] || m || '').replace(/ \(.*\)$/, '').toLowerCase());
     const swapped = d.mode !== 'mixture' && d.model !== doe.spec.model
       ? `<p class="note">Every model below is the ${esc(modelName(d.model))} model chosen on Design &amp; results; the design was planned for ${esc(modelName(doe.spec.model))}.</p>` : '';
-    results = swapped + (anyFit && d.mode === 'process' ? balanceBlock(doe.spec, doe.runs, d.vals, d.model) : '')
+    results = swapped + (anyFit && d.mode === 'process' ? balanceBlock(doe.spec, doe.runs, d.vals, d.model, d.plan) : '')
       + (anyFit ? driversBlock(doe.spec, d) : `<h2>Results</h2><p>${esc(res.sentences[0] || '')} No model can be fitted yet: it needs more than ${d.terms.length} measured runs.</p>`)
       + `<h2>Runs and results</h2>${runTable(doe.spec, doe.runs, batchesById, res, qc)}<p class="note">Standard order; the run order is the order the formulations were made in. Each result is the mean ± SD of the instrument's repeat runs on that formulation. ${esc(qcNote(res, qc))}</p>`
       + (anyFit ? modelBlock(doe.spec, d, counter) : '');
