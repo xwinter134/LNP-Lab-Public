@@ -10,8 +10,8 @@
 //                effect of 2 SD across the range (low to high) is a coded coefficient of 1 SD. Computed from the
 //                noncentral F, so no simulation is involved and the answer is the same every time.
 //   FDS          the fraction of the design space where the model predicts the mean to within ±d: where the
-//                half-width of the 95 % CI, t·σ·√(x'(X'X)⁻¹x), is below d. Said for d = σ (the noise of one batch)
-//                by default. Design-Expert asks for 80 % or more before a response-surface design is used to
+//                half-width of the 95 % CI, t·σ·√(x'(X'X)⁻¹x), is below d. Said for d = 2σ by default, the
+//                same size of effect the power is given for. Design-Expert asks for 80 % or more before a response-surface design is used to
 //                optimise.
 //   correlation  between the model's own columns: 0 for an orthogonal design, and above 0.5 two terms start to
 //                borrow each other's effect, which inflates both their standard errors (the VIF says by how much)
@@ -87,7 +87,7 @@ const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
  *               in SD, samples for FDS, ext: half widths of the region in coded units per factor}
  * @returns {{ok, why?, n, p, df, power: [{term, kind, power}], fds, fdsCurve, maxCorrelation, correlations, vif, aliases, dEfficiency}}
  */
-export function evaluateDesign(runs, names, model, { snr = 2, alpha = 0.05, d = 1, samples = 2000, ext = {} } = {}) {
+export function evaluateDesign(runs, names, model, { snr = 2, alpha = 0.05, d = 2, samples = 2000, ext = {} } = {}) {
   const terms = boxTerms(names, model);
   const X = runs.map((r) => terms.map((t) => t.f(r.coded)));
   const n = X.length, p = terms.length, df = n - p;
@@ -154,6 +154,8 @@ export function evaluateDesign(runs, names, model, { snr = 2, alpha = 0.05, d = 
       const x2 = X.map((_, i) => t2.f(runs[i].coded));
       const xtx2 = terms.map((_, j) => X.reduce((s, r, i) => s + r[j] * x2[i], 0));
       terms.forEach((t, j) => {
+        // the intercept carrying the squares is the curvature a centre point tests, not an alias worth naming
+        if (t.kind === 'intercept') return;
         const a = inv[j].reduce((s, v, q) => s + v * xtx2[q], 0);
         if (Math.abs(a) > 0.05) aliases.push({ term: t.name, carries: t2.name, coef: a });
       });

@@ -6,7 +6,7 @@ starts at 0.15.0; the entries before it describe how the app got there.
 
 The version you are running is shown at the foot of the sidebar.
 
-## Unreleased: intervals, confirmation runs, the equation, which model
+## Unreleased: intervals, confirmation runs, which model, the sweet spot, design power
 
 - **Prediction and confidence intervals.** The recommended setting shows, for every response, the 95 % interval
   one batch made there should fall in (the PI), in place of the residual "scatter ±". The printed report too.
@@ -20,6 +20,12 @@ The version you are running is shown at the foot of the sidebar.
   chosen per response by backward elimination on AICc that keeps main effects while a term containing them
   stays, used by the verdict, the coefficients, the optimum and the report alike; and a **Box-Cox** check that
   says when a log or another power transform is worth trying.
+- **Sweet spot.** A fold under the recommended setting shows, over any two factors, where every response
+  meets its window at once (the QC limits from Settings, changeable there), read by the predicted value, the
+  95 % CI or the 95 % PI of one batch (the design space), with each response's limit drawn as its own line.
+- **Judging a design before it is run.** The DoE wizard says the power to find an effect of 2 SD for each kind
+  of term, the FDS of a response-surface model, and what is aliased or correlated, with the power and VIF per
+  term folded below it.
 - **Case statistics and the run order.** A table per run (leverage, studentised and R-student residuals, Cook's
   distance, DFFITS), a plot of the residuals in run order with the Durbin–Watson statistic, and the verdict now
   says when the residuals drift with the run order (the order added to the model as a column, p < 0.01).

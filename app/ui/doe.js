@@ -14,7 +14,7 @@ import { scheffeTerms, processTerms, crossedTerms, fitMixture, toPseudo } from '
 import { mixtureDesignFor } from '../calc/doe.js';
 import { designTableModel, designSubtitle } from '../calc/designtable.js';
 import { paretoEffects, residualPoints, qqPoints, qqLine, surfaceGrid, effectLines, blendTrace, sigfig, processDrivers, blendDrivers, driverSentence, fitVerdict, caseStatistics } from '../calc/diagnostics.js';
-import { paretoSvg, residualSvg, qqSvg, obsPredSvg, runOrderSvg, surfaceSvg, surface3dSvg, surface3dOpeningYaw, SURFACE3D_PITCH, effectSvg, traceSvg } from './doeplots.js';
+import { paretoSvg, residualSvg, qqSvg, obsPredSvg, runOrderSvg, overlaySvg, surfaceSvg, surface3dSvg, surface3dOpeningYaw, SURFACE3D_PITCH, effectSvg, traceSvg } from './doeplots.js';
 import { tablePdf, tableCsv, tableTsv } from '../calc/pdf.js';
 import { designSvgFromRuns, designCaption, blendSvgFromRuns, blendCaption, blendLabels } from './designviz.js';
 import { describeId, usedIds } from '../schema.js';
@@ -24,6 +24,7 @@ import { info, wireLearn } from './learn.js';
 import { ols, coefficientCIs } from '../calc/stats.js';
 import { realEquation, equationText, codedEquationText } from '../calc/equation.js';
 import { fitSummary, termsForResponses, boxCox, REDUCED } from '../calc/modelselect.js';
+import { defaultSpecs, overlayGrid, overlaySentence } from '../calc/overlay.js';
 import { confirmationPlan, confirmationResult } from '../calc/confirm.js';
 import { flatRows } from './insights.js';
 import { balancedOptimum, boxTerms } from '../calc/balance.js';
@@ -120,9 +121,12 @@ export async function render(el, ctx) {
   const views = ['response', 'model', 'fa', 'fb', 'ef', 'eg', 'at'];
   el.addEventListener('change', (ev) => {
     const name = ev.target?.name;
-    if (!views.includes(name)) return;
+    // the sweet spot's settings (ov_…) are view settings too, however many responses there are
+    if (!views.includes(name) && !String(name || '').startsWith('ov_')) return;
     const next = { ...ctx.params, id: sel.id };
     for (const v of views) { const node = el.querySelector(`[name=${v}]`); if (node) next[v] = node.value; }
+    // an emptied window is kept as 'none', or the URL would drop it and the QC default would come back
+    for (const node of el.querySelectorAll('[name^=ov_]')) next[node.name] = node.value === '' && /^ov_(lo|hi)_/.test(node.name) ? 'none' : node.value;
     ctx.navigate('doe', next);
   });
 }
@@ -396,6 +400,7 @@ function doeBody(el, ctx, sel) {
   if (!anyFit) return kpis + runsFold + exportFold + fitCard;
   return kpis
     + (mode === 'process' ? balanceCard(spec, runs, vals, model, sel, ctx, termsOf) : '')
+    + (mode === 'process' ? overlayCard({ spec, runs, vals, fits, termsOf, names, params: ctx.params, settings: getSettings(ctx), model, open: folds.get(`${sel.id}:overlay`) ?? false }) : '')
     + driversCard({ spec, mode, comps, names, resps, fits, respSel, link })
     + fitCard + runsFold + coefFold + exportFold;
 }
@@ -454,6 +459,76 @@ function coefficients(fit, terms, spec, goal, { mode, comps, names, respSel }) {
       ${mode === 'process' ? equationsHtml(fit, terms, spec, respSel) : ''}
       ${opt ? opt.html : ''}`;
   return { say, html };
+}
+
+/**
+ * The sweet spot: where every response with a specification meets it at once, over two factors with the others
+ * held at the recommended setting (calc/overlay.js). The windows start from the QC limits in Settings and can be
+ * changed here; like every other view setting they travel in the URL, so a link shows the same picture. Read
+ * three ways: the predicted value, the whole confidence interval of the mean, or the whole prediction interval of
+ * one batch, which is the design space a regulator means.
+ */
+function overlayCard({ spec, runs, vals, fits, termsOf, names, params, settings, model, open }) {
+  const numeric = spec.factors.filter((f) => !isCategorical(f));
+  if (numeric.length < 2) return '';
+  const defaults = defaultSpecs(spec.responses, settings.qc);
+  const read = (key, dflt) => {
+    const v = params[key];
+    if (v === undefined) return dflt;
+    if (v === '' || v === 'none') return null;
+    return Number.isFinite(Number(v)) ? Number(v) : dflt;
+  };
+  const specs = spec.responses.map((r) => {
+    const d = defaults.find((x) => x.name === r.name) || { lo: null, hi: null };
+    return { name: r.name, lo: read(`ov_lo_${r.name}`, d.lo), hi: read(`ov_hi_${r.name}`, d.hi) };
+  });
+  const active = specs.filter((s) => s.lo != null || s.hi != null);
+  const fa = numeric.find((f) => f.name === params.ov_a) || numeric[0];
+  const fb = numeric.find((f) => f.name === params.ov_b && f.name !== fa.name) || numeric.find((f) => f.name !== fa.name);
+  const interval = ['mean', 'ci', 'pi'].includes(params.ov_iv) ? params.ov_iv : 'mean';
+  let best = null;
+  try { best = balancedOptimum(spec, runs, vals, optimumOptions(spec, model, termsOf)); } catch { best = null; }
+  const base = best ? best.coded : Object.fromEntries(spec.factors.map((f) => [f.name, isCategorical(f) ? -1 : 0]));
+  const ext = Object.fromEntries(names.map((n) => [n, Math.max(1, ...runs.map((r) => Math.abs(Number(r.coded?.[n]) || 0)))]));
+  const fitted = Object.fromEntries(Object.entries(fits).filter(([, v]) => v.fit?.beta).map(([k, v]) => [k, v.fit]));
+  const g = overlayGrid({ fits: fitted, termsOf, names, a: fa.name, b: fb.name, base, ext, specs: active, interval, steps: 41 });
+  const label = (n) => SHORT[n] || n;
+  const end = (f, c) => setting(f, toReal(f, c));
+  const held = spec.factors.filter((f) => f !== fa && f !== fb);
+  const heldSay = held.length ? `${held.map((f) => `${factorLabel(f)} ${setting(f, isCategorical(f) ? base[f.name] : toReal(f, base[f.name]))}${f.unit && !isCategorical(f) ? ` ${f.unit}` : ''}`).join(', ')}, ${best ? 'as at the recommended setting' : 'at the centre'}` : '';
+  // the sweet spot's extent in real units, read off the passing cells: a range to put in a batch record
+  let box = null;
+  g.ok.forEach((row, j) => row.forEach((on, i) => {
+    if (!on) return;
+    const ca = -g.ext[0] + (2 * g.ext[0] * i) / (g.steps - 1), cb = -g.ext[1] + (2 * g.ext[1] * j) / (g.steps - 1);
+    box = box ? { a0: Math.min(box.a0, ca), a1: Math.max(box.a1, ca), b0: Math.min(box.b0, cb), b1: Math.max(box.b1, cb) } : { a0: ca, a1: ca, b0: cb, b1: cb };
+  }));
+  const unit = (f) => (f.unit ? ` ${f.unit}` : '');
+  const boxSay = box && g.share < 1 ? ` It spans ${factorLabel(fa)} ${end(fa, box.a0)} to ${end(fa, box.a1)}${unit(fa)} and ${factorLabel(fb)} ${end(fb, box.b0)} to ${end(fb, box.b1)}${unit(fb)}, though not every combination inside those ranges is in it.` : '';
+  const pts = runs.map((r) => ({ x: r.coded[fa.name], y: r.coded[fb.name], label: r.run_id }));
+  const svg = overlaySvg(g, { fa: { ...fa, name: factorLabel(fa) }, fb: { ...fb, name: factorLabel(fb) },
+    axis: { a: [end(fa, -g.ext[0]), end(fa, g.ext[0])], b: [end(fb, -g.ext[1]), end(fb, g.ext[1])] },
+    specs: active, label, runs: pts, flag: best ? { x: best.coded[fa.name], y: best.coded[fb.name] } : null });
+  const opts = numeric.map((f) => ({ value: f.name, label: factorLabel(f) }));
+  const sel = (id, value, options) => `<select name="${id}" style="width:auto">${options.map((o) => `<option value="${esc(o.value)}" ${o.value === value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+  const box2 = (name, v) => `<input type="number" step="any" name="${name}" value="${v == null ? '' : esc(String(v))}" placeholder="none" style="width:6.5em">`;
+  const rows = specs.map((s) => ({ cells: [label(s.name), raw(box2(`ov_lo_${s.name}`, s.lo)), raw(box2(`ov_hi_${s.name}`, s.hi)),
+    raw(!fitted[s.name] ? '<span class="muted">no fit yet</span>' : s.lo == null && s.hi == null ? '<span class="muted">not used</span>' : '')] }));
+  const say = g.used.length ? `${Math.round(g.share * 100)} % of the ${esc(factorLabel(fa))} × ${esc(factorLabel(fb))} slice meets every specification` : 'set a specification to see where it is met';
+  return `<details class="card fold" id="overlayFold" data-fold="overlay" ${open ? 'open' : ''}><summary><h2>Sweet spot ${info('overlay')}</h2><span class="fold-say">${say}</span></summary>
+    <div class="grid g2" style="align-items:start">
+      <div>
+        <p class="note ${g.used.length && g.share > 0 ? 'ok' : g.used.length ? 'warn' : ''}" id="overlaySay">${esc(overlaySentence(g, { label }))}${esc(boxSay)}</p>
+        ${table(['Response', { label: 'at least', right: true }, { label: 'at most', right: true }, ''], rows)}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <label class="inline">Met by ${sel('ov_iv', interval, [{ value: 'mean', label: 'the predicted value' }, { value: 'ci', label: 'the 95 % CI of the mean' }, { value: 'pi', label: 'the 95 % PI of one batch' }])}</label></div>
+        <p class="muted small">The windows start from the QC limits in Settings; empty means no limit. ${interval === 'pi' ? 'With the PI, the green region is where a single batch should pass: the design space, and smaller than the others.' : interval === 'ci' ? 'With the CI, the green region is where the model is sure the average batch passes.' : 'With the predicted value, a batch made at the edge of the green region passes about half the time; the PI reading is the one to plan production with.'}</p>
+      </div>
+      <div class="fig" data-fig="sweet-spot"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h3 style="flex:1;margin:0">Where every specification is met</h3>${dlButtons}
+          ${sel('ov_a', fa.name, opts)}<span class="muted">against</span>${sel('ov_b', fb.name, opts.filter((o) => o.value !== fa.name))}</div>
+        ${svg}
+        ${heldSay ? `<p class="muted small">${esc(heldSay)}.</p>` : ''}</div>
+    </div></details>`;
 }
 
 /** The model the screen fits: the one in the URL when the design can have it, else the design's own. */

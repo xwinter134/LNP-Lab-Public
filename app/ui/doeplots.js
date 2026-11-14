@@ -8,6 +8,7 @@ import { esc } from './kit.js';
 // A coefficient in the Pareto's column reads to three significant figures whatever its size: a PDI's 0.0052
 // was "0.01" at two fixed decimals, and its smallest terms "-0".
 import { sigfig } from '../calc/diagnostics.js';
+import { isoSegments as isoSegmentsOf } from '../calc/overlay.js';
 import { surfaceScene, heightColour, rgb, niceTicks, Z_SCALE } from '../calc/surface3d.js';
 
 const W = 420, H = 260, L = 52, R = 14, T = 16, B = 40;
@@ -401,4 +402,60 @@ export function surface3dSvg(grid, { fa, fb, runs = [], goal = null, yaw = null,
     ${walls}${grid3}${contours ? contourLines : ''}${feet}${shapes}${box}<g class="lbHalo">${xAxis}${yAxis}${zAxis}</g>${dots}${legend}
     <text x="0" y="${h - 19}" class="lb" font-size="10">dots: measured runs, filled above the surface, open below; the line is the gap to it</text>
     <text x="0" y="${h - 6}" class="lb" font-size="10">drag or use the arrow keys to turn · double-click to reset</text></svg>`;
+}
+
+/* ---------------- the sweet-spot overlay ---------------- */
+
+const OVERLAY_COLOURS = ['#c2410c', '#1d4ed8', '#7c3aed', '#047857', '#be185d'];
+
+/**
+ * The overlay of calc/overlay.js as a picture: the sweet spot filled, every response's limit drawn as its own
+ * line in its own colour and named on it, the runs as circles and the recommended setting as a flag.
+ * @param g  overlayGrid()
+ * @param o  {fa, fb (factors with name and unit, named for reading), axis: {a: [lo, hi], b: [lo, hi]} labels at the
+ *           ends of the axes, specs, label (response) => name, runs [{x, y, label}] coded, flag {x, y} coded}
+ */
+export function overlaySvg(g, { fa, fb, axis, specs = [], label = (n) => n, runs = [], flag = null } = {}) {
+  if (!g || !g.steps) return '';
+  const w = 400, h = 350, l = 56, r = 16, t = 14, b = 78;
+  const n = g.steps, [ea, eb] = g.ext;
+  const pw = w - l - r, ph = h - t - b, cw = pw / n, ch = ph / n;
+  // one faint background and the passing cells in a group carrying the opacity, so overlapping cells leave no seams
+  let cells = '';
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    if (g.ok[j][i]) cells += `<rect x="${(l + i * cw).toFixed(1)}" y="${(t + (n - 1 - j) * ch).toFixed(1)}" width="${(cw + 0.6).toFixed(1)}" height="${(ch + 0.6).toFixed(1)}"/>`;
+  }
+  cells = `<rect x="${l}" y="${t}" width="${pw}" height="${ph}" fill="var(--ink)" opacity=".05"/><g fill="var(--ok)" opacity=".45">${cells}</g>`;
+  // grid index → pixel: cell centres, so the lines sit where the cells change colour
+  const gx = (i) => l + (i + 0.5) * cw, gy = (j) => t + (n - 1 - j + 0.5) * ch;
+  const px = (c) => l + ((c / ea + 1) / 2) * pw, py = (c) => t + (1 - (c / eb + 1) / 2) * ph;
+  const used = specs.filter((s) => g.values[s.name]);
+  let lines = '', names = '';
+  used.forEach((s, k) => {
+    const colour = OVERLAY_COLOURS[k % OVERLAY_COLOURS.length];
+    for (const lim of [s.lo, s.hi]) {
+      if (lim == null) continue;
+      const segs = isoSegmentsOf(g.values[s.name], lim);
+      if (!segs.length) continue;
+      lines += `<path d="${segs.map(([p, q]) => `M${gx(p[0]).toFixed(1)} ${gy(p[1]).toFixed(1)}L${gx(q[0]).toFixed(1)} ${gy(q[1]).toFixed(1)}`).join('')}" fill="none" stroke="${colour}" stroke-width="2"/>`;
+      // named on the line, at its middle segment
+      const [p, q] = segs[Math.floor(segs.length / 2)];
+      const mx = (gx(p[0]) + gx(q[0])) / 2, my = (gy(p[1]) + gy(q[1])) / 2;
+      lines += `<text x="${mx.toFixed(1)}" y="${(my - 4).toFixed(1)}" class="lb" font-size="10.5" text-anchor="middle" style="fill:${colour};font-weight:600;paint-order:stroke;stroke:var(--bg, #fff);stroke-width:3px">${esc(label(s.name))} ${nice(lim, 3)}</text>`;
+    }
+    names += `<tspan style="fill:${colour};font-weight:600">${esc(label(s.name))}</tspan>${k < used.length - 1 ? ' · ' : ''}`;
+  });
+  const dots = runs.map((p) => `<circle cx="${px(p.x).toFixed(1)}" cy="${py(p.y).toFixed(1)}" r="4" fill="none" stroke="var(--ink)" stroke-width="1.4" opacity=".75"><title>${esc(p.label || '')}</title></circle>`).join('');
+  const fl = flag ? `<g transform="translate(${px(flag.x).toFixed(1)} ${py(flag.y).toFixed(1)})"><line x1="0" y1="0" x2="0" y2="-16" stroke="var(--ink)" stroke-width="1.6"/><path d="M0 -16 L11 -12 L0 -8 Z" fill="var(--ink)"/><circle r="2.6" fill="var(--ink)"/><title>the recommended setting</title></g>` : '';
+  return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="sweet spot over ${esc(fa.name)} and ${esc(fb.name)}" style="width:100%;max-width:${w}px;height:auto;display:block">
+    ${cells}${lines}${dots}${fl}
+    <rect x="${l}" y="${t}" width="${pw}" height="${ph}" fill="none" class="ax"/>
+    <text x="${l}" y="${h - b + 15}" class="lb">${esc(axis.a[0])}</text>
+    <text x="${w - r}" y="${h - b + 15}" class="lb" text-anchor="end">${esc(axis.a[1])}</text>
+    <text x="${(l + w - r) / 2}" y="${h - b + 32}" class="lb" text-anchor="middle">${esc(fa.name)}${fa.unit ? ` (${esc(fa.unit)})` : ''}</text>
+    <text x="${l - 6}" y="${h - b + 4}" class="lb" text-anchor="end">${esc(axis.b[0])}</text>
+    <text x="${l - 6}" y="${t + 10}" class="lb" text-anchor="end">${esc(axis.b[1])}</text>
+    <text x="14" y="${(t + h - b) / 2}" class="lb" text-anchor="middle" transform="rotate(-90 14 ${(t + h - b) / 2})">${esc(fb.name)}${fb.unit ? ` (${esc(fb.unit)})` : ''}</text>
+    <text x="0" y="${h - 30}" class="lb" font-size="10">green: every specification met · lines: ${names}</text>
+    <text x="0" y="${h - 17}" class="lb" font-size="10">${g.interval === 'mean' ? '' : 'lines: predicted value at a limit · '}circles: runs${flag ? ' · flag: recommended setting' : ''}</text></svg>`;
 }

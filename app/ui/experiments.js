@@ -17,7 +17,8 @@ import { PAGE_ROWS, moreLine, focusFirstNew } from './pager.js';
 import { defaultProcess, defaultModeFor, processOf, adoptProcess, processSummary, quickVolumes, effectiveQuench, syncQuick, modeOf, deviceOf, mixersFor, QUICK_VOLUME_mL } from '../calc/process.js';
 import { processSvg, processEditor, applyProcessField, wireProcessButtons } from './processviz.js';
 import { designSvgFromRuns, designCaption, blendSvgFromRuns, blendCaption } from './designviz.js';
-import { specComponents, factorLabel, isCategorical, TWO_LEVEL_DESIGNS } from '../calc/doe.js';
+import { specComponents, factorLabel, termLabel, isCategorical, TWO_LEVEL_DESIGNS } from '../calc/doe.js';
+import { evaluateDesign, designEvalSentences } from '../calc/designeval.js';
 import { CARGO_TYPES, cargoInfo, cargoLabel, cargoOf, massPerPhosphate } from '../calc/cargo.js';
 import { ftTag } from '../calc/freezethaw.js';
 
@@ -569,14 +570,39 @@ function wizard(el, ctx, ref, settings, type) {
     const mix = specMode(ds) !== 'process';
     const blends = mix ? ` over <b>${sm.distinctBlends}</b> distinct blend${sm.distinctBlends === 1 ? '' : 's'}` : '';
     const chosen = mix && sm.selected ? ` chosen from ${sm.poolSize} candidates` : '';
+    const evalHtml = mix ? '' : designEvalHtml(ds);
     const modelName = mix ? `${MIXTURE_ORDERS[ds.mixtureOrder].replace(/ —.*/, '')}${specMode(ds) === 'crossed' ? ` × ${MODEL_TYPES[ds.model].toLowerCase()}` : ''}` : MODEL_TYPES[ds.model];
     return `<div class="muted" style="margin-top:8px"><b>${sm.runs} runs</b>${chosen}${blends}: ${Object.entries(sm.byType).map(([k, v]) => `${v} ${k}`).join(' · ')}${!mix && d.replicates > 1 ? ` (×${d.replicates} replicates)` : ''} — model "${modelName}": ${sm.terms} terms, ${sm.residualDf} residual df${sm.alpha != null ? ` · α = ${fmt(sm.alpha, 3)}` : ''}</div>
       ${mix && sm.note ? `<div class="muted" style="margin-top:4px">${esc(sm.note)}</div>` : ''}
       ${sm.residualDf < 3 ? `<div class="note warn">Fewer than 3 residual degrees of freedom: ${mix ? 'raise the run budget, add centre replicates, or drop to a linear blending model' : 'add centre points or replicates'} before running.</div>` : ''}
       ${mix && sm.distinctBlends < sm.mixTerms ? `<div class="note warn">Only ${sm.distinctBlends} distinct blends, and the blending model has ${sm.mixTerms} terms. The blend effects cannot be separated: widen the mol% ranges, raise the budget, or drop to a linear blending model.</div>`
         : mix && sm.distinctBlends < sm.mixTerms + 2 ? `<div class="muted" style="margin-top:4px">${sm.distinctBlends} distinct blends for a ${sm.mixTerms}-term blending model — just enough. Another blend or two would give the blend effects some room.</div>` : ''}
+      ${evalHtml}
       ${mix && !ds.budget && sm.runs > 40 ? `<div class="note warn">No run budget set, so every one of the ${sm.poolSize} candidate blends becomes a batch. That is a candidate pool, not an experiment — set a budget (${suggestedBudget(ds)} would fit this model with 5 runs to spare).</div>` : ''}`;
   }
+  /**
+   * What the design can do before it is run (calc/designeval.js): power per kind of term, the FDS of a
+   * response-surface model, aliasing and correlation, in two or three sentences, with the per-term numbers
+   * folded under them. Only for a process design; a blend design reports its own D-efficiency above.
+   */
+  function designEvalHtml(ds) {
+    let ev;
+    try {
+      const runs = buildDesign(ds);
+      const names = (ds.factors || []).map((f) => f.name);
+      const ext = Object.fromEntries(names.map((n) => [n, Math.max(1, ...runs.map((r) => Math.abs(Number(r.coded?.[n]) || 0)))]));
+      ev = evaluateDesign(runs, names, ds.model, { samples: 1000, ext });
+    } catch { return ''; }
+    const label = (t) => termLabel(t, (ds.factors || []).map((f) => f.name));
+    const say = designEvalSentences(ev, { label });
+    const weak = ev.ok && ev.power.some((x) => x.power != null && x.power < 0.8);
+    const rows = ev.ok && ev.df > 0 ? ev.power.map((x) => ({ cells: [label(x.term), `${Math.round(x.power * 100)} %`, fmt(ev.vif.find((v) => v.term === x.term)?.vif, 2)] })) : null;
+    return `<div class="${ev.ok && !weak && ev.df > 0 ? 'muted' : 'note warn'}" id="designEval" style="margin-top:6px">${say.map(esc).join(' ')} ${info('designeval')}</div>
+      ${rows ? `<details class="fold sub" style="margin-top:4px"><summary><span class="muted small">Per term: power and variance inflation · D-efficiency ${fmt(ev.dEfficiency * 100, 0)} %${ev.fds != null ? ` · FDS ${fmt(ev.fds * 100, 0)} %` : ''}</span></summary>
+        ${table(['Term', { label: 'Power', right: true }, { label: 'VIF', right: true }], rows)}
+        <p class="muted small">Power: the chance of p &lt; ${ev.alpha} for an effect of ${ev.snr} SD across the range. VIF 1 means the term is estimated as well as an orthogonal design allows.</p></details>` : ''}`;
+  }
+
   /**
    * The design as a picture, pinned beside the wizard while it is filled in: the cube, square or triangle of
    * runs the factors and the design chosen make, redrawn as they change. It is the same drawing Design & results
